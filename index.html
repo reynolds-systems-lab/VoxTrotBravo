@@ -594,9 +594,30 @@
         }
 
         function pickColorFromCanvas(cx, cy) {
-            const imgData = colorMenuCtx.getImageData(cx, cy, 1, 1).data;
-            if (activeColorSlot === 1) brushColor.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
-            else brushColor2.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
+            // Determine the active boundaries based on magnification state
+            let minX, maxX, minY, maxY;
+            if (isPaletteMagnified) {
+                minX = 20; maxX = 492;
+                minY = 50; maxY = 450;
+            } else {
+                minX = 30; maxX = 482;
+                minY = 130; maxY = 330;
+            }
+
+            const targetColor = activeColorSlot === 1 ? brushColor : brushColor2;
+
+            // Mathematically calculate the color to avoid catastrophic PCIe bus readbacks in PCVR
+            if (activeMaterialType === 2) {
+                // Emission is a horizontal grayscale slider
+                const gray = (cx - minX) / (maxX - minX);
+                targetColor.setRGB(gray, gray, gray);
+            } else {
+                // HSL Calculation mapping to the exact X/Y of the gradient rect
+                const h = (cx - minX) / (maxX - minX);
+                const l = 1.0 - ((cy - minY) / (maxY - minY));
+                targetColor.setHSL(h, 1.0, l);
+            }
+
             updateCursors(); // Fast cursor mesh update (90fps)
             colorMenuNeedsUpdate = true; // Queue heavy UI texture update (10fps)
         }
