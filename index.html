@@ -40,7 +40,7 @@
 <body>
     <div id="ui-container">
         <h1>VoxTrotBravo</h1>
-        <p><b>Left Trigger:</b> Draw | <b>Right Trigger:</b> Erase (or Pick Color)</p>
+        <p><b>Left Trigger:</b> Draw / Select | <b>Right Trigger:</b> Erase / Apply</p>
         <p><b>Grips:</b> Grab to Move, Scale & Rotate World</p>
         <p><b>A Button (Right):</b> Tool Menu | <b>X Button:</b> Options Menu | <b>Y Button:</b> Color & Material</p>
     </div>
@@ -58,16 +58,25 @@
         let totalActiveVoxels = 0;
         
         let activeTool = 'brush'; 
-        let strokeMode = 'continuous'; // 'continuous' or 'line'
+        let strokeMode = 'continuous'; 
         let brushShape = 'cube'; 
         let brushSize = 1; 
         let boxMode = 'shell'; 
         let sphereMode = 'shell';
         let wireWidth = 1; 
-        let paintMode = 'brush'; // 'brush' or 'bucket'
-        let exportMode = 'boxes'; // 'boxes' or 'mesh'
+        let paintMode = 'brush'; 
+        let exportMode = 'boxes'; 
         
-        let activeMaterialType = 0; // 0=Solid, 1=Glass, 2=Emission
+        // Selection State variables
+        let selectMode = 'box'; // 'box' or 'connected'
+        let hasSelection = false;
+        let selectedVoxels = [];
+        const selectionCenter = new THREE.Vector3();
+        const selectionOffset = new THREE.Vector3();
+        const dragStartCtrlPos = new THREE.Vector3();
+        const dragStartOffset = new THREE.Vector3();
+
+        let activeMaterialType = 0; 
         let colorMode = 'solid'; 
         let brushColor = new THREE.Color(0x4facfe);
         let brushColor2 = new THREE.Color(0xff0055);
@@ -124,16 +133,11 @@
         const voxelGeometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
         
         const matSolid = new THREE.MeshLambertMaterial(); 
-        
-        // OPTIMIZATION: Stripped MeshPhongMaterial down to MeshBasicMaterial.
-        // It saves fragment shader overhead for VR since Blender handles the true glass physics post-export.
         const matGlass = new THREE.MeshBasicMaterial({ 
             transparent: true, 
             opacity: 0.35, 
             depthWrite: false 
         }); 
-        
-        // Emission remains BasicMaterial, cheap and effective
         const matEmission = new THREE.MeshBasicMaterial(); 
         
         const voxelMaterials = [matSolid, matGlass, matEmission];
@@ -162,8 +166,6 @@
                 
                 worldGroup.add(this.mesh);
 
-                // OPTIMIZATION: Replaced Memory-heavy ES6 Maps & Arrays with TypedArrays
-                // 65535 acts as our "empty/null" sentinel value since indices only go up to 32767
                 this.voxelToIndex = new Uint16Array(CHUNK_VOL);
                 this.voxelToIndex.fill(65535); 
                 
@@ -268,7 +270,7 @@
             }
         }
 
-        // --- Cursors & Previews ---
+        // --- Cursors, Selection & Previews ---
         const cursorLeftMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, wireframe: true });
         const cursorLeft = new THREE.Mesh(new THREE.BoxGeometry(), cursorLeftMat);
         worldGroup.add(cursorLeft);
@@ -298,9 +300,37 @@
         linePreviewMesh.visible = false;
         worldGroup.add(linePreviewMesh);
 
+        // Selection Render Group
+        const selectionGroup = new THREE.Group();
+        selectionGroup.visible = false;
+        worldGroup.add(selectionGroup);
+
+        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000);
+        selMeshSolid.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        selMeshSolid.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3);
+        selMeshSolid.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        
+        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000);
+        selMeshGlass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        selMeshGlass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3);
+        selMeshGlass.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000);
+        selMeshEmission.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        selMeshEmission.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3);
+        selMeshEmission.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+        selectionGroup.add(selMeshSolid);
+        selectionGroup.add(selMeshGlass);
+        selectionGroup.add(selMeshEmission);
+
+        const selBoxMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.9 });
+        const selBoxMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat);
+        selectionGroup.add(selBoxMesh);
+
         function updateCursors() {
             let effSize = brushSize;
-            if (activeTool === 'box' || activeTool === 'quadsphere' || (activeTool === 'paint' && paintMode === 'bucket')) {
+            if (activeTool === 'box' || activeTool === 'quadsphere' || activeTool === 'select' || (activeTool === 'paint' && paintMode === 'bucket')) {
                 effSize = 1;
             }
             
@@ -308,7 +338,7 @@
             if (cursorLeft.geometry) cursorLeft.geometry.dispose();
             if (cursorRight.geometry) cursorRight.geometry.dispose();
 
-            const isBoxShape = (brushShape === 'cube' || activeTool === 'box' || activeTool === 'quadsphere' || (activeTool === 'paint' && paintMode === 'bucket'));
+            const isBoxShape = (brushShape === 'cube' || activeTool === 'box' || activeTool === 'select' || activeTool === 'quadsphere' || (activeTool === 'paint' && paintMode === 'bucket'));
             const geo = isBoxShape ? new THREE.BoxGeometry(width, width, width) : new THREE.SphereGeometry(width / 2, 16, 16);
             
             cursorLeft.geometry = geo;
@@ -326,11 +356,11 @@
             const sizeY = Math.abs(end.y - start.y) + VOXEL_SIZE;
             const sizeZ = Math.abs(end.z - start.z) + VOXEL_SIZE;
             boxPreviewMesh.scale.set(sizeX, sizeY, sizeZ);
-            boxPreviewMat.wireframe = (boxMode === 'wireframe');
+            boxPreviewMat.wireframe = (boxMode === 'wireframe' && activeTool !== 'select');
             
             if (isPainting) {
                 const activeColor = activeColorSlot === 1 ? brushColor : brushColor2;
-                boxPreviewMat.color.copy(activeColor);
+                boxPreviewMat.color.copy(activeTool === 'select' ? new THREE.Color(0x00ffcc) : activeColor);
             } else boxPreviewMat.color.setHex(0xff0055);
         }
 
@@ -456,6 +486,26 @@
             } else if (activeTool === 'quadsphere') {
                 drawButton(leftMenuCtx, 50, 140, 200, 50, 'SOLID', sphereMode === 'solid');
                 drawButton(leftMenuCtx, 262, 140, 200, 50, 'SHELL', sphereMode === 'shell');
+            } else if (activeTool === 'select') {
+                if (!hasSelection) {
+                    drawButton(leftMenuCtx, 50, 140, 200, 50, 'BOX MODE', selectMode === 'box');
+                    drawButton(leftMenuCtx, 262, 140, 200, 50, 'CONNECTED', selectMode === 'connected');
+                    
+                    leftMenuCtx.fillStyle = '#aaa';
+                    leftMenuCtx.font = '16px sans-serif';
+                    leftMenuCtx.fillText('Use Left Trigger to start selecting.', 256, 230);
+                } else {
+                    drawButton(leftMenuCtx, 50, 140, 130, 50, 'ROT X', false);
+                    drawButton(leftMenuCtx, 190, 140, 130, 50, 'ROT Y', false);
+                    drawButton(leftMenuCtx, 330, 140, 132, 50, 'ROT Z', false);
+                    
+                    drawButton(leftMenuCtx, 50, 210, 200, 50, 'APPLY', false);
+                    drawButton(leftMenuCtx, 262, 210, 200, 50, 'DELETE', false);
+
+                    leftMenuCtx.fillStyle = '#aaa';
+                    leftMenuCtx.font = '16px sans-serif';
+                    leftMenuCtx.fillText('Hold Left Trigger to Grab and Move.', 256, 300);
+                }
             }
 
             drawButton(leftMenuCtx, 50, 350, 200, 50, 'Export: BOXES', exportMode === 'boxes');
@@ -489,12 +539,25 @@
                 } else if (activeTool === 'quadsphere') {
                     if (cx >= 50 && cx <= 250) sphereMode = 'solid';
                     if (cx >= 262 && cx <= 462) sphereMode = 'shell';
+                } else if (activeTool === 'select') {
+                    if (!hasSelection) {
+                        if (cx >= 50 && cx <= 250) selectMode = 'box';
+                        if (cx >= 262 && cx <= 462) selectMode = 'connected';
+                    } else {
+                        if (cx >= 50 && cx <= 180) rotateSelection('x');
+                        if (cx >= 190 && cx <= 320) rotateSelection('y');
+                        if (cx >= 330 && cx <= 462) rotateSelection('z');
+                    }
                 }
                 updateCursors();
             }
             
-            // Nested click actions based on active tools
-            if (activeTool === 'paint' && paintMode === 'brush') {
+            if (activeTool === 'select' && hasSelection) {
+                if (cy >= 210 && cy <= 260) {
+                    if (cx >= 50 && cx <= 250) applySelection();
+                    if (cx >= 262 && cx <= 462) deleteSelection();
+                }
+            } else if (activeTool === 'paint' && paintMode === 'brush') {
                 if (cy >= 210 && cy <= 260) {
                     if (cx >= 50 && cx <= 250) brushShape = 'cube';
                     if (cx >= 262 && cx <= 462) brushShape = 'sphere';
@@ -587,12 +650,10 @@
                     colorMenuCtx.fillRect(20, 50, 472, 400);
                 }
 
-                // Live dynamic swatch representing the currently picked color
                 const activeColorHex = activeColorSlot === 1 ? brushColor.getHexString() : brushColor2.getHexString();
                 colorMenuCtx.fillStyle = '#' + activeColorHex;
                 colorMenuCtx.fillRect(20, 460, 472, 40);
                 
-                // Adaptive text over the swatch
                 const hsl = {}; (activeColorSlot === 1 ? brushColor : brushColor2).getHSL(hsl);
                 colorMenuCtx.fillStyle = hsl.l > 0.6 ? 'black' : 'white';
                 colorMenuCtx.font = 'bold 20px sans-serif';
@@ -604,12 +665,10 @@
                 colorMenuCtx.textAlign = 'center';
                 colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
 
-                // Row 1: Materials
                 drawButton(colorMenuCtx, 30, 60, 140, 50, 'SOLID', activeMaterialType === 0);
                 drawButton(colorMenuCtx, 186, 60, 140, 50, 'GLASS', activeMaterialType === 1);
                 drawButton(colorMenuCtx, 342, 60, 140, 50, 'EMISSION', activeMaterialType === 2);
 
-                // Color / Brightness Pickers (Y: 130 to 330)
                 if (activeMaterialType === 2) {
                     const grad = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
                     grad.addColorStop(0, '#000000');
@@ -640,13 +699,11 @@
                     colorMenuCtx.fillRect(30, 130, 452, 200);
                 }
 
-                // Row 3: Modes
                 drawButton(colorMenuCtx, 30, 350, 105, 40, 'SOLID', colorMode === 'solid');
                 drawButton(colorMenuCtx, 145, 350, 105, 40, 'GRAD-H', colorMode === 'grad_h');
                 drawButton(colorMenuCtx, 260, 350, 105, 40, 'GRAD-V', colorMode === 'grad_v');
                 drawButton(colorMenuCtx, 375, 350, 107, 40, 'SHIFT', colorMode === 'shift');
 
-                // Row 4: Slots
                 const showColor2 = (activeMaterialType !== 2) && (colorMode !== 'solid');
                 
                 if (!showColor2) {
@@ -764,19 +821,22 @@
             rightMenuCtx.fillStyle = '#4facfe';
             rightMenuCtx.font = 'bold 28px sans-serif';
             rightMenuCtx.textAlign = 'center';
-            rightMenuCtx.fillText(`Tool Selection`, 256, 35);
+            rightMenuCtx.fillText(`Tool Selection`, 256, 30);
 
-            drawButton(rightMenuCtx, 50, 50, 412, 60, 'Brush (Standard)', activeTool === 'brush');
-            drawButton(rightMenuCtx, 50, 130, 412, 60, 'Stroke (Continuous)', activeTool === 'stroke');
-            drawButton(rightMenuCtx, 50, 210, 412, 60, 'Paint (Recolor)', activeTool === 'paint');
-            drawButton(rightMenuCtx, 50, 290, 412, 60, 'Box / Volumes', activeTool === 'box');
-            drawButton(rightMenuCtx, 50, 370, 412, 60, 'Quad Sphere (Shell)', activeTool === 'quadsphere');
+            drawButton(rightMenuCtx, 50, 45, 412, 55, 'Brush (Standard)', activeTool === 'brush');
+            drawButton(rightMenuCtx, 50, 115, 412, 55, 'Stroke (Continuous)', activeTool === 'stroke');
+            drawButton(rightMenuCtx, 50, 185, 412, 55, 'Paint (Recolor)', activeTool === 'paint');
+            drawButton(rightMenuCtx, 50, 255, 412, 55, 'Box / Volumes', activeTool === 'box');
+            drawButton(rightMenuCtx, 50, 325, 412, 55, 'Quad Sphere (Shell)', activeTool === 'quadsphere');
+            drawButton(rightMenuCtx, 50, 395, 412, 55, 'Select & Transform', activeTool === 'select');
 
             rightMenuTexture.needsUpdate = true;
         }
 
         function handleRightMenuClick(cx, cy) {
             if (cx >= 50 && cx <= 462) {
+                if (hasSelection) applySelection();
+
                 isPreviewingBox = false;
                 isPreviewingSphere = false;
                 boxPreviewMesh.visible = false;
@@ -794,11 +854,12 @@
                 lastPaintedPos.set(Infinity, Infinity, Infinity);
                 lastErasedPos.set(Infinity, Infinity, Infinity);
 
-                if (cy >= 50 && cy <= 110) activeTool = 'brush';
-                if (cy >= 130 && cy <= 190) activeTool = 'stroke';
-                if (cy >= 210 && cy <= 270) activeTool = 'paint';
-                if (cy >= 290 && cy <= 350) activeTool = 'box';
-                if (cy >= 370 && cy <= 430) activeTool = 'quadsphere';
+                if (cy >= 45 && cy <= 100) activeTool = 'brush';
+                if (cy >= 115 && cy <= 170) activeTool = 'stroke';
+                if (cy >= 185 && cy <= 240) activeTool = 'paint';
+                if (cy >= 255 && cy <= 310) activeTool = 'box';
+                if (cy >= 325 && cy <= 380) activeTool = 'quadsphere';
+                if (cy >= 395 && cy <= 450) activeTool = 'select';
                 
                 updateCursors();
                 rightMenuNeedsUpdate = true;
@@ -815,9 +876,6 @@
         updateColorMenuTexture();
 
         // --- Export Pipeline ---
-        // OPTIMIZATION: Implemented Array Chunking for Export
-        // Constructing massive string allocations with "+=" triggers memory crashes on large models.
-        // Arraying the string chunks handles millions of vertices elegantly.
         function exportToOBJ() {
             const isMesh = exportMode === 'mesh';
             const blobParts = [
@@ -969,7 +1027,7 @@
             return matType;
         }
         
-        function setVoxelCore(gx, gy, gz, isPainting, color) {
+        function setVoxelCore(gx, gy, gz, isPainting, color, matOverride = -1) {
             const cx = Math.floor(gx / CHUNK_SIZE);
             const cy = Math.floor(gy / CHUNK_SIZE);
             const cz = Math.floor(gz / CHUNK_SIZE);
@@ -987,7 +1045,8 @@
                     chunks.set(chunkKey, chunk);
                 }
                 tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                chunk.addVoxel(lx, ly, lz, tempPos, color, activeMaterialType);
+                const matTypeToUse = matOverride !== -1 ? matOverride : activeMaterialType;
+                chunk.addVoxel(lx, ly, lz, tempPos, color, matTypeToUse);
             } else if (chunk) {
                 chunk.removeVoxel(lx, ly, lz);
             }
@@ -1024,6 +1083,182 @@
             if (mirrorMode && gx !== 0) recolorVoxel(-gx, gy, gz, color, activeMaterialType);
         }
 
+        // --- Select Tool Functions ---
+
+        function updateSelectionVisuals() {
+            selMeshSolid.count = 0; selMeshGlass.count = 0; selMeshEmission.count = 0;
+            let iSolid = 0, iGlass = 0, iEmission = 0;
+            
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
+            for(let v of selectedVoxels) {
+                tempMatrix.makeTranslation(v.x * VOXEL_SIZE, v.y * VOXEL_SIZE, v.z * VOXEL_SIZE);
+                if (v.mat === 0) { selMeshSolid.setMatrixAt(iSolid, tempMatrix); selMeshSolid.setColorAt(iSolid, v.color); iSolid++; }
+                else if (v.mat === 1) { selMeshGlass.setMatrixAt(iGlass, tempMatrix); selMeshGlass.setColorAt(iGlass, v.color); iGlass++; }
+                else if (v.mat === 2) { selMeshEmission.setMatrixAt(iEmission, tempMatrix); selMeshEmission.setColorAt(iEmission, v.color); iEmission++; }
+                
+                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+                minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+            }
+            
+            selMeshSolid.instanceMatrix.needsUpdate = true; selMeshSolid.instanceColor.needsUpdate = true;
+            selMeshGlass.instanceMatrix.needsUpdate = true; selMeshGlass.instanceColor.needsUpdate = true;
+            selMeshEmission.instanceMatrix.needsUpdate = true; selMeshEmission.instanceColor.needsUpdate = true;
+            
+            selMeshSolid.count = iSolid; selMeshGlass.count = iGlass; selMeshEmission.count = iEmission;
+            
+            if (selectedVoxels.length > 0) {
+                const cx = (minX + maxX) / 2 * VOXEL_SIZE;
+                const cy = (minY + maxY) / 2 * VOXEL_SIZE;
+                const cz = (minZ + maxZ) / 2 * VOXEL_SIZE;
+                const w = (maxX - minX + 1.1) * VOXEL_SIZE;
+                const h = (maxY - minY + 1.1) * VOXEL_SIZE;
+                const d = (maxZ - minZ + 1.1) * VOXEL_SIZE;
+                selBoxMesh.position.set(cx, cy, cz);
+                selBoxMesh.scale.set(w, h, d);
+                selectionGroup.visible = true;
+            } else {
+                selectionGroup.visible = false;
+            }
+        }
+
+        function finalizeSelection() {
+            for(let v of selectedVoxels) {
+                setVoxelCore(v.x, v.y, v.z, false, null);
+            }
+            hasSelection = true;
+            selectionOffset.set(0,0,0);
+            selectionGroup.position.set(0,0,0);
+            
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            for(let v of selectedVoxels) {
+                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+                minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+            }
+            selectionCenter.set( (minX + maxX)/2, (minY + maxY)/2, (minZ + maxZ)/2 );
+            
+            updateSelectionVisuals();
+            leftMenuNeedsUpdate = true;
+        }
+
+        function executeSelectBox(startPos, endPos) {
+            const gStartX = Math.round(startPos.x / VOXEL_SIZE); const gEndX = Math.round(endPos.x / VOXEL_SIZE);
+            const gStartY = Math.round(startPos.y / VOXEL_SIZE); const gEndY = Math.round(endPos.y / VOXEL_SIZE);
+            const gStartZ = Math.round(startPos.z / VOXEL_SIZE); const gEndZ = Math.round(endPos.z / VOXEL_SIZE);
+
+            const minX = Math.min(gStartX, gEndX); const maxX = Math.max(gStartX, gEndX);
+            const minY = Math.min(gStartY, gEndY); const maxY = Math.max(gStartY, gEndY);
+            const minZ = Math.min(gStartZ, gEndZ); const maxZ = Math.max(gStartZ, gEndZ);
+
+            if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
+
+            selectedVoxels = [];
+            for(let gx = minX; gx <= maxX; gx++) {
+                for(let gy = minY; gy <= maxY; gy++) {
+                    for(let gz = minZ; gz <= maxZ; gz++) {
+                        const matType = getVoxelMatAndColor(gx, gy, gz, tempColor);
+                        if (matType !== -1) {
+                            selectedVoxels.push({ x: gx, y: gy, z: gz, color: tempColor.clone(), mat: matType });
+                        }
+                    }
+                }
+            }
+            if (selectedVoxels.length > 0) finalizeSelection();
+        }
+
+        function executeSelectConnected(targetPos) {
+            const startX = Math.round(targetPos.x / VOXEL_SIZE);
+            const startY = Math.round(targetPos.y / VOXEL_SIZE);
+            const startZ = Math.round(targetPos.z / VOXEL_SIZE);
+            
+            if (getVoxelMatAndColor(startX, startY, startZ, tempColor) === -1) return; 
+
+            const visited = new Set();
+            const queue = [[startX, startY, startZ]];
+            visited.add(`${startX},${startY},${startZ}`);
+            
+            selectedVoxels = [];
+
+            // 26-way adjacency includes touching opposite corners
+            const selDirs = [];
+            for(let x=-1; x<=1; x++) {
+                for(let y=-1; y<=1; y++) {
+                    for(let z=-1; z<=1; z++) {
+                        if(x===0 && y===0 && z===0) continue;
+                        selDirs.push([x,y,z]);
+                    }
+                }
+            }
+
+            // Cap the spread to avoid freezing VR
+            while(queue.length > 0 && selectedVoxels.length < 65000) {
+                const [x, y, z] = queue.shift();
+                
+                const matType = getVoxelMatAndColor(x, y, z, tempColor);
+                if (matType !== -1) {
+                    selectedVoxels.push({ x, y, z, color: tempColor.clone(), mat: matType });
+                    
+                    for(let [dx, dy, dz] of selDirs) {
+                        const nx = x + dx; const ny = y + dy; const nz = z + dz;
+                        const key = `${nx},${ny},${nz}`;
+                        if (!visited.has(key)) {
+                            visited.add(key);
+                            if (getVoxelMatAndColor(nx, ny, nz, queryColor) !== -1) {
+                                queue.push([nx, ny, nz]);
+                            }
+                        }
+                    }
+                }
+            }
+            if (selectedVoxels.length > 0) finalizeSelection();
+        }
+
+        function rotateSelection(axis) {
+            for(let v of selectedVoxels) {
+                let dx = v.x - selectionCenter.x;
+                let dy = v.y - selectionCenter.y;
+                let dz = v.z - selectionCenter.z;
+                
+                let rx = dx, ry = dy, rz = dz;
+                if (axis === 'x') { ry = -dz; rz = dy; } 
+                else if (axis === 'y') { rx = dz; rz = -dx; } 
+                else if (axis === 'z') { rx = -dy; ry = dx; }
+                
+                v.x = Math.round(selectionCenter.x + rx);
+                v.y = Math.round(selectionCenter.y + ry);
+                v.z = Math.round(selectionCenter.z + rz);
+            }
+            updateSelectionVisuals();
+        }
+
+        function applySelection() {
+            const offX = Math.round(selectionOffset.x / VOXEL_SIZE);
+            const offY = Math.round(selectionOffset.y / VOXEL_SIZE);
+            const offZ = Math.round(selectionOffset.z / VOXEL_SIZE);
+            
+            for(let v of selectedVoxels) {
+                setVoxelCore(v.x + offX, v.y + offY, v.z + offZ, true, v.color, v.mat);
+            }
+            selectedVoxels = [];
+            hasSelection = false;
+            selectionGroup.visible = false;
+            selectionGroup.position.set(0,0,0);
+            selectionOffset.set(0,0,0);
+            leftMenuNeedsUpdate = true;
+        }
+
+        function deleteSelection() {
+            selectedVoxels = [];
+            hasSelection = false;
+            selectionGroup.visible = false;
+            selectionGroup.position.set(0,0,0);
+            selectionOffset.set(0,0,0);
+            leftMenuNeedsUpdate = true;
+        }
+
+        // --- Brushes ---
         function placeBrushVoxels(targetPos, isPainting) {
             const r = brushSize - 1;
             const rSq = (r + 0.1) * (r + 0.1); 
@@ -1227,7 +1462,17 @@
             if (rightMenuHovered && rightMenuMesh.visible) {
                 handleRightMenuClick(Math.floor(rightMenuUV.x * 512), Math.floor((1 - rightMenuUV.y) * 512));
             } else {
-                if (activeTool === 'stroke' && strokeMode === 'line') {
+                if (activeTool === 'select') {
+                    if (hasSelection) {
+                        isDrawing = true; // Dragging selection
+                        dragStartCtrlPos.copy(leftTargetLocal);
+                        dragStartOffset.copy(selectionGroup.position);
+                    } else {
+                        isDrawing = true; drawStartPos.copy(leftTargetLocal);
+                        if (selectMode === 'box') isPreviewingBox = true;
+                        if (selectMode === 'connected') executeSelectConnected(leftTargetLocal);
+                    }
+                } else if (activeTool === 'stroke' && strokeMode === 'line') {
                     if (isPreviewingLineRight) {
                         drawLineVoxels(lineStartRight, leftTargetLocal, false);
                         isPreviewingLineRight = false;
@@ -1273,6 +1518,10 @@
         });
         controllerLeft.addEventListener('selectend', () => { 
             isDrawing = false; 
+            if (activeTool === 'select' && selectMode === 'box' && isPreviewingBox) {
+                executeSelectBox(drawStartPos, leftTargetLocal);
+                isPreviewingBox = false; boxPreviewMesh.visible = false;
+            }
             if (activeTool === 'box' && isPreviewingBox) { executeBoxTool(drawStartPos, leftTargetLocal, true); isPreviewingBox = false; boxPreviewMesh.visible = false; }
             if (activeTool === 'quadsphere' && isPreviewingSphere) { executeQuadSphereTool(drawStartPos, leftTargetLocal, true); isPreviewingSphere = false; spherePreviewMesh.visible = false; }
             lastPaintedPos.set(Infinity, Infinity, Infinity); 
@@ -1293,7 +1542,9 @@
                     handleColorMenuClick(cx, cy);
                 }
             } else {
-                if (activeTool === 'stroke' && strokeMode === 'line') {
+                if (activeTool === 'select' && hasSelection) {
+                    applySelection();
+                } else if (activeTool === 'stroke' && strokeMode === 'line') {
                     if (isPreviewingLineLeft) {
                         drawLineVoxels(lineStartLeft, rightTargetLocal, true);
                         isPreviewingLineLeft = false;
@@ -1507,7 +1758,15 @@
                 }
 
                 if (isDrawing) {
-                    if (activeTool === 'brush') {
+                    if (activeTool === 'select' && hasSelection) {
+                        selectionOffset.copy(leftTargetLocal).sub(dragStartCtrlPos);
+                        selectionOffset.x = Math.round(selectionOffset.x / VOXEL_SIZE) * VOXEL_SIZE;
+                        selectionOffset.y = Math.round(selectionOffset.y / VOXEL_SIZE) * VOXEL_SIZE;
+                        selectionOffset.z = Math.round(selectionOffset.z / VOXEL_SIZE) * VOXEL_SIZE;
+                        selectionGroup.position.copy(dragStartOffset).add(selectionOffset);
+                    } else if (activeTool === 'select' && selectMode === 'box' && isPreviewingBox) {
+                        updateBoxPreview(drawStartPos, leftTargetLocal, true);
+                    } else if (activeTool === 'brush') {
                         if (!leftTargetLocal.equals(lastPaintedPos)) { placeBrushVoxels(leftTargetLocal, true); lastPaintedPos.copy(leftTargetLocal); }
                     } else if (activeTool === 'paint' && paintMode === 'brush') {
                         if (lastPaintedPos.x === Infinity) { placePaintVoxels(leftTargetLocal); lastPaintedPos.copy(leftTargetLocal); } 
