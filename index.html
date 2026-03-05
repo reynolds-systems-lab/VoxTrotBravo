@@ -40,7 +40,7 @@
 <body>
     <div id="ui-container">
         <h1>VR Voxel Painter Ultra</h1>
-        <p><b>Left Trigger:</b> Draw | <b>Right Trigger:</b> Erase</p>
+        <p><b>Left Trigger:</b> Draw | <b>Right Trigger:</b> Erase (or Pick Color)</p>
         <p><b>Grips:</b> Grab to Move, Scale & Rotate World</p>
         <p><b>A Button (Right):</b> Tool Menu | <b>X Button:</b> Options Menu | <b>Y Button:</b> Color & Material</p>
     </div>
@@ -112,15 +112,14 @@
         // --- Material System & Chunk Engine ---
         const voxelGeometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
         
-        // Define Material Layers
         const matSolid = new THREE.MeshLambertMaterial(); 
         const matGlass = new THREE.MeshPhongMaterial({ 
             transparent: true, 
             opacity: 0.35, 
             shininess: 100,
-            depthWrite: false // Prevents massive Z-fighting in solid blocks of glass
+            depthWrite: false 
         }); 
-        const matEmission = new THREE.MeshBasicMaterial(); // Unlit provides intense flat coloring
+        const matEmission = new THREE.MeshBasicMaterial(); 
         
         const voxelMaterials = [matSolid, matGlass, matEmission];
         const chunks = new Map(); 
@@ -129,7 +128,6 @@
         const tempColor = new THREE.Color();
         const tempPos = new THREE.Vector3();
 
-        // PERFORMANCE: Represents a single material layer within a chunk
         class ChunkLayer {
             constructor(cx, cy, cz, material) {
                 this.mesh = new THREE.InstancedMesh(voxelGeometry, material, CHUNK_VOL);
@@ -138,7 +136,6 @@
                 this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
                 this.mesh.count = 0;
                 
-                // Optimized bounding sphere for frustum culling
                 this.mesh.boundingSphere = new THREE.Sphere(
                     new THREE.Vector3(
                         (cx * CHUNK_SIZE + CHUNK_SIZE / 2) * VOXEL_SIZE,
@@ -210,7 +207,6 @@
             }
         }
 
-        // Parent Chunk coordinating the layers
         class Chunk {
             constructor(cx, cy, cz) {
                 this.cx = cx;
@@ -218,7 +214,6 @@
                 this.cz = cz;
                 this.layers = new Array(3).fill(null);
                 
-                // Int8Array is extremely fast and light. 32KB per chunk maps the entire volume state.
                 this.voxelMatMap = new Int8Array(CHUNK_VOL);
                 this.voxelMatMap.fill(-1);
             }
@@ -227,12 +222,10 @@
                 const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
                 const currentMat = this.voxelMatMap[localIdx];
 
-                // If painting over a different material, remove from old layer first
                 if (currentMat !== -1 && currentMat !== matType) {
                     this.layers[currentMat].removeVoxel(localIdx);
                 }
 
-                // Lazy instantiation: Only create mesh buffers if the material is actually used here
                 if (!this.layers[matType]) {
                     this.layers[matType] = new ChunkLayer(this.cx, this.cy, this.cz, voxelMaterials[matType]);
                 }
@@ -464,132 +457,109 @@
         colorMenuMesh.rotation.x = -Math.PI / 4;
         controllerLeft.add(colorMenuMesh);
 
-        let isPaletteMagnified = false;
-
         function updateColorMenuTexture() {
             colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)';
             colorMenuCtx.fillRect(0, 0, 512, 512);
 
-            if (isPaletteMagnified) {
-                // MASSIVE PALETTE MODE
-                colorMenuCtx.fillStyle = '#4facfe';
-                colorMenuCtx.font = 'bold 22px sans-serif';
-                colorMenuCtx.textAlign = 'center';
-                colorMenuCtx.fillText(`Precision Color Picker`, 256, 30);
+            colorMenuCtx.fillStyle = '#4facfe';
+            colorMenuCtx.font = 'bold 26px sans-serif';
+            colorMenuCtx.textAlign = 'center';
+            colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
 
-                const gradH = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
-                gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00');
-                gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff');
-                gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff');
-                gradH.addColorStop(1, '#ff0000');
-                colorMenuCtx.fillStyle = gradH;
-                colorMenuCtx.fillRect(20, 50, 472, 200);
+            // Row 1: Materials
+            drawButton(colorMenuCtx, 30, 60, 140, 50, 'SOLID', activeMaterialType === 0);
+            drawButton(colorMenuCtx, 186, 60, 140, 50, 'GLASS', activeMaterialType === 1);
+            drawButton(colorMenuCtx, 342, 60, 140, 50, 'EMISSION', activeMaterialType === 2);
 
-                const gradV = colorMenuCtx.createLinearGradient(20, 260, 20, 460);
-                gradV.addColorStop(0, 'rgba(255,255,255,1)');
-                gradV.addColorStop(0.5, 'rgba(255,255,255,0)');
-                gradV.addColorStop(0.5, 'rgba(0,0,0,0)');
-                gradV.addColorStop(1, 'rgba(0,0,0,1)');
-                colorMenuCtx.fillStyle = gradV;
-                colorMenuCtx.fillRect(20, 260, 472, 200);
+            // Color / Brightness Pickers (Y: 130 to 330)
+            if (activeMaterialType === 2) {
+                // Emission is restricted to a Brightness (White) scaler
+                const grad = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
+                grad.addColorStop(0, '#000000');
+                grad.addColorStop(1, '#ffffff');
+                colorMenuCtx.fillStyle = grad;
+                colorMenuCtx.fillRect(30, 130, 452, 200);
 
-                colorMenuCtx.fillStyle = 'rgba(255,255,255,0.2)';
-                colorMenuCtx.fillRect(20, 470, 472, 30);
+                // Overlay Text to describe the gradient
+                colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                colorMenuCtx.fillRect(30, 200, 452, 60);
                 colorMenuCtx.fillStyle = '#fff';
-                colorMenuCtx.font = '16px sans-serif';
-                colorMenuCtx.fillText(`Move pointer down to exit precision mode`, 256, 490);
-
+                colorMenuCtx.font = 'bold 24px sans-serif';
+                colorMenuCtx.fillText(`Emission Brightness Range`, 256, 230);
             } else {
-                // NORMAL MODE
-                colorMenuCtx.fillStyle = '#4facfe';
-                colorMenuCtx.font = 'bold 26px sans-serif';
-                colorMenuCtx.textAlign = 'center';
-                colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
-
-                // Row 1: Materials
-                drawButton(colorMenuCtx, 30, 60, 140, 50, 'SOLID', activeMaterialType === 0);
-                drawButton(colorMenuCtx, 186, 60, 140, 50, 'GLASS', activeMaterialType === 1);
-                drawButton(colorMenuCtx, 342, 60, 140, 50, 'EMISSION', activeMaterialType === 2);
-
-                // Row 2: Modes
-                drawButton(colorMenuCtx, 30, 130, 105, 40, 'SOLID', colorMode === 'solid');
-                drawButton(colorMenuCtx, 145, 130, 105, 40, 'GRAD-H', colorMode === 'grad_h');
-                drawButton(colorMenuCtx, 260, 130, 105, 40, 'GRAD-V', colorMode === 'grad_v');
-                drawButton(colorMenuCtx, 375, 130, 107, 40, 'SHIFT', colorMode === 'shift');
-
-                // Row 3-4: Small Palettes
-                const gradH = colorMenuCtx.createLinearGradient(30, 190, 482, 190);
+                // Standard 2D Color Picker
+                const gradH = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
                 gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00');
                 gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff');
                 gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff');
                 gradH.addColorStop(1, '#ff0000');
                 colorMenuCtx.fillStyle = gradH;
-                colorMenuCtx.fillRect(30, 190, 452, 90);
+                colorMenuCtx.fillRect(30, 130, 452, 200);
 
-                const gradV = colorMenuCtx.createLinearGradient(30, 290, 30, 380);
+                const gradV = colorMenuCtx.createLinearGradient(30, 130, 30, 330);
                 gradV.addColorStop(0, 'rgba(255,255,255,1)');
                 gradV.addColorStop(0.5, 'rgba(255,255,255,0)');
                 gradV.addColorStop(0.5, 'rgba(0,0,0,0)');
                 gradV.addColorStop(1, 'rgba(0,0,0,1)');
                 colorMenuCtx.fillStyle = gradV;
-                colorMenuCtx.fillRect(30, 290, 452, 90);
-
-                // Row 5: Slots
-                colorMenuCtx.fillStyle = '#' + brushColor.getHexString();
-                colorMenuCtx.fillRect(30, 410, 216, 60);
-                colorMenuCtx.strokeStyle = activeColorSlot === 1 ? '#fff' : '#444';
-                colorMenuCtx.lineWidth = activeColorSlot === 1 ? 4 : 2;
-                colorMenuCtx.strokeRect(30, 410, 216, 60);
-                
-                colorMenuCtx.fillStyle = '#' + brushColor2.getHexString();
-                colorMenuCtx.fillRect(266, 410, 216, 60);
-                colorMenuCtx.strokeStyle = activeColorSlot === 2 ? '#fff' : '#444';
-                colorMenuCtx.lineWidth = activeColorSlot === 2 ? 4 : 2;
-                colorMenuCtx.strokeRect(266, 410, 216, 60);
-
-                const hsl1 = {}; brushColor.getHSL(hsl1);
-                colorMenuCtx.fillStyle = hsl1.l > 0.6 ? 'black' : 'white';
-                colorMenuCtx.font = '24px sans-serif';
-                colorMenuCtx.fillText('Color 1', 138, 440);
-                
-                const hsl2 = {}; brushColor2.getHSL(hsl2);
-                colorMenuCtx.fillStyle = hsl2.l > 0.6 ? 'black' : 'white';
-                colorMenuCtx.fillText('Color 2', 374, 440);
+                colorMenuCtx.fillRect(30, 130, 452, 200);
             }
+
+            // Row 3: Modes
+            drawButton(colorMenuCtx, 30, 350, 105, 40, 'SOLID', colorMode === 'solid');
+            drawButton(colorMenuCtx, 145, 350, 105, 40, 'GRAD-H', colorMode === 'grad_h');
+            drawButton(colorMenuCtx, 260, 350, 105, 40, 'GRAD-V', colorMode === 'grad_v');
+            drawButton(colorMenuCtx, 375, 350, 107, 40, 'SHIFT', colorMode === 'shift');
+
+            // Row 4: Slots
+            colorMenuCtx.fillStyle = '#' + brushColor.getHexString();
+            colorMenuCtx.fillRect(30, 410, 216, 60);
+            colorMenuCtx.strokeStyle = activeColorSlot === 1 ? '#fff' : '#444';
+            colorMenuCtx.lineWidth = activeColorSlot === 1 ? 4 : 2;
+            colorMenuCtx.strokeRect(30, 410, 216, 60);
+            
+            colorMenuCtx.fillStyle = '#' + brushColor2.getHexString();
+            colorMenuCtx.fillRect(266, 410, 216, 60);
+            colorMenuCtx.strokeStyle = activeColorSlot === 2 ? '#fff' : '#444';
+            colorMenuCtx.lineWidth = activeColorSlot === 2 ? 4 : 2;
+            colorMenuCtx.strokeRect(266, 410, 216, 60);
+
+            const hsl1 = {}; brushColor.getHSL(hsl1);
+            colorMenuCtx.fillStyle = hsl1.l > 0.6 ? 'black' : 'white';
+            colorMenuCtx.font = '24px sans-serif';
+            colorMenuCtx.fillText('Color 1', 138, 440);
+            
+            const hsl2 = {}; brushColor2.getHSL(hsl2);
+            colorMenuCtx.fillStyle = hsl2.l > 0.6 ? 'black' : 'white';
+            colorMenuCtx.fillText('Color 2', 374, 440);
+            
             colorMenuTexture.needsUpdate = true;
         }
 
+        function pickColorFromCanvas(cx, cy) {
+            const imgData = colorMenuCtx.getImageData(cx, cy, 1, 1).data;
+            if (activeColorSlot === 1) brushColor.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
+            else brushColor2.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
+            updateCursors(); // Fast cursor mesh update (90fps)
+            colorMenuNeedsUpdate = true; // Queue heavy UI texture update (10fps)
+        }
+
         function handleColorMenuClick(cx, cy) {
-            if (isPaletteMagnified) {
-                if (cy >= 50 && cy <= 460 && cx >= 20 && cx <= 492) {
-                    const imgData = colorMenuCtx.getImageData(cx, cy, 1, 1).data;
-                    if (activeColorSlot === 1) brushColor.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
-                    else brushColor2.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
-                    updateCursors();
-                }
-            } else {
-                if (cy >= 60 && cy <= 110) {
-                    if (cx >= 30 && cx <= 170) activeMaterialType = 0;
-                    if (cx >= 186 && cx <= 326) activeMaterialType = 1;
-                    if (cx >= 342 && cx <= 482) activeMaterialType = 2;
-                }
-                if (cy >= 130 && cy <= 170) {
-                    if (cx >= 30 && cx <= 135) colorMode = 'solid';
-                    if (cx >= 145 && cx <= 250) colorMode = 'grad_h';
-                    if (cx >= 260 && cx <= 365) colorMode = 'grad_v';
-                    if (cx >= 375 && cx <= 482) colorMode = 'shift';
-                }
-                if (cy >= 190 && cy <= 380 && cx >= 30 && cx <= 482) {
-                    const imgData = colorMenuCtx.getImageData(cx, cy, 1, 1).data;
-                    if (activeColorSlot === 1) brushColor.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
-                    else brushColor2.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
-                    updateCursors();
-                }
-                if (cy >= 410 && cy <= 470) {
-                    if (cx >= 30 && cx <= 246) activeColorSlot = 1;
-                    if (cx >= 266 && cx <= 482) activeColorSlot = 2;
-                    updateCursors();
-                }
+            if (cy >= 60 && cy <= 110) {
+                if (cx >= 30 && cx <= 170) activeMaterialType = 0;
+                if (cx >= 186 && cx <= 326) activeMaterialType = 1;
+                if (cx >= 342 && cx <= 482) activeMaterialType = 2;
+            }
+            if (cy >= 350 && cy <= 390) {
+                if (cx >= 30 && cx <= 135) colorMode = 'solid';
+                if (cx >= 145 && cx <= 250) colorMode = 'grad_h';
+                if (cx >= 260 && cx <= 365) colorMode = 'grad_v';
+                if (cx >= 375 && cx <= 482) colorMode = 'shift';
+            }
+            if (cy >= 410 && cy <= 470) {
+                if (cx >= 30 && cx <= 246) activeColorSlot = 1;
+                if (cx >= 266 && cx <= 482) activeColorSlot = 2;
+                updateCursors();
             }
             colorMenuNeedsUpdate = true;
         }
@@ -912,7 +882,7 @@
         }
 
         // --- Interactions & Handlers ---
-        let isDrawing = false; let isErasing = false;
+        let isDrawing = false; let isErasing = false; let isColorPicking = false;
         let rightMenuHovered = false; let leftMenuHovered = false; let colorMenuHovered = false;
         let rightMenuUV = { x: 0, y: 0 }; let leftMenuUV = { x: 0, y: 0 }; let colorMenuUV = { x: 0, y: 0 };
         
@@ -948,7 +918,16 @@
             if (leftMenuHovered && leftMenuMesh.visible) {
                 handleLeftMenuClick(Math.floor(leftMenuUV.x * 512), Math.floor((1 - leftMenuUV.y) * 512));
             } else if (colorMenuHovered && colorMenuMesh.visible) {
-                handleColorMenuClick(Math.floor(colorMenuUV.x * 512), Math.floor((1 - colorMenuUV.y) * 512));
+                const cx = Math.floor(colorMenuUV.x * 512); 
+                const cy = Math.floor((1 - colorMenuUV.y) * 512);
+                
+                // If interacting within the Color Picker Bounds
+                if (cy >= 130 && cy <= 330 && cx >= 30 && cx <= 482) {
+                    isColorPicking = true;
+                    pickColorFromCanvas(cx, cy);
+                } else {
+                    handleColorMenuClick(cx, cy);
+                }
             } else {
                 isErasing = true; drawStartPos.copy(rightTargetLocal);
                 if (activeTool === 'box') isPreviewingBox = true;
@@ -956,10 +935,14 @@
             }
         });
         controllerRight.addEventListener('selectend', () => { 
-            isErasing = false; 
-            if (activeTool === 'box' && isPreviewingBox) { executeBoxTool(drawStartPos, rightTargetLocal, false); isPreviewingBox = false; boxPreviewMesh.visible = false; }
-            if (activeTool === 'quadsphere' && isPreviewingSphere) { executeQuadSphereTool(drawStartPos, rightTargetLocal, false); isPreviewingSphere = false; spherePreviewMesh.visible = false; }
-            lastErasedPos.set(Infinity, Infinity, Infinity); 
+            if (isColorPicking) {
+                isColorPicking = false;
+            } else {
+                isErasing = false; 
+                if (activeTool === 'box' && isPreviewingBox) { executeBoxTool(drawStartPos, rightTargetLocal, false); isPreviewingBox = false; boxPreviewMesh.visible = false; }
+                if (activeTool === 'quadsphere' && isPreviewingSphere) { executeQuadSphereTool(drawStartPos, rightTargetLocal, false); isPreviewingSphere = false; spherePreviewMesh.visible = false; }
+                lastErasedPos.set(Infinity, Infinity, Infinity); 
+            }
         });
 
         controllerRight.addEventListener('squeezestart', () => { 
@@ -993,7 +976,6 @@
                         const btnX = source.gamepad.buttons[4]?.pressed || false; 
                         const btnY = source.gamepad.buttons[5]?.pressed || false; 
                         
-                        // Mutually exclusive menus on left hand
                         if (btnX && !lastLeftBtnX) {
                             leftMenuMesh.visible = !leftMenuMesh.visible;
                             if (leftMenuMesh.visible) {
@@ -1022,14 +1004,14 @@
             if (renderer.xr.isPresenting) {
                 pollGamepads();
 
-                if (Date.now() - lastMenuUpdateTime > 100) { // Slightly faster UI polling
+                if (Date.now() - lastMenuUpdateTime > 100) { 
                     if (leftMenuMesh.visible && leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; }
                     if (rightMenuMesh.visible && rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; }
                     if (colorMenuMesh.visible && colorMenuNeedsUpdate) { updateColorMenuTexture(); colorMenuNeedsUpdate = false; }
                     lastMenuUpdateTime = Date.now();
                 }
 
-                // Left Laser -> Right Menu
+                // Laser Intersections
                 if (rightMenuMesh.visible) {
                     tempMatrix.identity().extractRotation(controllerLeft.matrixWorld);
                     raycaster.ray.origin.setFromMatrixPosition(controllerLeft.matrixWorld);
@@ -1040,7 +1022,6 @@
                     leftLaserLine.visible = true;
                 } else { rightMenuHovered = false; leftLaserLine.visible = false; }
 
-                // Right Laser -> Left Hand Menus
                 if (leftMenuMesh.visible || colorMenuMesh.visible) {
                     tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
                     raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
@@ -1054,17 +1035,8 @@
                         const intersects = raycaster.intersectObject(colorMenuMesh);
                         if (intersects.length > 0) {
                             colorMenuHovered = true; colorMenuUV.x = intersects[0].uv.x; colorMenuUV.y = intersects[0].uv.y; rightLaserLine.scale.z = intersects[0].distance;
-                            
-                            // Palette Magnification Logic
-                            const cx = Math.floor(colorMenuUV.x * 512); const cy = Math.floor((1 - colorMenuUV.y) * 512);
-                            if (!isPaletteMagnified) {
-                                if (cx > 30 && cx < 482 && cy > 190 && cy < 380) { isPaletteMagnified = true; colorMenuNeedsUpdate = true; }
-                            } else {
-                                if (cx < 20 || cx > 492 || cy > 470) { isPaletteMagnified = false; colorMenuNeedsUpdate = true; }
-                            }
                         } else {
                             colorMenuHovered = false; rightLaserLine.scale.z = 5;
-                            if (isPaletteMagnified) { isPaletteMagnified = false; colorMenuNeedsUpdate = true; }
                         }
                     }
                     rightLaserLine.visible = true;
@@ -1072,6 +1044,17 @@
                     leftMenuHovered = false; colorMenuHovered = false; rightLaserLine.visible = false;
                 }
 
+                // Real-time Drag-to-Pick Logic
+                if (isColorPicking && colorMenuHovered) {
+                    const cx = Math.floor(colorMenuUV.x * 512); 
+                    const cy = Math.floor((1 - colorMenuUV.y) * 512);
+                    // Clamp selection to the gradient boundaries
+                    const clampX = Math.max(30, Math.min(482, cx));
+                    const clampY = Math.max(130, Math.min(330, cy));
+                    pickColorFromCanvas(clampX, clampY);
+                }
+
+                // Locomotion
                 controllerRight.getWorldPosition(rightPos); controllerLeft.getWorldPosition(leftPos);
 
                 if (isRightGripping && isLeftGripping) {
@@ -1108,7 +1091,8 @@
                 rightTargetLocal.set(Math.round(rightTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(rightTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(rightTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE);
                 cursorRight.position.copy(rightTargetLocal);
 
-                if (isErasing) {
+                // Erasing ONLY occurs if we are not actively picking a color
+                if (isErasing && !isColorPicking) {
                     if (activeTool === 'brush') {
                         if (!rightTargetLocal.equals(lastErasedPos)) { placeBrushVoxels(rightTargetLocal, false); lastErasedPos.copy(rightTargetLocal); }
                     } else if (activeTool === 'stroke') {
