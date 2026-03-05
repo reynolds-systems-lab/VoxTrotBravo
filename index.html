@@ -445,6 +445,8 @@
         }
 
         // COLOR & MATERIAL MENU (Y Button)
+        let isPaletteMagnified = false;
+        
         const colorMenuCanvas = document.createElement('canvas');
         colorMenuCanvas.width = 512;
         colorMenuCanvas.height = 512;
@@ -461,77 +463,127 @@
             colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)';
             colorMenuCtx.fillRect(0, 0, 512, 512);
 
-            colorMenuCtx.fillStyle = '#4facfe';
-            colorMenuCtx.font = 'bold 26px sans-serif';
-            colorMenuCtx.textAlign = 'center';
-            colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
+            if (isPaletteMagnified) {
+                colorMenuCtx.fillStyle = '#4facfe';
+                colorMenuCtx.font = 'bold 26px sans-serif';
+                colorMenuCtx.textAlign = 'center';
+                colorMenuCtx.fillText(`Precision Picker`, 256, 36);
 
-            // Row 1: Materials
-            drawButton(colorMenuCtx, 30, 60, 140, 50, 'SOLID', activeMaterialType === 0);
-            drawButton(colorMenuCtx, 186, 60, 140, 50, 'GLASS', activeMaterialType === 1);
-            drawButton(colorMenuCtx, 342, 60, 140, 50, 'EMISSION', activeMaterialType === 2);
+                if (activeMaterialType === 2) {
+                    const grad = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
+                    grad.addColorStop(0, '#000000');
+                    grad.addColorStop(1, '#ffffff');
+                    colorMenuCtx.fillStyle = grad;
+                    colorMenuCtx.fillRect(20, 50, 472, 400);
+                } else {
+                    const gradH = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
+                    gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00');
+                    gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff');
+                    gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff');
+                    gradH.addColorStop(1, '#ff0000');
+                    colorMenuCtx.fillStyle = gradH;
+                    colorMenuCtx.fillRect(20, 50, 472, 400);
 
-            // Color / Brightness Pickers (Y: 130 to 330)
-            if (activeMaterialType === 2) {
-                // Emission is restricted to a Brightness (White) scaler
-                const grad = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
-                grad.addColorStop(0, '#000000');
-                grad.addColorStop(1, '#ffffff');
-                colorMenuCtx.fillStyle = grad;
-                colorMenuCtx.fillRect(30, 130, 452, 200);
+                    const gradV = colorMenuCtx.createLinearGradient(20, 50, 20, 450);
+                    gradV.addColorStop(0, 'rgba(255,255,255,1)');
+                    gradV.addColorStop(0.5, 'rgba(255,255,255,0)');
+                    gradV.addColorStop(0.5, 'rgba(0,0,0,0)');
+                    gradV.addColorStop(1, 'rgba(0,0,0,1)');
+                    colorMenuCtx.fillStyle = gradV;
+                    colorMenuCtx.fillRect(20, 50, 472, 400);
+                }
 
-                // Overlay Text to describe the gradient
-                colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-                colorMenuCtx.fillRect(30, 200, 452, 60);
+                colorMenuCtx.fillStyle = 'rgba(255,255,255,0.2)';
+                colorMenuCtx.fillRect(20, 460, 472, 40);
                 colorMenuCtx.fillStyle = '#fff';
-                colorMenuCtx.font = 'bold 24px sans-serif';
-                colorMenuCtx.fillText(`Emission Brightness Range`, 256, 230);
+                colorMenuCtx.font = '20px sans-serif';
+                colorMenuCtx.fillText(`Release trigger to apply`, 256, 487);
+
             } else {
-                // Standard 2D Color Picker
-                const gradH = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
-                gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00');
-                gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff');
-                gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff');
-                gradH.addColorStop(1, '#ff0000');
-                colorMenuCtx.fillStyle = gradH;
-                colorMenuCtx.fillRect(30, 130, 452, 200);
+                colorMenuCtx.fillStyle = '#4facfe';
+                colorMenuCtx.font = 'bold 26px sans-serif';
+                colorMenuCtx.textAlign = 'center';
+                colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
 
-                const gradV = colorMenuCtx.createLinearGradient(30, 130, 30, 330);
-                gradV.addColorStop(0, 'rgba(255,255,255,1)');
-                gradV.addColorStop(0.5, 'rgba(255,255,255,0)');
-                gradV.addColorStop(0.5, 'rgba(0,0,0,0)');
-                gradV.addColorStop(1, 'rgba(0,0,0,1)');
-                colorMenuCtx.fillStyle = gradV;
-                colorMenuCtx.fillRect(30, 130, 452, 200);
+                // Row 1: Materials
+                drawButton(colorMenuCtx, 30, 60, 140, 50, 'SOLID', activeMaterialType === 0);
+                drawButton(colorMenuCtx, 186, 60, 140, 50, 'GLASS', activeMaterialType === 1);
+                drawButton(colorMenuCtx, 342, 60, 140, 50, 'EMISSION', activeMaterialType === 2);
+
+                // Color / Brightness Pickers (Y: 130 to 330)
+                if (activeMaterialType === 2) {
+                    const grad = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
+                    grad.addColorStop(0, '#000000');
+                    grad.addColorStop(1, '#ffffff');
+                    colorMenuCtx.fillStyle = grad;
+                    colorMenuCtx.fillRect(30, 130, 452, 200);
+
+                    colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                    colorMenuCtx.fillRect(30, 200, 452, 60);
+                    colorMenuCtx.fillStyle = '#fff';
+                    colorMenuCtx.font = 'bold 24px sans-serif';
+                    colorMenuCtx.fillText(`Emission Brightness Range`, 256, 230);
+                } else {
+                    const gradH = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
+                    gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00');
+                    gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff');
+                    gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff');
+                    gradH.addColorStop(1, '#ff0000');
+                    colorMenuCtx.fillStyle = gradH;
+                    colorMenuCtx.fillRect(30, 130, 452, 200);
+
+                    const gradV = colorMenuCtx.createLinearGradient(30, 130, 30, 330);
+                    gradV.addColorStop(0, 'rgba(255,255,255,1)');
+                    gradV.addColorStop(0.5, 'rgba(255,255,255,0)');
+                    gradV.addColorStop(0.5, 'rgba(0,0,0,0)');
+                    gradV.addColorStop(1, 'rgba(0,0,0,1)');
+                    colorMenuCtx.fillStyle = gradV;
+                    colorMenuCtx.fillRect(30, 130, 452, 200);
+                }
+
+                // Row 3: Modes
+                drawButton(colorMenuCtx, 30, 350, 105, 40, 'SOLID', colorMode === 'solid');
+                drawButton(colorMenuCtx, 145, 350, 105, 40, 'GRAD-H', colorMode === 'grad_h');
+                drawButton(colorMenuCtx, 260, 350, 105, 40, 'GRAD-V', colorMode === 'grad_v');
+                drawButton(colorMenuCtx, 375, 350, 107, 40, 'SHIFT', colorMode === 'shift');
+
+                // Row 4: Slots
+                const showColor2 = (activeMaterialType !== 2) && (colorMode !== 'solid');
+                
+                if (!showColor2) {
+                    colorMenuCtx.fillStyle = '#' + brushColor.getHexString();
+                    colorMenuCtx.fillRect(30, 410, 452, 60);
+                    colorMenuCtx.strokeStyle = '#fff';
+                    colorMenuCtx.lineWidth = 4;
+                    colorMenuCtx.strokeRect(30, 410, 452, 60);
+                    
+                    const hsl1 = {}; brushColor.getHSL(hsl1);
+                    colorMenuCtx.fillStyle = hsl1.l > 0.6 ? 'black' : 'white';
+                    colorMenuCtx.font = '24px sans-serif';
+                    colorMenuCtx.fillText('Color 1', 256, 440);
+                } else {
+                    colorMenuCtx.fillStyle = '#' + brushColor.getHexString();
+                    colorMenuCtx.fillRect(30, 410, 216, 60);
+                    colorMenuCtx.strokeStyle = activeColorSlot === 1 ? '#fff' : '#444';
+                    colorMenuCtx.lineWidth = activeColorSlot === 1 ? 4 : 2;
+                    colorMenuCtx.strokeRect(30, 410, 216, 60);
+                    
+                    colorMenuCtx.fillStyle = '#' + brushColor2.getHexString();
+                    colorMenuCtx.fillRect(266, 410, 216, 60);
+                    colorMenuCtx.strokeStyle = activeColorSlot === 2 ? '#fff' : '#444';
+                    colorMenuCtx.lineWidth = activeColorSlot === 2 ? 4 : 2;
+                    colorMenuCtx.strokeRect(266, 410, 216, 60);
+
+                    const hsl1 = {}; brushColor.getHSL(hsl1);
+                    colorMenuCtx.fillStyle = hsl1.l > 0.6 ? 'black' : 'white';
+                    colorMenuCtx.font = '24px sans-serif';
+                    colorMenuCtx.fillText('Color 1', 138, 440);
+                    
+                    const hsl2 = {}; brushColor2.getHSL(hsl2);
+                    colorMenuCtx.fillStyle = hsl2.l > 0.6 ? 'black' : 'white';
+                    colorMenuCtx.fillText('Color 2', 374, 440);
+                }
             }
-
-            // Row 3: Modes
-            drawButton(colorMenuCtx, 30, 350, 105, 40, 'SOLID', colorMode === 'solid');
-            drawButton(colorMenuCtx, 145, 350, 105, 40, 'GRAD-H', colorMode === 'grad_h');
-            drawButton(colorMenuCtx, 260, 350, 105, 40, 'GRAD-V', colorMode === 'grad_v');
-            drawButton(colorMenuCtx, 375, 350, 107, 40, 'SHIFT', colorMode === 'shift');
-
-            // Row 4: Slots
-            colorMenuCtx.fillStyle = '#' + brushColor.getHexString();
-            colorMenuCtx.fillRect(30, 410, 216, 60);
-            colorMenuCtx.strokeStyle = activeColorSlot === 1 ? '#fff' : '#444';
-            colorMenuCtx.lineWidth = activeColorSlot === 1 ? 4 : 2;
-            colorMenuCtx.strokeRect(30, 410, 216, 60);
-            
-            colorMenuCtx.fillStyle = '#' + brushColor2.getHexString();
-            colorMenuCtx.fillRect(266, 410, 216, 60);
-            colorMenuCtx.strokeStyle = activeColorSlot === 2 ? '#fff' : '#444';
-            colorMenuCtx.lineWidth = activeColorSlot === 2 ? 4 : 2;
-            colorMenuCtx.strokeRect(266, 410, 216, 60);
-
-            const hsl1 = {}; brushColor.getHSL(hsl1);
-            colorMenuCtx.fillStyle = hsl1.l > 0.6 ? 'black' : 'white';
-            colorMenuCtx.font = '24px sans-serif';
-            colorMenuCtx.fillText('Color 1', 138, 440);
-            
-            const hsl2 = {}; brushColor2.getHSL(hsl2);
-            colorMenuCtx.fillStyle = hsl2.l > 0.6 ? 'black' : 'white';
-            colorMenuCtx.fillText('Color 2', 374, 440);
             
             colorMenuTexture.needsUpdate = true;
         }
@@ -548,18 +600,31 @@
             if (cy >= 60 && cy <= 110) {
                 if (cx >= 30 && cx <= 170) activeMaterialType = 0;
                 if (cx >= 186 && cx <= 326) activeMaterialType = 1;
-                if (cx >= 342 && cx <= 482) activeMaterialType = 2;
+                if (cx >= 342 && cx <= 482) {
+                    activeMaterialType = 2;
+                    activeColorSlot = 1;
+                    colorMode = 'solid'; // Emission only supports Solid mode
+                    brushColor.setHex(0x808080); // Default to mid-range emission
+                    updateCursors();
+                }
             }
             if (cy >= 350 && cy <= 390) {
-                if (cx >= 30 && cx <= 135) colorMode = 'solid';
+                if (cx >= 30 && cx <= 135) {
+                    colorMode = 'solid';
+                    activeColorSlot = 1;
+                    updateCursors();
+                }
                 if (cx >= 145 && cx <= 250) colorMode = 'grad_h';
                 if (cx >= 260 && cx <= 365) colorMode = 'grad_v';
                 if (cx >= 375 && cx <= 482) colorMode = 'shift';
             }
             if (cy >= 410 && cy <= 470) {
-                if (cx >= 30 && cx <= 246) activeColorSlot = 1;
-                if (cx >= 266 && cx <= 482) activeColorSlot = 2;
-                updateCursors();
+                const showColor2 = (activeMaterialType !== 2) && (colorMode !== 'solid');
+                if (showColor2) {
+                    if (cx >= 30 && cx <= 246) activeColorSlot = 1;
+                    if (cx >= 266 && cx <= 482) activeColorSlot = 2;
+                    updateCursors();
+                }
             }
             colorMenuNeedsUpdate = true;
         }
@@ -921,10 +986,11 @@
                 const cx = Math.floor(colorMenuUV.x * 512); 
                 const cy = Math.floor((1 - colorMenuUV.y) * 512);
                 
-                // If interacting within the Color Picker Bounds
+                // If interacting within the Color Picker Bounds trigger the magnification
                 if (cy >= 130 && cy <= 330 && cx >= 30 && cx <= 482) {
                     isColorPicking = true;
-                    pickColorFromCanvas(cx, cy);
+                    isPaletteMagnified = true;
+                    updateColorMenuTexture(); 
                 } else {
                     handleColorMenuClick(cx, cy);
                 }
@@ -937,6 +1003,8 @@
         controllerRight.addEventListener('selectend', () => { 
             if (isColorPicking) {
                 isColorPicking = false;
+                isPaletteMagnified = false;
+                updateColorMenuTexture(); 
             } else {
                 isErasing = false; 
                 if (activeTool === 'box' && isPreviewingBox) { executeBoxTool(drawStartPos, rightTargetLocal, false); isPreviewingBox = false; boxPreviewMesh.visible = false; }
@@ -1044,13 +1112,19 @@
                     leftMenuHovered = false; colorMenuHovered = false; rightLaserLine.visible = false;
                 }
 
-                // Real-time Drag-to-Pick Logic
+                // Real-time Drag-to-Pick Logic with Magnification Coordinates
                 if (isColorPicking && colorMenuHovered) {
                     const cx = Math.floor(colorMenuUV.x * 512); 
                     const cy = Math.floor((1 - colorMenuUV.y) * 512);
-                    // Clamp selection to the gradient boundaries
-                    const clampX = Math.max(30, Math.min(482, cx));
-                    const clampY = Math.max(130, Math.min(330, cy));
+                    
+                    let clampX, clampY;
+                    if (isPaletteMagnified) {
+                        clampX = Math.max(20, Math.min(492, cx));
+                        clampY = Math.max(50, Math.min(450, cy));
+                    } else {
+                        clampX = Math.max(30, Math.min(482, cx));
+                        clampY = Math.max(130, Math.min(330, cy));
+                    }
                     pickColorFromCanvas(clampX, clampY);
                 }
 
