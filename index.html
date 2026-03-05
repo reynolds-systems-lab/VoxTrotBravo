@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR Voxel Painter Ultra</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            color: #fff;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 30px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 100;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; color: #4facfe; }
+        p { margin: 5px 0; font-size: 14px; color: #ddd; }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="ui-container">
+        <h1>VR Voxel Painter Ultra (PCVR Optimized)</h1>
+        <p><b>Left Trigger:</b> Draw | <b>Right Trigger:</b> Erase</p>
+        <p><b>Grips:</b> Grab to Move, Scale & Rotate World</p>
+        <p><b>A Button (Right):</b> Tool Selection Menu | <b>X Button (Left):</b> Tool Options Menu</p>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+        // --- Configuration & Global State ---
+        const VOXEL_SIZE = 0.05; // 5cm voxels
+        
+        // PCVR OPTIMIZATION: Drastically increased chunk size to minimize draw calls.
+        // 32x32x32 = 32,768 instances per draw call. Handled easily by PC GPU.
+        const CHUNK_SIZE = 32;   
+        const CHUNK_VOL = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+
+        let totalActiveVoxels = 0;
+        
+        // Tool Options State
+        let activeTool = 'brush'; // 'brush', 'stroke', 'box', 'quadsphere'
+        let brushShape = 'cube'; 
+        let brushSize = 1; 
+        let boxMode = 'shell'; // 'solid', 'shell', 'wireframe'
+        let sphereMode = 'shell'; // 'solid', 'shell'
+        let wireWidth = 1; 
+        
+        // Color State
+        let colorMode = 'solid'; // 'solid', 'grad_h', 'grad_v', 'shift'
+        let brushColor = new THREE.Color(0x4facfe);
+        let brushColor2 = new THREE.Color(0xff0055);
+        let activeColorSlot = 1; 
+        let shiftProgress = 0;
+        let shiftDir = 1;
+        const tempColorForDraw = new THREE.Color();
+        
+        // Global Options State
+        let isVerticalLock = true;
+        let mirrorMode = false;
+        
+        let isPreviewingBox = false;
+        let isPreviewingSphere = false;
+        const drawStartPos = new THREE.Vector3();
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+
+        // PERFORMANCE: Disabled antialiasing and shadows for pure speed
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.6, 3);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+
+        document.body.appendChild(renderer.domElement);
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        // Fast, simple lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight.position.set(5, 10, 7);
+        scene.add(directionalLight);
+
+        // --- World Container ---
+        const worldGroup = new THREE.Group();
+        scene.add(worldGroup);
+
+        const gridHelper = new THREE.GridHelper(20, 40, 0x444444, 0x222222);
+        gridHelper.position.y = -0.01; // slightly lower so it doesn't clip
+        worldGroup.add(gridHelper);
+
+        // --- The Chunking Engine ---
+        const voxelGeometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+        
+        // PERFORMANCE: Reverted to fast Lambert material instead of heavy PBR
+        const voxelMaterial = new THREE.MeshLambertMaterial(); 
+
+        const chunks = new Map(); 
+
+        const tempMatrix = new THREE.Matrix4();
+        const tempColor = new THREE.Color();
+        const tempPos = new THREE.Vector3();
+
+        class Chunk {
+            constructor(cx, cy, cz) {
+                this.cx = cx;
+                this.cy = cy;
+                this.cz = cz;
+                
+                this.mesh = new THREE.InstancedMesh(voxelGeometry, voxelMaterial, CHUNK_VOL);
+                this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CHUNK_VOL * 3), 3);
+                this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+                this.mesh.count = 0;
+                
+                this.mesh.computeBoundingSphere = function() {
+                    this.boundingSphere = new THREE.Sphere(
+                        new THREE.Vector3(
+                            (cx * CHUNK_SIZE + CHUNK_SIZE / 2) * VOXEL_SIZE,
+                            (cy * CHUNK_SIZE + CHUNK_SIZE / 2) * VOXEL_SIZE,
+                            (cz * CHUNK_SIZE + CHUNK_SIZE / 2) * VOXEL_SIZE
+                        ),
+                        CHUNK_SIZE * VOXEL_SIZE * 0.87
+                    );
+                };
+                this.mesh.computeBoundingSphere();
+                
+                worldGroup.add(this.mesh);
+
+                this.voxelToIndex = new Map(); 
+                this.indexToLocal = new Array(CHUNK_VOL); 
+                this.needsUpdate = false;
+            }
+
+            addVoxel(lx, ly, lz, worldPos, color) {
+                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+                
+                if (this.voxelToIndex.has(localIdx)) {
+                    const instIdx = this.voxelToIndex.get(localIdx);
+                    this.mesh.setColorAt(instIdx, color);
+                    this.needsUpdate = true;
+                } else {
+                    const instIdx = this.mesh.count;
+                    this.voxelToIndex.set(localIdx, instIdx);
+                    this.indexToLocal[instIdx] = localIdx;
+                    
+                    tempMatrix.makeTranslation(worldPos.x, worldPos.y, worldPos.z);
+                    this.mesh.setMatrixAt(instIdx, tempMatrix);
+                    this.mesh.setColorAt(instIdx, color);
+                    
+                    this.mesh.count++;
+                    totalActiveVoxels++;
+                    this.needsUpdate = true;
+                }
+            }
+
+            removeVoxel(lx, ly, lz) {
+                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+                if (this.voxelToIndex.has(localIdx)) {
+                    const instIdxToRemove = this.voxelToIndex.get(localIdx);
+                    const lastInstIdx = this.mesh.count - 1;
+
+                    if (instIdxToRemove !== lastInstIdx) {
+                        const lastLocalIdx = this.indexToLocal[lastInstIdx];
+                        
+                        this.mesh.getMatrixAt(lastInstIdx, tempMatrix);
+                        this.mesh.getColorAt(lastInstIdx, tempColor);
+                        
+                        this.mesh.setMatrixAt(instIdxToRemove, tempMatrix);
+                        this.mesh.setColorAt(instIdxToRemove, tempColor);
+                        
+                        this.voxelToIndex.set(lastLocalIdx, instIdxToRemove);
+                        this.indexToLocal[instIdxToRemove] = lastLocalIdx;
+                    }
+
+                    this.voxelToIndex.delete(localIdx);
+                    this.indexToLocal[lastInstIdx] = undefined;
+                    this.mesh.count--;
+                    totalActiveVoxels--;
+                    this.needsUpdate = true;
+                }
+            }
+
+            updateBuffers() {
+                if (this.needsUpdate) {
+                    this.mesh.instanceMatrix.needsUpdate = true;
+                    this.mesh.instanceColor.needsUpdate = true;
+                    this.needsUpdate = false;
+                }
+            }
+        }
+
+        // --- Cursors & Previews ---
+        const cursorLeftMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, wireframe: true });
+        const cursorLeft = new THREE.Mesh(new THREE.BoxGeometry(), cursorLeftMat);
+        worldGroup.add(cursorLeft);
+
+        const cursorRightMat = new THREE.MeshBasicMaterial({ color: 0xff0055, transparent: true, opacity: 0.8, wireframe: true });
+        const cursorRight = new THREE.Mesh(new THREE.BoxGeometry(), cursorRightMat);
+        worldGroup.add(cursorRight);
+
+        // Preview Mesh for the Box tool
+        const boxPreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: false });
+        const boxPreviewMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), boxPreviewMat);
+        boxPreviewMesh.visible = false;
+        worldGroup.add(boxPreviewMesh);
+
+        // Preview Mesh for the Quad Sphere tool
+        const spherePreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: true });
+        const spherePreviewMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), spherePreviewMat);
+        spherePreviewMesh.visible = false;
+        worldGroup.add(spherePreviewMesh);
+
+        function updateCursors() {
+            const effSize = (activeTool === 'box' || activeTool === 'quadsphere') ? 1 : brushSize;
+            const width = ((effSize - 1) * 2 + 1) * VOXEL_SIZE;
+            if (cursorLeft.geometry) cursorLeft.geometry.dispose();
+            if (cursorRight.geometry) cursorRight.geometry.dispose();
+
+            const geo = (brushShape === 'cube' || activeTool === 'box' || activeTool === 'quadsphere') ? new THREE.BoxGeometry(width, width, width) : new THREE.SphereGeometry(width / 2, 16, 16);
+            cursorLeft.geometry = geo;
+            cursorRight.geometry = geo;
+            
+            const activeColor = activeColorSlot === 1 ? brushColor : brushColor2;
+            cursorLeft.material.color.copy(activeColor);
+        }
+        updateCursors();
+
+        function updateBoxPreview(start, end, isPainting) {
+            boxPreviewMesh.visible = true;
+            boxPreviewMesh.position.copy(start).add(end).multiplyScalar(0.5);
+            
+            const sizeX = Math.abs(end.x - start.x) + VOXEL_SIZE;
+            const sizeY = Math.abs(end.y - start.y) + VOXEL_SIZE;
+            const sizeZ = Math.abs(end.z - start.z) + VOXEL_SIZE;
+            
+            boxPreviewMesh.scale.set(sizeX, sizeY, sizeZ);
+            boxPreviewMat.wireframe = (boxMode === 'wireframe');
+            
+            if (isPainting) {
+                const activeColor = activeColorSlot === 1 ? brushColor : brushColor2;
+                boxPreviewMat.color.copy(activeColor);
+            }
+            else boxPreviewMat.color.setHex(0xff0055);
+        }
+
+        function updateSpherePreview(start, end, isPainting) {
+            spherePreviewMesh.visible = true;
+            spherePreviewMesh.position.copy(start).add(end).multiplyScalar(0.5);
+            
+            const sizeX = Math.abs(end.x - start.x) + VOXEL_SIZE;
+            const sizeY = Math.abs(end.y - start.y) + VOXEL_SIZE;
+            const sizeZ = Math.abs(end.z - start.z) + VOXEL_SIZE;
+            
+            spherePreviewMesh.scale.set(sizeX, sizeY, sizeZ);
+            spherePreviewMat.wireframe = (sphereMode === 'shell');
+            
+            if (isPainting) {
+                const activeColor = activeColorSlot === 1 ? brushColor : brushColor2;
+                spherePreviewMat.color.copy(activeColor);
+            }
+            else spherePreviewMat.color.setHex(0xff0055);
+        }
+
+        // --- Controllers & Raycaster ---
+        const controllerModelFactory = new XRControllerModelFactory();
+        const controllerRight = renderer.xr.getController(0);
+        scene.add(controllerRight);
+        const controllerLeft = renderer.xr.getController(1);
+        scene.add(controllerLeft);
+
+        const controllerGrip0 = renderer.xr.getControllerGrip(0);
+        controllerGrip0.add(controllerModelFactory.createControllerModel(controllerGrip0));
+        scene.add(controllerGrip0);
+
+        const controllerGrip1 = renderer.xr.getControllerGrip(1);
+        controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
+        scene.add(controllerGrip1);
+
+        const raycaster = new THREE.Raycaster();
+        
+        // Left hand laser (to click Right Menu)
+        const leftLaserLine = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]), 
+            new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })
+        );
+        leftLaserLine.scale.z = 5;
+        leftLaserLine.visible = false;
+        controllerLeft.add(leftLaserLine);
+
+        // Right hand laser (to click Left Menu)
+        const rightLaserLine = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]), 
+            new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })
+        );
+        rightLaserLine.scale.z = 5;
+        rightLaserLine.visible = false;
+        controllerRight.add(rightLaserLine);
+
+        // --- Interactive VR Menus ---
+        
+        function drawButton(ctx, x, y, w, h, text, isActive) {
+            ctx.fillStyle = isActive ? '#4facfe' : '#333';
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = isActive ? '#fff' : '#888';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            ctx.fillStyle = '#fff';
+            ctx.font = '20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + w/2, y + h/2);
+        }
+
+        // LEFT MENU (Tool Options)
+        const leftMenuCanvas = document.createElement('canvas');
+        leftMenuCanvas.width = 512;
+        leftMenuCanvas.height = 512;
+        const leftMenuCtx = leftMenuCanvas.getContext('2d', { willReadFrequently: true });
+        const leftMenuTexture = new THREE.CanvasTexture(leftMenuCanvas);
+        
+        const leftMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: leftMenuTexture, transparent: true, side: THREE.DoubleSide }));
+        leftMenuMesh.visible = false;
+        leftMenuMesh.position.set(0, 0.15, -0.05);
+        leftMenuMesh.rotation.x = -Math.PI / 4;
+        controllerLeft.add(leftMenuMesh);
+
+        function updateLeftMenuTexture() {
+            leftMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)';
+            leftMenuCtx.fillRect(0, 0, 512, 512);
+            leftMenuCtx.fillStyle = '#4facfe';
+            leftMenuCtx.font = 'bold 22px sans-serif';
+            leftMenuCtx.textAlign = 'center';
+            leftMenuCtx.fillText(`Tool Options | Blocks: ${totalActiveVoxels.toLocaleString()}`, 256, 28);
+
+            // Row 1: Global Settings (y=40)
+            drawButton(leftMenuCtx, 50, 40, 200, 36, `Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
+            drawButton(leftMenuCtx, 262, 40, 200, 36, `Mirror X: ${mirrorMode ? 'ON' : 'OFF'}`, mirrorMode);
+
+            // Row 2: Contextual Settings (y=86)
+            if (activeTool === 'brush' || activeTool === 'stroke') {
+                drawButton(leftMenuCtx, 50, 86, 200, 36, 'Shape: CUBE', brushShape === 'cube');
+                drawButton(leftMenuCtx, 262, 86, 200, 36, 'Shape: SPHERE', brushShape === 'sphere');
+            } else if (activeTool === 'box') {
+                drawButton(leftMenuCtx, 50, 86, 130, 36, 'SOLID', boxMode === 'solid');
+                drawButton(leftMenuCtx, 190, 86, 130, 36, 'SHELL', boxMode === 'shell');
+                drawButton(leftMenuCtx, 330, 86, 132, 36, 'WIRE', boxMode === 'wireframe');
+            } else if (activeTool === 'quadsphere') {
+                drawButton(leftMenuCtx, 50, 86, 200, 36, 'SOLID', sphereMode === 'solid');
+                drawButton(leftMenuCtx, 262, 86, 200, 36, 'SHELL', sphereMode === 'shell');
+            }
+
+            // Row 3: Contextual Sizes (y=132)
+            if (activeTool === 'brush' || activeTool === 'stroke') {
+                drawButton(leftMenuCtx, 50, 132, 80, 36, '[-]', false);
+                drawButton(leftMenuCtx, 140, 132, 232, 36, `Radius: ${brushSize}`, false);
+                drawButton(leftMenuCtx, 382, 132, 80, 36, '[+]', false);
+            } else if (activeTool === 'box' && boxMode === 'wireframe') {
+                drawButton(leftMenuCtx, 50, 132, 80, 36, '[-]', false);
+                drawButton(leftMenuCtx, 140, 132, 232, 36, `Thickness: ${wireWidth}`, false);
+                drawButton(leftMenuCtx, 382, 132, 80, 36, '[+]', false);
+            } else {
+                // Placeholder for alignment
+                leftMenuCtx.fillStyle = 'rgba(255,255,255,0.1)';
+                leftMenuCtx.fillRect(50, 132, 412, 36);
+            }
+
+            // Row 4: Color Modes (y=178)
+            drawButton(leftMenuCtx, 50, 178, 95, 36, 'SOLID', colorMode === 'solid');
+            drawButton(leftMenuCtx, 155, 178, 95, 36, 'GRAD-H', colorMode === 'grad_h');
+            drawButton(leftMenuCtx, 260, 178, 95, 36, 'GRAD-V', colorMode === 'grad_v');
+            drawButton(leftMenuCtx, 365, 178, 97, 36, 'SHIFT', colorMode === 'shift');
+
+            // Row 5: Color Picker Area (y=224 to 344)
+            const gradH = leftMenuCtx.createLinearGradient(50, 224, 462, 224);
+            gradH.addColorStop(0, '#ff0000');
+            gradH.addColorStop(1/6, '#ffff00');
+            gradH.addColorStop(2/6, '#00ff00');
+            gradH.addColorStop(3/6, '#00ffff');
+            gradH.addColorStop(4/6, '#0000ff');
+            gradH.addColorStop(5/6, '#ff00ff');
+            gradH.addColorStop(1, '#ff0000');
+            leftMenuCtx.fillStyle = gradH;
+            leftMenuCtx.fillRect(50, 224, 412, 120);
+
+            const gradV = leftMenuCtx.createLinearGradient(50, 224, 50, 344);
+            gradV.addColorStop(0, 'rgba(255,255,255,1)');
+            gradV.addColorStop(0.5, 'rgba(255,255,255,0)');
+            gradV.addColorStop(0.5, 'rgba(0,0,0,0)');
+            gradV.addColorStop(1, 'rgba(0,0,0,1)');
+            leftMenuCtx.fillStyle = gradV;
+            leftMenuCtx.fillRect(50, 224, 412, 120);
+
+            // Row 6: Color Slots (y=354 to 390)
+            leftMenuCtx.fillStyle = '#' + brushColor.getHexString();
+            leftMenuCtx.fillRect(50, 354, 200, 36);
+            leftMenuCtx.strokeStyle = activeColorSlot === 1 ? '#fff' : '#444';
+            leftMenuCtx.lineWidth = activeColorSlot === 1 ? 4 : 2;
+            leftMenuCtx.strokeRect(50, 354, 200, 36);
+            
+            leftMenuCtx.fillStyle = '#' + brushColor2.getHexString();
+            leftMenuCtx.fillRect(262, 354, 200, 36);
+            leftMenuCtx.strokeStyle = activeColorSlot === 2 ? '#fff' : '#444';
+            leftMenuCtx.lineWidth = activeColorSlot === 2 ? 4 : 2;
+            leftMenuCtx.strokeRect(262, 354, 200, 36);
+
+            const hsl1 = {}; brushColor.getHSL(hsl1);
+            leftMenuCtx.fillStyle = hsl1.l > 0.6 ? 'black' : 'white';
+            leftMenuCtx.fillText('Color 1', 150, 372);
+            
+            const hsl2 = {}; brushColor2.getHSL(hsl2);
+            leftMenuCtx.fillStyle = hsl2.l > 0.6 ? 'black' : 'white';
+            leftMenuCtx.fillText('Color 2', 362, 372);
+
+            // Row 7: Export (y=440)
+            drawButton(leftMenuCtx, 50, 440, 412, 40, 'EXPORT TO .OBJ', false);
+            
+            leftMenuTexture.needsUpdate = true;
+        }
+
+        function handleLeftMenuClick(cx, cy) {
+            if (cy >= 40 && cy <= 76) {
+                if (cx >= 50 && cx <= 250) isVerticalLock = !isVerticalLock;
+                if (cx >= 262 && cx <= 462) mirrorMode = !mirrorMode;
+            }
+            if (cy >= 86 && cy <= 122) {
+                if (activeTool === 'brush' || activeTool === 'stroke') {
+                    if (cx >= 50 && cx <= 250) brushShape = 'cube';
+                    if (cx >= 262 && cx <= 462) brushShape = 'sphere';
+                } else if (activeTool === 'box') {
+                    if (cx >= 50 && cx <= 180) boxMode = 'solid';
+                    if (cx >= 190 && cx <= 320) boxMode = 'shell';
+                    if (cx >= 330 && cx <= 462) boxMode = 'wireframe';
+                } else if (activeTool === 'quadsphere') {
+                    if (cx >= 50 && cx <= 250) sphereMode = 'solid';
+                    if (cx >= 262 && cx <= 462) sphereMode = 'shell';
+                }
+                updateCursors();
+            }
+            if (cy >= 132 && cy <= 168) {
+                if (activeTool === 'brush' || activeTool === 'stroke') {
+                    if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1);
+                    if (cx >= 382 && cx <= 462) brushSize = Math.min(5, brushSize + 1);
+                } else if (activeTool === 'box' && boxMode === 'wireframe') {
+                    if (cx >= 50 && cx <= 130) wireWidth = Math.max(1, wireWidth - 1);
+                    if (cx >= 382 && cx <= 462) wireWidth = Math.min(5, wireWidth + 1);
+                }
+                updateCursors();
+            }
+            if (cy >= 178 && cy <= 214) {
+                if (cx >= 50 && cx <= 145) colorMode = 'solid';
+                if (cx >= 155 && cx <= 250) colorMode = 'grad_h';
+                if (cx >= 260 && cx <= 355) colorMode = 'grad_v';
+                if (cx >= 365 && cx <= 462) colorMode = 'shift';
+            }
+            if (cy >= 224 && cy <= 344 && cx >= 50 && cx <= 462) {
+                const imgData = leftMenuCtx.getImageData(cx, cy, 1, 1).data;
+                if (activeColorSlot === 1) {
+                    brushColor.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
+                } else {
+                    brushColor2.setRGB(imgData[0]/255, imgData[1]/255, imgData[2]/255);
+                }
+                updateCursors();
+            }
+            if (cy >= 354 && cy <= 390) {
+                if (cx >= 50 && cx <= 250) activeColorSlot = 1;
+                if (cx >= 262 && cx <= 462) activeColorSlot = 2;
+                updateCursors();
+            }
+            if (cy >= 440 && cy <= 480 && cx >= 50 && cx <= 462) {
+                exportToOBJ();
+            }
+            leftMenuNeedsUpdate = true;
+        }
+
+        // RIGHT MENU (Tool Selection)
+        const rightMenuCanvas = document.createElement('canvas');
+        rightMenuCanvas.width = 512;
+        rightMenuCanvas.height = 512;
+        const rightMenuCtx = rightMenuCanvas.getContext('2d', { willReadFrequently: true });
+        const rightMenuTexture = new THREE.CanvasTexture(rightMenuCanvas);
+        
+        const rightMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: rightMenuTexture, transparent: true, side: THREE.DoubleSide }));
+        rightMenuMesh.visible = false;
+        rightMenuMesh.position.set(0, 0.15, -0.05);
+        rightMenuMesh.rotation.x = -Math.PI / 4;
+        controllerRight.add(rightMenuMesh);
+
+        function updateRightMenuTexture() {
+            rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)';
+            rightMenuCtx.fillRect(0, 0, 512, 512);
+            rightMenuCtx.fillStyle = '#4facfe';
+            rightMenuCtx.font = 'bold 28px sans-serif';
+            rightMenuCtx.textAlign = 'center';
+            rightMenuCtx.fillText(`Tool Selection`, 256, 40);
+
+            drawButton(rightMenuCtx, 50, 70, 412, 70, 'Brush (Standard)', activeTool === 'brush');
+            drawButton(rightMenuCtx, 50, 160, 412, 70, 'Stroke (Continuous)', activeTool === 'stroke');
+            drawButton(rightMenuCtx, 50, 250, 412, 70, 'Box / Volumes', activeTool === 'box');
+            drawButton(rightMenuCtx, 50, 340, 412, 70, 'Quad Sphere (Shell)', activeTool === 'quadsphere');
+
+            rightMenuTexture.needsUpdate = true;
+        }
+
+        function handleRightMenuClick(cx, cy) {
+            if (cx >= 50 && cx <= 462) {
+                // Fix for ghost previews: clear states when switching tools mid-action
+                isPreviewingBox = false;
+                isPreviewingSphere = false;
+                boxPreviewMesh.visible = false;
+                spherePreviewMesh.visible = false;
+
+                // PREVENT GLITCH: Explicitly wipe previous tool continuous state coordinates
+                lastPaintedPos.set(Infinity, Infinity, Infinity);
+                lastErasedPos.set(Infinity, Infinity, Infinity);
+
+                if (cy >= 70 && cy <= 140) { activeTool = 'brush'; }
+                if (cy >= 160 && cy <= 230) { activeTool = 'stroke'; }
+                if (cy >= 250 && cy <= 320) { activeTool = 'box'; }
+                if (cy >= 340 && cy <= 410) { activeTool = 'quadsphere'; }
+                updateCursors();
+                rightMenuNeedsUpdate = true;
+                leftMenuNeedsUpdate = true; // Update left menu to show new tool's options
+            }
+        }
+
+        let leftMenuNeedsUpdate = true;
+        let rightMenuNeedsUpdate = true;
+        let lastMenuUpdateTime = 0;
+        updateLeftMenuTexture();
+        updateRightMenuTexture();
+
+        // --- Export Pipeline ---
+        function exportToOBJ() {
+            let objData = "# VR Voxel Painter Ultra Export\n";
+            let vertexOffset = 1;
+            
+            const hs = VOXEL_SIZE / 2;
+            const baseVertices = [
+                new THREE.Vector3(-hs, -hs, -hs), new THREE.Vector3( hs, -hs, -hs),
+                new THREE.Vector3(-hs,  hs, -hs), new THREE.Vector3( hs,  hs, -hs),
+                new THREE.Vector3(-hs, -hs,  hs), new THREE.Vector3( hs, -hs,  hs),
+                new THREE.Vector3(-hs,  hs,  hs), new THREE.Vector3( hs,  hs,  hs)
+            ];
+            
+            const mat4 = new THREE.Matrix4();
+            const pos = new THREE.Vector3();
+            const col = new THREE.Color();
+            
+            chunks.forEach(chunk => {
+                for (let i = 0; i < chunk.mesh.count; i++) {
+                    chunk.mesh.getMatrixAt(i, mat4);
+                    chunk.mesh.getColorAt(i, col);
+                    
+                    for (let v = 0; v < 8; v++) {
+                        pos.copy(baseVertices[v]).applyMatrix4(mat4).applyMatrix4(worldGroup.matrixWorld);
+                        objData += `v ${pos.x.toFixed(4)} ${pos.y.toFixed(4)} ${pos.z.toFixed(4)} ${col.r.toFixed(4)} ${col.g.toFixed(4)} ${col.b.toFixed(4)}\n`;
+                    }
+                    
+                    const o = vertexOffset;
+                    objData += `f ${o+4} ${o+5} ${o+7} ${o+6}\n`; 
+                    objData += `f ${o+1} ${o+0} ${o+2} ${o+3}\n`; 
+                    objData += `f ${o+2} ${o+6} ${o+7} ${o+3}\n`; 
+                    objData += `f ${o+0} ${o+1} ${o+5} ${o+4}\n`; 
+                    objData += `f ${o+1} ${o+5} ${o+7} ${o+3}\n`; 
+                    objData += `f ${o+0} ${o+4} ${o+6} ${o+2}\n`; 
+                    
+                    vertexOffset += 8;
+                }
+            });
+            
+            const blob = new Blob([objData], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'voxel_concept.obj';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Core Tool Algorithms ---
+
+        function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY) {
+            if (colorMode === 'solid') {
+                return brushColor;
+            } else if (colorMode === 'grad_h') {
+                let t = 0;
+                if (maxX > minX) t = (gx - minX) / (maxX - minX);
+                return tempColorForDraw.copy(brushColor).lerp(brushColor2, t);
+            } else if (colorMode === 'grad_v') {
+                let t = 0;
+                if (maxY > minY) t = (gy - minY) / (maxY - minY);
+                return tempColorForDraw.copy(brushColor).lerp(brushColor2, t);
+            } else if (colorMode === 'shift') {
+                // Increment very slowly per voxel plotted so it shifts gracefully across a stroke
+                shiftProgress += 0.001 * shiftDir;
+                if (shiftProgress >= 1) { shiftProgress = 1; shiftDir = -1; }
+                if (shiftProgress <= 0) { shiftProgress = 0; shiftDir = 1; }
+                return tempColorForDraw.copy(brushColor).lerp(brushColor2, shiftProgress);
+            }
+            return brushColor;
+        }
+        
+        function setVoxelCore(gx, gy, gz, isPainting, color) {
+            const cx = Math.floor(gx / CHUNK_SIZE);
+            const cy = Math.floor(gy / CHUNK_SIZE);
+            const cz = Math.floor(gz / CHUNK_SIZE);
+            
+            // PERFORMANCE: Bit-packing the chunks into a numeric key 
+            // Avoids costly string allocation and Garbage Collector stutter in high-volume tools
+            // 17 bits per axis. Range: +/- 65,536 chunks (52km bounds).
+            const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
+            
+            const lx = gx - (cx * CHUNK_SIZE);
+            const ly = gy - (cy * CHUNK_SIZE);
+            const lz = gz - (cz * CHUNK_SIZE);
+
+            let chunk = chunks.get(chunkKey);
+            
+            if (isPainting) {
+                if (!chunk) {
+                    chunk = new Chunk(cx, cy, cz);
+                    chunks.set(chunkKey, chunk);
+                }
+                tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
+                chunk.addVoxel(lx, ly, lz, tempPos, color);
+            } else if (chunk) {
+                chunk.removeVoxel(lx, ly, lz);
+            }
+        }
+
+        function setVoxel(gx, gy, gz, isPainting, color) {
+            setVoxelCore(gx, gy, gz, isPainting, color);
+            if (mirrorMode && gx !== 0) {
+                setVoxelCore(-gx, gy, gz, isPainting, color); // Mirror across world X=0 plane
+            }
+        }
+
+        function placeBrushVoxels(targetPos, isPainting) {
+            const r = brushSize - 1;
+            const rSq = (r + 0.1) * (r + 0.1); 
+            
+            const centerGx = Math.round(targetPos.x / VOXEL_SIZE);
+            const centerGy = Math.round(targetPos.y / VOXEL_SIZE);
+            const centerGz = Math.round(targetPos.z / VOXEL_SIZE);
+
+            const minX = centerGx - r; const maxX = centerGx + r;
+            const minY = centerGy - r; const maxY = centerGy + r;
+
+            for (let dx = -r; dx <= r; dx++) {
+                for (let dy = -r; dy <= r; dy++) {
+                    for (let dz = -r; dz <= r; dz++) {
+                        if (brushShape === 'sphere' && (dx*dx + dy*dy + dz*dz > rSq)) continue; 
+                        
+                        const c = getDrawColor(centerGx + dx, centerGy + dy, centerGz + dz, minX, maxX, minY, maxY);
+                        setVoxel(centerGx + dx, centerGy + dy, centerGz + dz, isPainting, c);
+                    }
+                }
+            }
+            leftMenuNeedsUpdate = true;
+        }
+
+        function drawLineVoxels(startPos, endPos, isPainting) {
+            const dist = startPos.distanceTo(endPos);
+            // Densely sample points between previous and current hand position
+            let steps = Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.25))); 
+            
+            // PREVENT HANG: Cap the maximum number of brush interpolations per frame.
+            // If the world is scaled down massive amounts, the local distance jumps rapidly, 
+            // freezing the browser with billions of iterations.
+            if (steps > 300) steps = 300; 
+            
+            const tempV = new THREE.Vector3();
+            for (let i = 0; i <= steps; i++) {
+                tempV.lerpVectors(startPos, endPos, i / steps);
+                tempV.set(
+                    Math.round(tempV.x / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(tempV.y / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(tempV.z / VOXEL_SIZE) * VOXEL_SIZE
+                );
+                placeBrushVoxels(tempV, isPainting);
+            }
+        }
+
+        function executeBoxTool(startPos, endPos, isPainting) {
+            const gStartX = Math.round(startPos.x / VOXEL_SIZE);
+            const gEndX = Math.round(endPos.x / VOXEL_SIZE);
+            const gStartY = Math.round(startPos.y / VOXEL_SIZE);
+            const gEndY = Math.round(endPos.y / VOXEL_SIZE);
+            const gStartZ = Math.round(startPos.z / VOXEL_SIZE);
+            const gEndZ = Math.round(endPos.z / VOXEL_SIZE);
+
+            const minX = Math.min(gStartX, gEndX);
+            const maxX = Math.max(gStartX, gEndX);
+            const minY = Math.min(gStartY, gEndY);
+            const maxY = Math.max(gStartY, gEndY);
+            const minZ = Math.min(gStartZ, gEndZ);
+            const maxZ = Math.max(gStartZ, gEndZ);
+
+            // PREVENT HANG: Cap maximum volume dimension iterations 
+            if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) {
+                console.warn("Box volume too large! Drawing aborted to prevent browser crash.");
+                return;
+            }
+
+            const w = wireWidth - 1;
+
+            for(let gx = minX; gx <= maxX; gx++) {
+                for(let gy = minY; gy <= maxY; gy++) {
+                    for(let gz = minZ; gz <= maxZ; gz++) {
+                        
+                        const c = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY);
+
+                        if (boxMode === 'wireframe') {
+                            const edgeX = (gx >= minX && gx <= minX + w) || (gx <= maxX && gx >= maxX - w);
+                            const edgeY = (gy >= minY && gy <= minY + w) || (gy <= maxY && gy >= maxY - w);
+                            const edgeZ = (gz >= minZ && gz <= minZ + w) || (gz <= maxZ && gz >= maxZ - w);
+                            // Ensure it's on at least 2 edges to act as the frame
+                            const edges = (edgeX?1:0) + (edgeY?1:0) + (edgeZ?1:0);
+                            
+                            if (edges >= 2) {
+                                setVoxel(gx, gy, gz, isPainting, c);
+                            }
+                        } else if (boxMode === 'shell') {
+                            // Only outline boundaries
+                            const isBoundary = (gx === minX || gx === maxX || gy === minY || gy === maxY || gz === minZ || gz === maxZ);
+                            if (isBoundary) {
+                                setVoxel(gx, gy, gz, isPainting, c);
+                            } else {
+                                // Clear voxels internal to the shell to save memory
+                                setVoxel(gx, gy, gz, false, null); 
+                            }
+                        } else {
+                            // Truly solid block, fill everything
+                            setVoxel(gx, gy, gz, isPainting, c);
+                        }
+                    }
+                }
+            }
+            leftMenuNeedsUpdate = true;
+        }
+
+        function executeQuadSphereTool(startPos, endPos, isPainting) {
+            const gStartX = Math.round(startPos.x / VOXEL_SIZE);
+            const gEndX = Math.round(endPos.x / VOXEL_SIZE);
+            const gStartY = Math.round(startPos.y / VOXEL_SIZE);
+            const gEndY = Math.round(endPos.y / VOXEL_SIZE);
+            const gStartZ = Math.round(startPos.z / VOXEL_SIZE);
+            const gEndZ = Math.round(endPos.z / VOXEL_SIZE);
+
+            const minX = Math.min(gStartX, gEndX);
+            const maxX = Math.max(gStartX, gEndX);
+            const minY = Math.min(gStartY, gEndY);
+            const maxY = Math.max(gStartY, gEndY);
+            const minZ = Math.min(gStartZ, gEndZ);
+            const maxZ = Math.max(gStartZ, gEndZ);
+
+            // PREVENT HANG: Cap maximum volume dimension iterations 
+            if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) {
+                console.warn("Sphere volume too large! Drawing aborted to prevent browser crash.");
+                return;
+            }
+
+            const cx = (minX + maxX) / 2;
+            const cy = (minY + maxY) / 2;
+            const cz = (minZ + maxZ) / 2;
+
+            const rx = (maxX - minX) / 2;
+            const ry = (maxY - minY) / 2;
+            const rz = (maxZ - minZ) / 2;
+
+            const isInside = (x, y, z) => {
+                const nx = rx > 0 ? (x - cx) / rx : 0;
+                const ny = ry > 0 ? (y - cy) / ry : 0;
+                const nz = rz > 0 ? (z - cz) / rz : 0;
+                // Add a small epsilon (1.05) to ensure full corner connectivity on diagonals
+                return (nx * nx + ny * ny + nz * nz) <= 1.05; 
+            };
+
+            for(let gx = minX; gx <= maxX; gx++) {
+                for(let gy = minY; gy <= maxY; gy++) {
+                    for(let gz = minZ; gz <= maxZ; gz++) {
+                        if (isInside(gx, gy, gz)) {
+                            
+                            const c = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY);
+
+                            if (sphereMode === 'shell') {
+                                // Boundary check: is it on the edge of the dragged volume, 
+                                // or does it have an empty neighbor outside the sphere equation?
+                                if (gx === minX || gx === maxX || 
+                                    gy === minY || gy === maxY || 
+                                    gz === minZ || gz === maxZ ||
+                                    !isInside(gx+1, gy, gz) || !isInside(gx-1, gy, gz) ||
+                                    !isInside(gx, gy+1, gz) || !isInside(gx, gy-1, gz) ||
+                                    !isInside(gx, gy, gz+1) || !isInside(gx, gy, gz-1)) {
+                                    
+                                    setVoxel(gx, gy, gz, isPainting, c);
+                                } else {
+                                    // Clear voxels internal to the shell to save memory
+                                    setVoxel(gx, gy, gz, false, null); 
+                                }
+                            } else {
+                                // Solid
+                                setVoxel(gx, gy, gz, isPainting, c);
+                            }
+                        }
+                    }
+                }
+            }
+            leftMenuNeedsUpdate = true;
+        }
+
+        // --- Interactions & Handlers ---
+        let isDrawing = false;
+        let isErasing = false;
+        
+        let rightMenuHovered = false; // Left hand points to Right Menu
+        let leftMenuHovered = false;  // Right hand points to Left Menu
+        let rightMenuUV = { x: 0, y: 0 };
+        let leftMenuUV = { x: 0, y: 0 };
+        
+        let isRightGripping = false;
+        let isLeftGripping = false;
+        const prevRightPos = new THREE.Vector3();
+        const prevLeftPos = new THREE.Vector3();
+        const prevMid = new THREE.Vector3();
+        const prevHandVec = new THREE.Vector3();
+        let prevGripDist = 0;
+
+        const rightPos = new THREE.Vector3();
+        const leftPos = new THREE.Vector3();
+        const rightDir = new THREE.Vector3();
+        const leftDir = new THREE.Vector3();
+        const rightTargetLocal = new THREE.Vector3();
+        const leftTargetLocal = new THREE.Vector3();
+
+        const lastPaintedPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+        const lastErasedPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+
+        // LEFT HAND (Drawing Trigger + Right Menu Selector)
+        controllerLeft.addEventListener('selectstart', () => { 
+            if (rightMenuHovered && rightMenuMesh.visible) {
+                handleRightMenuClick(Math.floor(rightMenuUV.x * 512), Math.floor((1 - rightMenuUV.y) * 512));
+            } else {
+                isDrawing = true; 
+                drawStartPos.copy(leftTargetLocal); 
+                if (activeTool === 'box') isPreviewingBox = true;
+                if (activeTool === 'quadsphere') isPreviewingSphere = true;
+            }
+        });
+        controllerLeft.addEventListener('selectend', () => { 
+            isDrawing = false; 
+            if (activeTool === 'box' && isPreviewingBox) {
+                executeBoxTool(drawStartPos, leftTargetLocal, true);
+                isPreviewingBox = false;
+                boxPreviewMesh.visible = false;
+            }
+            if (activeTool === 'quadsphere' && isPreviewingSphere) {
+                executeQuadSphereTool(drawStartPos, leftTargetLocal, true);
+                isPreviewingSphere = false;
+                spherePreviewMesh.visible = false;
+            }
+            lastPaintedPos.set(Infinity, Infinity, Infinity); 
+        });
+        
+        // RIGHT HAND (Erasing Trigger + Left Menu Selector)
+        controllerRight.addEventListener('selectstart', () => { 
+            if (leftMenuHovered && leftMenuMesh.visible) {
+                handleLeftMenuClick(Math.floor(leftMenuUV.x * 512), Math.floor((1 - leftMenuUV.y) * 512));
+            } else {
+                isErasing = true; 
+                drawStartPos.copy(rightTargetLocal);
+                if (activeTool === 'box') isPreviewingBox = true;
+                if (activeTool === 'quadsphere') isPreviewingSphere = true;
+            }
+        });
+        controllerRight.addEventListener('selectend', () => { 
+            isErasing = false; 
+            if (activeTool === 'box' && isPreviewingBox) {
+                executeBoxTool(drawStartPos, rightTargetLocal, false);
+                isPreviewingBox = false;
+                boxPreviewMesh.visible = false;
+            }
+            if (activeTool === 'quadsphere' && isPreviewingSphere) {
+                executeQuadSphereTool(drawStartPos, rightTargetLocal, false);
+                isPreviewingSphere = false;
+                spherePreviewMesh.visible = false;
+            }
+            lastErasedPos.set(Infinity, Infinity, Infinity); 
+        });
+
+        // LOCOMOTION
+        controllerRight.addEventListener('squeezestart', () => { 
+            isRightGripping = true; 
+            controllerRight.getWorldPosition(prevRightPos);
+            if (isLeftGripping) {
+                controllerLeft.getWorldPosition(prevLeftPos);
+                prevGripDist = prevRightPos.distanceTo(prevLeftPos);
+                prevMid.copy(prevRightPos).lerp(prevLeftPos, 0.5);
+                prevHandVec.subVectors(prevRightPos, prevLeftPos).normalize();
+            }
+        });
+        controllerRight.addEventListener('squeezeend', () => { isRightGripping = false; if (isLeftGripping) controllerLeft.getWorldPosition(prevLeftPos); });
+
+        controllerLeft.addEventListener('squeezestart', () => { 
+            isLeftGripping = true; 
+            controllerLeft.getWorldPosition(prevLeftPos);
+            if (isRightGripping) {
+                controllerRight.getWorldPosition(prevRightPos);
+                prevGripDist = prevLeftPos.distanceTo(prevRightPos);
+                prevMid.copy(prevLeftPos).lerp(prevRightPos, 0.5);
+                prevHandVec.subVectors(prevRightPos, prevLeftPos).normalize();
+            }
+        });
+        controllerLeft.addEventListener('squeezeend', () => { isLeftGripping = false; if (isRightGripping) controllerRight.getWorldPosition(prevRightPos); });
+
+        let lastRightBtnState = false;
+        let lastLeftBtnState = false;
+        
+        function pollGamepads() {
+            const session = renderer.xr.getSession();
+            if (!session) return;
+            for (const source of session.inputSources) {
+                if (source && source.gamepad) {
+                    if (source.handedness === 'right') {
+                        // Standard mapping: button 4 is the 'A' button on Quest
+                        const btnPressed = source.gamepad.buttons[4]?.pressed || false;
+                        if (btnPressed && !lastRightBtnState) {
+                            rightMenuMesh.visible = !rightMenuMesh.visible;
+                            if (rightMenuMesh.visible) rightMenuNeedsUpdate = true;
+                        }
+                        lastRightBtnState = btnPressed;
+                    }
+                    if (source.handedness === 'left') {
+                        // Standard mapping: button 4 is the 'X' button on Quest
+                        const btnPressed = source.gamepad.buttons[4]?.pressed || false;
+                        if (btnPressed && !lastLeftBtnState) {
+                            leftMenuMesh.visible = !leftMenuMesh.visible;
+                            if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
+                        }
+                        lastLeftBtnState = btnPressed;
+                    }
+                }
+            }
+        }
+
+        // --- Main Animation Loop ---
+        const tempQuat = new THREE.Quaternion();
+        const midPos = new THREE.Vector3();
+        const currentHandVec = new THREE.Vector3();
+        const panDelta = new THREE.Vector3();
+
+        renderer.setAnimationLoop(() => {
+            if (renderer.xr.isPresenting) {
+                pollGamepads();
+
+                // UI Redraw Checks
+                if (Date.now() - lastMenuUpdateTime > 200) {
+                    if (leftMenuMesh.visible && leftMenuNeedsUpdate) {
+                        updateLeftMenuTexture();
+                        leftMenuNeedsUpdate = false;
+                    }
+                    if (rightMenuMesh.visible && rightMenuNeedsUpdate) {
+                        updateRightMenuTexture();
+                        rightMenuNeedsUpdate = false;
+                    }
+                    lastMenuUpdateTime = Date.now();
+                }
+
+                // Raycast Left Laser (to Right Menu)
+                if (rightMenuMesh.visible) {
+                    tempMatrix.identity().extractRotation(controllerLeft.matrixWorld);
+                    raycaster.ray.origin.setFromMatrixPosition(controllerLeft.matrixWorld);
+                    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+                    
+                    const intersects = raycaster.intersectObject(rightMenuMesh);
+                    if (intersects.length > 0) {
+                        rightMenuHovered = true;
+                        rightMenuUV.x = intersects[0].uv.x;
+                        rightMenuUV.y = intersects[0].uv.y;
+                        leftLaserLine.scale.z = intersects[0].distance;
+                    } else {
+                        rightMenuHovered = false;
+                        leftLaserLine.scale.z = 5;
+                    }
+                    leftLaserLine.visible = true;
+                } else {
+                    rightMenuHovered = false;
+                    leftLaserLine.visible = false;
+                }
+
+                // Raycast Right Laser (to Left Menu)
+                if (leftMenuMesh.visible) {
+                    tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
+                    raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
+                    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+                    
+                    const intersects = raycaster.intersectObject(leftMenuMesh);
+                    if (intersects.length > 0) {
+                        leftMenuHovered = true;
+                        leftMenuUV.x = intersects[0].uv.x;
+                        leftMenuUV.y = intersects[0].uv.y;
+                        rightLaserLine.scale.z = intersects[0].distance;
+                    } else {
+                        leftMenuHovered = false;
+                        rightLaserLine.scale.z = 5;
+                    }
+                    rightLaserLine.visible = true;
+                } else {
+                    leftMenuHovered = false;
+                    rightLaserLine.visible = false;
+                }
+
+                controllerRight.getWorldPosition(rightPos);
+                controllerLeft.getWorldPosition(leftPos);
+
+                // Two-handed Locomotion
+                if (isRightGripping && isLeftGripping) {
+                    const dist = rightPos.distanceTo(leftPos);
+                    midPos.copy(rightPos).lerp(leftPos, 0.5);
+                    currentHandVec.subVectors(rightPos, leftPos).normalize();
+
+                    if (prevGripDist > 0 && prevHandVec.lengthSq() > 0) {
+                        const scaleDelta = dist / prevGripDist;
+                        panDelta.copy(midPos).sub(prevMid);
+                        
+                        if (isVerticalLock) {
+                            const pXZ = new THREE.Vector3(prevHandVec.x, 0, prevHandVec.z);
+                            const cXZ = new THREE.Vector3(currentHandVec.x, 0, currentHandVec.z);
+                            if (pXZ.lengthSq() > 0.001 && cXZ.lengthSq() > 0.001) {
+                                tempQuat.setFromUnitVectors(pXZ.normalize(), cXZ.normalize());
+                            } else tempQuat.identity();
+                        } else tempQuat.setFromUnitVectors(prevHandVec, currentHandVec);
+
+                        worldGroup.position.add(panDelta);
+                        worldGroup.position.sub(midPos);
+                        worldGroup.position.multiplyScalar(scaleDelta);
+                        worldGroup.scale.multiplyScalar(scaleDelta);
+                        worldGroup.position.applyQuaternion(tempQuat);
+                        worldGroup.quaternion.premultiply(tempQuat);
+                        worldGroup.position.add(midPos);
+                    }
+
+                    prevGripDist = dist; prevMid.copy(midPos); prevHandVec.copy(currentHandVec);
+                    prevRightPos.copy(rightPos); prevLeftPos.copy(leftPos);
+                } else if (isRightGripping) {
+                    worldGroup.position.add(tempPos.copy(rightPos).sub(prevRightPos));
+                    prevRightPos.copy(rightPos); prevGripDist = 0;
+                } else if (isLeftGripping) {
+                    worldGroup.position.add(tempPos.copy(leftPos).sub(prevLeftPos));
+                    prevLeftPos.copy(leftPos); prevGripDist = 0;
+                } else prevGripDist = 0;
+
+                // --- Cursors & Painting Logic ---
+                
+                // LEFT HAND - DRAWING
+                controllerLeft.getWorldDirection(leftDir);
+                leftTargetLocal.copy(leftPos).addScaledVector(leftDir, -0.05);
+                worldGroup.worldToLocal(leftTargetLocal);
+                leftTargetLocal.set(
+                    Math.round(leftTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(leftTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(leftTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE
+                );
+                cursorLeft.position.copy(leftTargetLocal);
+                
+                if (isDrawing) {
+                    if (activeTool === 'brush') {
+                        if (!leftTargetLocal.equals(lastPaintedPos)) {
+                            placeBrushVoxels(leftTargetLocal, true);
+                            lastPaintedPos.copy(leftTargetLocal);
+                        }
+                    } else if (activeTool === 'stroke') {
+                        if (lastPaintedPos.x === Infinity) {
+                            placeBrushVoxels(leftTargetLocal, true);
+                            lastPaintedPos.copy(leftTargetLocal);
+                        } else if (!leftTargetLocal.equals(lastPaintedPos)) {
+                            drawLineVoxels(lastPaintedPos, leftTargetLocal, true);
+                            lastPaintedPos.copy(leftTargetLocal);
+                        }
+                    } else if (activeTool === 'box' && isPreviewingBox) {
+                        updateBoxPreview(drawStartPos, leftTargetLocal, true);
+                    } else if (activeTool === 'quadsphere' && isPreviewingSphere) {
+                        updateSpherePreview(drawStartPos, leftTargetLocal, true);
+                    }
+                }
+
+                // RIGHT HAND - ERASING
+                controllerRight.getWorldDirection(rightDir);
+                rightTargetLocal.copy(rightPos).addScaledVector(rightDir, -0.05);
+                worldGroup.worldToLocal(rightTargetLocal);
+                rightTargetLocal.set(
+                    Math.round(rightTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(rightTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(rightTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE
+                );
+                cursorRight.position.copy(rightTargetLocal);
+
+                if (isErasing) {
+                    if (activeTool === 'brush') {
+                        if (!rightTargetLocal.equals(lastErasedPos)) {
+                            placeBrushVoxels(rightTargetLocal, false);
+                            lastErasedPos.copy(rightTargetLocal);
+                        }
+                    } else if (activeTool === 'stroke') {
+                        if (lastErasedPos.x === Infinity) {
+                            placeBrushVoxels(rightTargetLocal, false);
+                            lastErasedPos.copy(rightTargetLocal);
+                        } else if (!rightTargetLocal.equals(lastErasedPos)) {
+                            drawLineVoxels(lastErasedPos, rightTargetLocal, false);
+                            lastErasedPos.copy(rightTargetLocal);
+                        }
+                    } else if (activeTool === 'box' && isPreviewingBox) {
+                        updateBoxPreview(drawStartPos, rightTargetLocal, false);
+                    } else if (activeTool === 'quadsphere' && isPreviewingSphere) {
+                        updateSpherePreview(drawStartPos, rightTargetLocal, false);
+                    }
+                }
+
+                chunks.forEach(chunk => chunk.updateBuffers());
+            }
+            renderer.render(scene, camera);
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
