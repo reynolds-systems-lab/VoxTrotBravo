@@ -331,6 +331,78 @@
         const selBoxMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat);
         selectionGroup.add(selBoxMesh);
 
+        // --- Preview System for Arrays and Mirrors ---
+        const previewContainer = new THREE.Group();
+        worldGroup.add(previewContainer);
+        const previewGroups = [];
+
+        function updatePreviews() {
+            for (let i = 0; i < previewGroups.length; i++) previewGroups[i].visible = false;
+            if (!hasSelection) return;
+
+            let pIdx = 0;
+            function getPreviewGroup(px, py, pz, sx, sy, sz) {
+                if (pIdx >= previewGroups.length) {
+                    const g = new THREE.Group();
+                    
+                    const m1 = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000);
+                    const m2 = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000);
+                    const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000);
+                    
+                    const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat);
+                    g.add(m1); g.add(m2); g.add(m3); g.add(bMesh);
+                    
+                    previewContainer.add(g);
+                    previewGroups.push(g);
+                }
+                const g = previewGroups[pIdx];
+                
+                // CRITICAL OPTIMIZATION: 
+                // We share the InstancedBufferAttributes directly from the main selection. 
+                // This prevents duplicating megabytes of arrays and keeps memory usage flat!
+                g.children[0].instanceMatrix = selMeshSolid.instanceMatrix;
+                g.children[0].instanceColor = selMeshSolid.instanceColor;
+                g.children[0].count = selMeshSolid.count;
+
+                g.children[1].instanceMatrix = selMeshGlass.instanceMatrix;
+                g.children[1].instanceColor = selMeshGlass.instanceColor;
+                g.children[1].count = selMeshGlass.count;
+
+                g.children[2].instanceMatrix = selMeshEmission.instanceMatrix;
+                g.children[2].instanceColor = selMeshEmission.instanceColor;
+                g.children[2].count = selMeshEmission.count;
+                
+                g.children[3].position.copy(selBoxMesh.position);
+                g.children[3].scale.copy(selBoxMesh.scale);
+                
+                g.position.set(px, py, pz);
+                g.scale.set(sx, sy, sz);
+                g.visible = true;
+                pIdx++;
+            }
+
+            const steps = transformMode === 'copy' ? numCopies : 1;
+            const offX = Math.round(selectionGroup.position.x / VOXEL_SIZE) * VOXEL_SIZE;
+            const offY = Math.round(selectionGroup.position.y / VOXEL_SIZE) * VOXEL_SIZE;
+            const offZ = Math.round(selectionGroup.position.z / VOXEL_SIZE) * VOXEL_SIZE;
+
+            for (let step = 1; step <= steps; step++) {
+                const cx = offX * step;
+                const cy = offY * step;
+                const cz = offZ * step;
+
+                // Step > 1 needs unmirrored preview (Step 1 is the main selectionGroup itself)
+                if (step > 1) {
+                    getPreviewGroup(cx, cy, cz, 1, 1, 1);
+                }
+                
+                // Mirrored copies for all steps
+                if (mirrorX) getPreviewGroup(-cx, cy, cz, -1, 1, 1);
+                if (mirrorZ) getPreviewGroup(cx, cy, -cz, 1, 1, -1);
+                if (mirrorX && mirrorZ) getPreviewGroup(-cx, cy, -cz, -1, 1, -1);
+            }
+        }
+
         function updateCursors() {
             let effSize = brushSize;
             if (activeTool === 'box' || activeTool === 'quadsphere' || activeTool === 'select' || (activeTool === 'paint' && paintMode === 'bucket')) {
@@ -1881,6 +1953,12 @@
                     linePreviewMesh.visible = false;
                 }
 
+                if (hasSelection) {
+                    updatePreviews();
+                } else if (previewGroups.length > 0 && previewGroups[0].visible) {
+                    for (let i = 0; i < previewGroups.length; i++) previewGroups[i].visible = false;
+                }
+
                 chunks.forEach(chunk => chunk.updateBuffers());
             }
             renderer.render(scene, camera);
@@ -1889,4 +1967,4 @@
         window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
     </script>
 </body>
-</html
+</html>
