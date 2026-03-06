@@ -88,7 +88,8 @@
         const tempColorForDraw = new THREE.Color();
         
         let isVerticalLock = true;
-        let mirrorMode = false;
+        let mirrorX = false;
+        let mirrorZ = false;
         
         let isPreviewingBox = false;
         let isPreviewingSphere = false;
@@ -449,8 +450,9 @@
             leftMenuCtx.textAlign = 'center';
             leftMenuCtx.fillText(`Tool Options | Blocks: ${totalActiveVoxels.toLocaleString()}`, 256, 40);
 
-            drawButton(leftMenuCtx, 50, 70, 200, 50, `Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
-            drawButton(leftMenuCtx, 262, 70, 200, 50, `Mirror X: ${mirrorMode ? 'ON' : 'OFF'}`, mirrorMode);
+            drawButton(leftMenuCtx, 50, 70, 130, 50, `Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
+            drawButton(leftMenuCtx, 190, 70, 130, 50, `Mirror X: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
+            drawButton(leftMenuCtx, 330, 70, 132, 50, `Mirror Z: ${mirrorZ ? 'ON' : 'OFF'}`, mirrorZ);
 
             if (activeTool === 'brush') {
                 drawButton(leftMenuCtx, 50, 140, 200, 50, 'Shape: CUBE', brushShape === 'cube');
@@ -532,8 +534,9 @@
 
         function handleLeftMenuClick(cx, cy) {
             if (cy >= 70 && cy <= 120) {
-                if (cx >= 50 && cx <= 250) isVerticalLock = !isVerticalLock;
-                if (cx >= 262 && cx <= 462) mirrorMode = !mirrorMode;
+                if (cx >= 50 && cx <= 180) isVerticalLock = !isVerticalLock;
+                if (cx >= 190 && cx <= 320) mirrorX = !mirrorX;
+                if (cx >= 330 && cx <= 462) mirrorZ = !mirrorZ;
             }
             if (cy >= 140 && cy <= 190) {
                 if (activeTool === 'brush') {
@@ -1108,14 +1111,18 @@
             }
         }
 
-        function setVoxel(gx, gy, gz, isPainting, color) {
-            setVoxelCore(gx, gy, gz, isPainting, color);
-            if (mirrorMode && gx !== 0) setVoxelCore(-gx, gy, gz, isPainting, color); 
+        function setVoxel(gx, gy, gz, isPainting, color, matOverride = -1) {
+            setVoxelCore(gx, gy, gz, isPainting, color, matOverride);
+            if (mirrorX && gx !== 0) setVoxelCore(-gx, gy, gz, isPainting, color, matOverride);
+            if (mirrorZ && gz !== 0) setVoxelCore(gx, gy, -gz, isPainting, color, matOverride);
+            if (mirrorX && mirrorZ && gx !== 0 && gz !== 0) setVoxelCore(-gx, gy, -gz, isPainting, color, matOverride);
         }
 
         function recolorVoxelSet(gx, gy, gz, color) {
             recolorVoxel(gx, gy, gz, color, activeMaterialType);
-            if (mirrorMode && gx !== 0) recolorVoxel(-gx, gy, gz, color, activeMaterialType);
+            if (mirrorX && gx !== 0) recolorVoxel(-gx, gy, gz, color, activeMaterialType);
+            if (mirrorZ && gz !== 0) recolorVoxel(gx, gy, -gz, color, activeMaterialType);
+            if (mirrorX && mirrorZ && gx !== 0 && gz !== 0) recolorVoxel(-gx, gy, -gz, color, activeMaterialType);
         }
 
         // --- Select Tool Functions ---
@@ -1280,12 +1287,12 @@
             if (transformMode === 'copy') {
                 for (let step = 1; step <= numCopies; step++) {
                     for(let v of selectedVoxels) {
-                        setVoxelCore(v.x + offX * step, v.y + offY * step, v.z + offZ * step, true, v.color, v.mat);
+                        setVoxel(v.x + offX * step, v.y + offY * step, v.z + offZ * step, true, v.color, v.mat);
                     }
                 }
             } else {
                 for(let v of selectedVoxels) {
-                    setVoxelCore(v.x + offX, v.y + offY, v.z + offZ, true, v.color, v.mat);
+                    setVoxel(v.x + offX, v.y + offY, v.z + offZ, true, v.color, v.mat);
                 }
             }
             
