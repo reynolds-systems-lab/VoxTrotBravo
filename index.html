@@ -40,7 +40,7 @@
 <body>
     <div id="ui-container">
         <h1>VoxTrotBravo</h1>
-        <p><b>Left Trigger:</b> Draw / Select | <b>Right Trigger:</b> Erase / Apply</p>
+        <p><b>Left Trigger:</b> Draw / Select | <b>Right Trigger:</b> Erase / Apply / Drag Sliders</p>
         <p><b>Grips:</b> Grab to Move, Scale & Rotate World</p>
         <p><b>A Button (Right):</b> Tool Menu | <b>X Button:</b> Options Menu | <b>Y Button:</b> Color & Material</p>
     </div>
@@ -77,6 +77,12 @@
         const selectionOffset = new THREE.Vector3();
         const dragStartCtrlPos = new THREE.Vector3();
         const dragStartOffset = new THREE.Vector3();
+        
+        // Selection Rotation States
+        let selectionRotX = 0;
+        let selectionRotY = 0;
+        let selectionRotZ = 0;
+        let activeSliderDrag = null; // Tracks if user is actively dragging a slider
 
         let activeMaterialType = 0; 
         let colorMode = 'solid'; 
@@ -578,6 +584,22 @@
             ctx.fillText(text, x + w/2, y + h/2);
         }
 
+        function drawSlider(ctx, x, y, w, h, label, val, min, max) {
+            ctx.fillStyle = '#333';
+            ctx.fillRect(x, y, w, h);
+            const pct = (val - min) / (max - min);
+            ctx.fillStyle = '#4facfe';
+            ctx.fillRect(x, y, w * pct, h);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${label}: ${val}°`, x + w/2, y + h/2);
+        }
+
         // TOOL OPTIONS MENU (X Button)
         const leftMenuCanvas = document.createElement('canvas');
         leftMenuCanvas.width = 512;
@@ -648,22 +670,22 @@
                     leftMenuCtx.font = '16px sans-serif';
                     leftMenuCtx.fillText('Use Left Trigger to start selecting.', 256, 230);
                 } else {
-                    drawButton(leftMenuCtx, 50, 140, 130, 50, 'ROT X', false);
-                    drawButton(leftMenuCtx, 190, 140, 130, 50, 'ROT Y', false);
-                    drawButton(leftMenuCtx, 330, 140, 132, 50, 'ROT Z', false);
+                    drawSlider(leftMenuCtx, 50, 130, 412, 40, 'ROT X', selectionRotX, -180, 180);
+                    drawSlider(leftMenuCtx, 50, 180, 412, 40, 'ROT Y', selectionRotY, -180, 180);
+                    drawSlider(leftMenuCtx, 50, 230, 412, 40, 'ROT Z', selectionRotZ, -180, 180);
                     
-                    drawButton(leftMenuCtx, 50, 210, 200, 50, 'MODE: MOVE', transformMode === 'move');
-                    drawButton(leftMenuCtx, 262, 210, 200, 50, 'MODE: COPY', transformMode === 'copy');
+                    drawButton(leftMenuCtx, 50, 280, 200, 40, 'MODE: MOVE', transformMode === 'move');
+                    drawButton(leftMenuCtx, 262, 280, 200, 40, 'MODE: COPY', transformMode === 'copy');
 
                     if (transformMode === 'copy') {
-                        drawButton(leftMenuCtx, 50, 280, 80, 50, '[-]', false);
-                        drawButton(leftMenuCtx, 140, 280, 232, 50, `Copies: ${numCopies}`, false);
-                        drawButton(leftMenuCtx, 382, 280, 80, 50, '[+]', false);
+                        drawButton(leftMenuCtx, 50, 330, 80, 40, '[-]', false);
+                        drawButton(leftMenuCtx, 140, 330, 232, 40, `Copies: ${numCopies}`, false);
+                        drawButton(leftMenuCtx, 382, 330, 80, 40, '[+]', false);
                     }
                     
-                    drawButton(leftMenuCtx, 50, 350, 130, 50, 'APPLY', false);
-                    drawButton(leftMenuCtx, 190, 350, 130, 50, 'CANCEL', false);
-                    drawButton(leftMenuCtx, 330, 350, 132, 50, 'DELETE', false);
+                    drawButton(leftMenuCtx, 50, 380, 130, 40, 'APPLY', false);
+                    drawButton(leftMenuCtx, 190, 380, 130, 40, 'CANCEL', false);
+                    drawButton(leftMenuCtx, 330, 380, 132, 40, 'DELETE', false);
 
                     leftMenuCtx.fillStyle = '#aaa';
                     leftMenuCtx.font = '16px sans-serif';
@@ -687,7 +709,32 @@
                 if (cx >= 190 && cx <= 320) mirrorX = !mirrorX;
                 if (cx >= 330 && cx <= 462) mirrorZ = !mirrorZ;
             }
-            if (cy >= 140 && cy <= 190) {
+            
+            if (activeTool === 'select' && hasSelection) {
+                if (cy >= 280 && cy <= 320) {
+                    let newMode = null;
+                    if (cx >= 50 && cx <= 250) newMode = 'move';
+                    if (cx >= 262 && cx <= 462) newMode = 'copy';
+                    
+                    if (newMode && newMode !== transformMode) {
+                        transformMode = newMode;
+                        if (transformMode === 'copy') {
+                            for(let v of selectedVoxels) setVoxelCore(v.origX, v.origY, v.origZ, true, v.color, v.mat);
+                        } else {
+                            for(let v of selectedVoxels) setVoxelCore(v.origX, v.origY, v.origZ, false, null);
+                        }
+                    }
+                }
+                if (transformMode === 'copy' && cy >= 330 && cy <= 370) {
+                    if (cx >= 50 && cx <= 130) numCopies = Math.max(1, numCopies - 1);
+                    if (cx >= 382 && cx <= 462) numCopies = Math.min(20, numCopies + 1);
+                }
+                if (cy >= 380 && cy <= 420) {
+                    if (cx >= 50 && cx <= 180) applySelection();
+                    if (cx >= 190 && cx <= 320) cancelSelection();
+                    if (cx >= 330 && cx <= 462) deleteSelection();
+                }
+            } else if (cy >= 140 && cy <= 190) {
                 if (activeTool === 'brush') {
                     if (cx >= 50 && cx <= 250) brushShape = 'cube';
                     if (cx >= 262 && cx <= 462) brushShape = 'sphere';
@@ -706,43 +753,11 @@
                 } else if (activeTool === 'quadsphere') {
                     if (cx >= 50 && cx <= 250) sphereMode = 'solid';
                     if (cx >= 262 && cx <= 462) sphereMode = 'shell';
-                } else if (activeTool === 'select') {
-                    if (!hasSelection) {
-                        if (cx >= 50 && cx <= 250) selectMode = 'box';
-                        if (cx >= 262 && cx <= 462) selectMode = 'connected';
-                    } else {
-                        if (cx >= 50 && cx <= 180) rotateSelection('x');
-                        if (cx >= 190 && cx <= 320) rotateSelection('y');
-                        if (cx >= 330 && cx <= 462) rotateSelection('z');
-                    }
+                } else if (activeTool === 'select' && !hasSelection) {
+                    if (cx >= 50 && cx <= 250) selectMode = 'box';
+                    if (cx >= 262 && cx <= 462) selectMode = 'connected';
                 }
                 updateCursors();
-            }
-            
-            if (activeTool === 'select' && hasSelection) {
-                if (cy >= 210 && cy <= 260) {
-                    let newMode = null;
-                    if (cx >= 50 && cx <= 250) newMode = 'move';
-                    if (cx >= 262 && cx <= 462) newMode = 'copy';
-                    
-                    if (newMode && newMode !== transformMode) {
-                        transformMode = newMode;
-                        if (transformMode === 'copy') {
-                            for(let v of selectedVoxels) setVoxelCore(v.origX, v.origY, v.origZ, true, v.color, v.mat);
-                        } else {
-                            for(let v of selectedVoxels) setVoxelCore(v.origX, v.origY, v.origZ, false, null);
-                        }
-                    }
-                }
-                if (transformMode === 'copy' && cy >= 280 && cy <= 330) {
-                    if (cx >= 50 && cx <= 130) numCopies = Math.max(1, numCopies - 1);
-                    if (cx >= 382 && cx <= 462) numCopies = Math.min(20, numCopies + 1);
-                }
-                if (cy >= 350 && cy <= 400) {
-                    if (cx >= 50 && cx <= 180) applySelection();
-                    if (cx >= 190 && cx <= 320) cancelSelection();
-                    if (cx >= 330 && cx <= 462) deleteSelection();
-                }
             } else if (activeTool === 'paint' && paintMode === 'brush') {
                 if (cy >= 210 && cy <= 260) {
                     if (cx >= 50 && cx <= 250) brushShape = 'cube';
@@ -1319,9 +1334,32 @@
             }
         }
 
+        const tempEuler = new THREE.Euler();
+        const tempVec3 = new THREE.Vector3();
+        
+        function updateRotatedSelection() {
+            tempEuler.set(
+                THREE.MathUtils.degToRad(selectionRotX), 
+                THREE.MathUtils.degToRad(selectionRotY), 
+                THREE.MathUtils.degToRad(selectionRotZ), 
+                'XYZ'
+            );
+            for(let v of selectedVoxels) {
+                tempVec3.set(v.origX - selectionCenter.x, v.origY - selectionCenter.y, v.origZ - selectionCenter.z);
+                tempVec3.applyEuler(tempEuler);
+                v.x = Math.round(selectionCenter.x + tempVec3.x);
+                v.y = Math.round(selectionCenter.y + tempVec3.y);
+                v.z = Math.round(selectionCenter.z + tempVec3.z);
+            }
+            updateSelectionVisuals();
+        }
+
         function finalizeSelection() {
             transformMode = 'move';
             numCopies = 1;
+            selectionRotX = 0;
+            selectionRotY = 0;
+            selectionRotZ = 0;
             for(let v of selectedVoxels) {
                 setVoxelCore(v.origX, v.origY, v.origZ, false, null);
             }
@@ -1411,24 +1449,6 @@
                 }
             }
             if (selectedVoxels.length > 0) finalizeSelection();
-        }
-
-        function rotateSelection(axis) {
-            for(let v of selectedVoxels) {
-                let dx = v.x - selectionCenter.x;
-                let dy = v.y - selectionCenter.y;
-                let dz = v.z - selectionCenter.z;
-                
-                let rx = dx, ry = dy, rz = dz;
-                if (axis === 'x') { ry = -dz; rz = dy; } 
-                else if (axis === 'y') { rx = dz; rz = -dx; } 
-                else if (axis === 'z') { rx = -dy; ry = dx; }
-                
-                v.x = Math.round(selectionCenter.x + rx);
-                v.y = Math.round(selectionCenter.y + ry);
-                v.z = Math.round(selectionCenter.z + rz);
-            }
-            updateSelectionVisuals();
         }
 
         function applySelection() {
@@ -1750,7 +1770,17 @@
         
         controllerRight.addEventListener('selectstart', () => { 
             if (leftMenuHovered && leftMenuMesh.visible) {
-                handleLeftMenuClick(Math.floor(leftMenuUV.x * 512), Math.floor((1 - leftMenuUV.y) * 512));
+                const cx = Math.floor(leftMenuUV.x * 512); 
+                const cy = Math.floor((1 - leftMenuUV.y) * 512);
+                
+                // Allow scrubbing sliders if pointing at them
+                if (activeTool === 'select' && hasSelection && cy >= 130 && cy <= 270 && cx >= 50 && cx <= 462) {
+                    if (cy <= 170) activeSliderDrag = 'rotX';
+                    else if (cy <= 220) activeSliderDrag = 'rotY';
+                    else activeSliderDrag = 'rotZ';
+                } else {
+                    handleLeftMenuClick(cx, cy);
+                }
             } else if (colorMenuHovered && colorMenuMesh.visible) {
                 const cx = Math.floor(colorMenuUV.x * 512); 
                 const cy = Math.floor((1 - colorMenuUV.y) * 512);
@@ -1787,7 +1817,9 @@
             }
         });
         controllerRight.addEventListener('selectend', () => { 
-            if (isColorPicking) {
+            if (activeSliderDrag) {
+                activeSliderDrag = null;
+            } else if (isColorPicking) {
                 isColorPicking = false;
                 isPaletteMagnified = false;
                 updateColorMenuTexture(); 
@@ -1898,7 +1930,22 @@
                     leftMenuHovered = false; colorMenuHovered = false; rightLaserLine.visible = false;
                 }
 
-                if (isColorPicking && colorMenuHovered) {
+                if (activeSliderDrag && leftMenuHovered) {
+                    const cx = Math.floor(leftMenuUV.x * 512);
+                    const pct = Math.max(0, Math.min(1, (cx - 50) / 412));
+                    const rawVal = -180 + pct * 360;
+                    const snappedVal = Math.round(rawVal / 15) * 15;
+                    
+                    let changed = false;
+                    if (activeSliderDrag === 'rotX' && selectionRotX !== snappedVal) { selectionRotX = snappedVal; changed = true; }
+                    if (activeSliderDrag === 'rotY' && selectionRotY !== snappedVal) { selectionRotY = snappedVal; changed = true; }
+                    if (activeSliderDrag === 'rotZ' && selectionRotZ !== snappedVal) { selectionRotZ = snappedVal; changed = true; }
+                    
+                    if (changed) {
+                        updateRotatedSelection();
+                        leftMenuNeedsUpdate = true;
+                    }
+                } else if (isColorPicking && colorMenuHovered) {
                     const cx = Math.floor(colorMenuUV.x * 512); 
                     const cy = Math.floor((1 - colorMenuUV.y) * 512);
                     
