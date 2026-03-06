@@ -703,22 +703,18 @@
                 drawButton(leftMenuCtx, 50, 70, 200, 50, 'SOLID', sphereMode === 'solid');
                 drawButton(leftMenuCtx, 262, 70, 200, 50, 'SHELL', sphereMode === 'shell');
             } else if (activeTool === 'plane') {
-                // Row 1: Outline & Thickness
+                // Row 1: Outline & Thickness (Thickness is always adjustable to size the gap)
                 drawButton(leftMenuCtx, 30, 70, 150, 50, `OUTLINE: ${planeOutline?'ON':'OFF'}`, planeOutline);
-                if (planeOutline) {
-                    drawButton(leftMenuCtx, 190, 70, 50, 50, '-', false);
-                    drawButton(leftMenuCtx, 250, 70, 160, 50, `O-Thick: ${planeOutlineThick}`, false);
-                    drawButton(leftMenuCtx, 420, 70, 50, 50, '+', false);
-                }
+                drawButton(leftMenuCtx, 190, 70, 50, 50, '-', false);
+                drawButton(leftMenuCtx, 250, 70, 160, 50, `O-Thick: ${planeOutlineThick}`, false);
+                drawButton(leftMenuCtx, 420, 70, 50, 50, '+', false);
 
-                // Row 2: Fill, Grid, & Grid Thickness
+                // Row 2: Fill, Grid, & Grid Thickness (Thickness is always adjustable to size the gap)
                 drawButton(leftMenuCtx, 30, 140, 100, 50, `FILL: ${planeFill?'ON':'OFF'}`, planeFill);
                 drawButton(leftMenuCtx, 140, 140, 100, 50, `GRID: ${planeGrid?'ON':'OFF'}`, planeGrid);
-                if (planeGrid) {
-                    drawButton(leftMenuCtx, 250, 140, 40, 50, '-', false);
-                    drawButton(leftMenuCtx, 300, 140, 120, 50, `G-Thick: ${planeGridThick}`, false);
-                    drawButton(leftMenuCtx, 430, 140, 40, 50, '+', false);
-                }
+                drawButton(leftMenuCtx, 250, 140, 40, 50, '-', false);
+                drawButton(leftMenuCtx, 300, 140, 120, 50, `G-Thick: ${planeGridThick}`, false);
+                drawButton(leftMenuCtx, 430, 140, 40, 50, '+', false);
 
                 // Row 3: Grid Divisions
                 drawButton(leftMenuCtx, 30, 210, 40, 50, '-', false);
@@ -819,20 +815,16 @@
                     if (cx >= 262 && cx <= 462) selectMode = 'connected';
                 } else if (activeTool === 'plane') {
                     if (cx >= 30 && cx <= 180) planeOutline = !planeOutline;
-                    if (planeOutline) {
-                        if (cx >= 190 && cx <= 240) planeOutlineThick = Math.max(1, planeOutlineThick - 1);
-                        if (cx >= 420 && cx <= 470) planeOutlineThick = Math.min(10, planeOutlineThick + 1);
-                    }
+                    if (cx >= 190 && cx <= 240) planeOutlineThick = Math.max(1, planeOutlineThick - 1);
+                    if (cx >= 420 && cx <= 470) planeOutlineThick = Math.min(10, planeOutlineThick + 1);
                 }
                 updateCursors();
             } else if (activeTool === 'plane') {
                 if (cy >= 140 && cy <= 190) {
                     if (cx >= 30 && cx <= 130) planeFill = !planeFill;
                     if (cx >= 140 && cx <= 240) planeGrid = !planeGrid;
-                    if (planeGrid) {
-                        if (cx >= 250 && cx <= 290) planeGridThick = Math.max(1, planeGridThick - 1);
-                        if (cx >= 430 && cx <= 470) planeGridThick = Math.min(10, planeGridThick + 1);
-                    }
+                    if (cx >= 250 && cx <= 290) planeGridThick = Math.max(1, planeGridThick - 1);
+                    if (cx >= 430 && cx <= 470) planeGridThick = Math.min(10, planeGridThick + 1);
                 } else if (cy >= 210 && cy <= 260) {
                     if (cx >= 30 && cx <= 70) planeDivU = Math.max(1, planeDivU - 1);
                     if (cx >= 190 && cx <= 230) planeDivU = Math.min(20, planeDivU + 1);
@@ -1915,8 +1907,8 @@
 
             if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
 
-            const oThick = planeOutline ? planeOutlineThick : 0;
-            const gThick = planeGrid ? planeGridThick : 0;
+            const oThick = planeOutlineThick; // Always use the configured thickness for structural space
+            const gThick = planeGridThick;    // Always use the configured thickness for structural space
             const col1 = brushColor;
             const col2 = brushColor2;
 
@@ -1951,8 +1943,12 @@
                         const distV = Math.min(v - minV, maxV - v);
                         const minDist = Math.min(distU, distV);
 
-                        if (planeOutline && minDist < oThick) {
-                            setVoxel(gx, gy, gz, true, col1);
+                        if (minDist < oThick) {
+                            if (planeOutline) {
+                                setVoxel(gx, gy, gz, true, col1);
+                            } else {
+                                setVoxel(gx, gy, gz, false, null); // Leave hole for missing outline
+                            }
                         } else {
                             const gMinU = minU + oThick;
                             const gMaxU = maxU - oThick;
@@ -1964,16 +1960,15 @@
 
                             if (gSizeU <= 0 || gSizeV <= 0) continue; 
 
-                            let isGridLineU = false;
-                            let isGridLineV = false;
+                            let isGridLineU = isGridOnAxis(planeDivU, u - gMinU, gSizeU, gThick);
+                            let isGridLineV = isGridOnAxis(planeDivV, v - gMinV, gSizeV, gThick);
 
-                            if (planeGrid) {
-                                isGridLineU = isGridOnAxis(planeDivU, u - gMinU, gSizeU, gThick);
-                                isGridLineV = isGridOnAxis(planeDivV, v - gMinV, gSizeV, gThick);
-                            }
-
-                            if (planeGrid && (isGridLineU || isGridLineV)) {
-                                setVoxel(gx, gy, gz, true, col1);
+                            if (isGridLineU || isGridLineV) {
+                                if (planeGrid) {
+                                    setVoxel(gx, gy, gz, true, col1);
+                                } else {
+                                    setVoxel(gx, gy, gz, false, null); // Leave hole for missing grid line
+                                }
                             } else {
                                 if (planeFill) {
                                     setVoxel(gx, gy, gz, true, col2); 
