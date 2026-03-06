@@ -66,7 +66,6 @@
         let paintMode = 'brush'; 
         let exportMode = 'boxes'; 
         
-        // Plane Tool specific variables
         let planeOutline = true;
         let planeOutlineThick = 1;
         let planeFill = true;
@@ -76,7 +75,6 @@
         let planeDivV = 2;
         let planeThick = 1;
         
-        // Selection State variables
         let selectMode = 'box'; 
         let transformMode = 'move'; 
         let numCopies = 1; 
@@ -120,6 +118,25 @@
 
         let hoveredFillCoords = [];
         const lastHoveredVoxel = new THREE.Vector3(Infinity, Infinity, Infinity);
+
+        // --- Performance & GC Optimization Pre-allocations ---
+        const rotR = new THREE.Matrix4();
+        const rotR_inv = new THREE.Matrix4();
+        const selRotEuler = new THREE.Euler();
+        const fillVisited = new Set();
+        const fillQueue = [];
+        const selVisited = new Set();
+        const selQueue = [];
+        const origMap = new Map();
+        const tempMatrix = new THREE.Matrix4();
+        const tempColor = new THREE.Color();
+        const tempPos = new THREE.Vector3();
+        const tempQuat = new THREE.Quaternion(); 
+        const midPos = new THREE.Vector3();
+        const currentHandVec = new THREE.Vector3(); 
+        const panDelta = new THREE.Vector3();
+        const queryColor = new THREE.Color();
+        const targetQueryColor = new THREE.Color();
 
         // --- Scene Setup ---
         const scene = new THREE.Scene();
@@ -165,10 +182,6 @@
         
         const voxelMaterials = [matSolid, matGlass, matEmission];
         const chunks = new Map(); 
-
-        const tempMatrix = new THREE.Matrix4();
-        const tempColor = new THREE.Color();
-        const tempPos = new THREE.Vector3();
 
         class ChunkLayer {
             constructor(cx, cy, cz, material) {
@@ -1127,7 +1140,7 @@
                 linePreviewMesh.visible = false;
                 
                 lastHoveredVoxel.set(Infinity, Infinity, Infinity);
-                hoveredFillCoords = [];
+                hoveredFillCoords.length = 0;
                 lastPaintedPos.set(Infinity, Infinity, Infinity);
                 lastErasedPos.set(Infinity, Infinity, Infinity);
 
@@ -1332,9 +1345,6 @@
             return brushColor;
         }
 
-        const queryColor = new THREE.Color();
-        const targetQueryColor = new THREE.Color();
-
         function getVoxelMatAndColor(gx, gy, gz, outColor) {
             const cx = Math.floor(gx / CHUNK_SIZE);
             const cy = Math.floor(gy / CHUNK_SIZE);
@@ -1462,50 +1472,47 @@
                 selectionGroup.visible = false;
             }
         }
-
-        const tempEuler = new THREE.Euler();
-        const tempVec3 = new THREE.Vector3();
         
         function updateRotatedSelection() {
-            tempEuler.set(
+            selRotEuler.set(
                 THREE.MathUtils.degToRad(selectionRotX), 
                 THREE.MathUtils.degToRad(selectionRotY), 
                 THREE.MathUtils.degToRad(selectionRotZ), 
                 'XYZ'
             );
-            const R = new THREE.Matrix4().makeRotationFromEuler(tempEuler);
+            rotR.makeRotationFromEuler(selRotEuler);
             
             const isOrthogonal = (selectionRotX % 90 === 0) && (selectionRotY % 90 === 0) && (selectionRotZ % 90 === 0);
 
-            selectedVoxels = [];
+            selectedVoxels.length = 0;
 
             if (isOrthogonal) {
                 for (let v of baseSelection) {
-                    tempVec3.set(v.x - selectionCenter.x, v.y - selectionCenter.y, v.z - selectionCenter.z);
-                    tempVec3.applyMatrix4(R);
+                    tempPos.set(v.x - selectionCenter.x, v.y - selectionCenter.y, v.z - selectionCenter.z);
+                    tempPos.applyMatrix4(rotR);
                     selectedVoxels.push({
-                        x: Math.round(selectionCenter.x + tempVec3.x),
-                        y: Math.round(selectionCenter.y + tempVec3.y),
-                        z: Math.round(selectionCenter.z + tempVec3.z),
+                        x: Math.round(selectionCenter.x + tempPos.x),
+                        y: Math.round(selectionCenter.y + tempPos.y),
+                        z: Math.round(selectionCenter.z + tempPos.z),
                         color: v.color,
                         mat: v.mat
                     });
                 }
             } else {
-                const R_inv = new THREE.Matrix4().copy(R).invert();
+                rotR_inv.copy(rotR).invert();
+                origMap.clear();
                 
-                const origMap = new Map();
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
                 
                 for (let v of baseSelection) {
                     const hash = (v.x + 32768) + (v.y + 32768) * 65536 + (v.z + 32768) * 4294967296;
                     origMap.set(hash, v);
                     
-                    tempVec3.set(v.x - selectionCenter.x, v.y - selectionCenter.y, v.z - selectionCenter.z);
-                    tempVec3.applyMatrix4(R);
-                    const rx = selectionCenter.x + tempVec3.x;
-                    const ry = selectionCenter.y + tempVec3.y;
-                    const rz = selectionCenter.z + tempVec3.z;
+                    tempPos.set(v.x - selectionCenter.x, v.y - selectionCenter.y, v.z - selectionCenter.z);
+                    tempPos.applyMatrix4(rotR);
+                    const rx = selectionCenter.x + tempPos.x;
+                    const ry = selectionCenter.y + tempPos.y;
+                    const rz = selectionCenter.z + tempPos.z;
                     
                     if (rx < minX) minX = rx; if (rx > maxX) maxX = rx;
                     if (ry < minY) minY = ry; if (ry > maxY) maxY = ry;
@@ -1516,7 +1523,7 @@
                 minY = Math.floor(minY) - 1; maxY = Math.ceil(maxY) + 1;
                 minZ = Math.floor(minZ) - 1; maxZ = Math.ceil(maxZ) + 1;
                 
-                const e = R_inv.elements;
+                const e = rotR_inv.elements;
                 const inv0 = e[0], inv4 = e[4], inv8 = e[8];
                 const inv1 = e[1], inv5 = e[5], inv9 = e[9];
                 const inv2 = e[2], inv6 = e[6], inv10 = e[10];
@@ -1591,7 +1598,7 @@
 
             if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
 
-            baseSelection = [];
+            baseSelection.length = 0;
             for(let gx = minX; gx <= maxX; gx++) {
                 for(let gy = minY; gy <= maxY; gy++) {
                     for(let gz = minZ; gz <= maxZ; gz++) {
@@ -1605,6 +1612,7 @@
             if (baseSelection.length > 0) finalizeSelection();
         }
 
+        // Optimized GC-Free BFS
         function executeSelectConnected(targetPos) {
             const startX = Math.round(targetPos.x / VOXEL_SIZE);
             const startY = Math.round(targetPos.y / VOXEL_SIZE);
@@ -1613,40 +1621,40 @@
             const targetMat = getVoxelMatAndColor(startX, startY, startZ, targetQueryColor);
             if (targetMat === -1) return; 
 
-            const visited = new Set();
-            const queue = [[startX, startY, startZ]];
-            visited.add(`${startX},${startY},${startZ}`);
+            selVisited.clear();
+            selQueue.length = 0;
+            selQueue.push(startX, startY, startZ);
+            selVisited.add(`${startX},${startY},${startZ}`);
             
-            baseSelection = [];
+            baseSelection.length = 0;
 
-            const selDirs = [];
-            for(let x=-1; x<=1; x++) {
-                for(let y=-1; y<=1; y++) {
-                    for(let z=-1; z<=1; z++) {
-                        if(x===0 && y===0 && z===0) continue;
-                        selDirs.push([x,y,z]);
-                    }
-                }
-            }
+            const selDirs = [
+                1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1,
+                1,1,0, -1,-1,0, 1,-1,0, -1,1,0, 1,0,1, -1,0,-1, 1,0,-1, -1,0,1, 0,1,1, 0,-1,-1, 0,1,-1, 0,-1,1,
+                1,1,1, -1,-1,-1, 1,-1,1, -1,1,-1, 1,1,-1, -1,-1,1, 1,-1,-1, -1,1,1
+            ];
 
-            while(queue.length > 0 && baseSelection.length < 65000) {
-                const [x, y, z] = queue.shift();
+            let qHead = 0;
+            while(qHead < selQueue.length && baseSelection.length < 65000) {
+                const x = selQueue[qHead++];
+                const y = selQueue[qHead++];
+                const z = selQueue[qHead++];
                 
                 const matType = getVoxelMatAndColor(x, y, z, tempColor);
                 if (matType !== -1) {
                     baseSelection.push({ x: x, y: y, z: z, color: tempColor.clone(), mat: matType });
                     
-                    for(let [dx, dy, dz] of selDirs) {
-                        const nx = x + dx; const ny = y + dy; const nz = z + dz;
+                    for(let i=0; i < selDirs.length; i+=3) {
+                        const nx = x + selDirs[i]; const ny = y + selDirs[i+1]; const nz = z + selDirs[i+2];
                         const key = `${nx},${ny},${nz}`;
-                        if (!visited.has(key)) {
-                            visited.add(key);
+                        if (!selVisited.has(key)) {
+                            selVisited.add(key);
                             const nMat = getVoxelMatAndColor(nx, ny, nz, queryColor);
                             if (nMat === targetMat &&
                                 Math.abs(queryColor.r - targetQueryColor.r) < 0.05 &&
                                 Math.abs(queryColor.g - targetQueryColor.g) < 0.05 &&
                                 Math.abs(queryColor.b - targetQueryColor.b) < 0.05) {
-                                queue.push([nx, ny, nz]);
+                                selQueue.push(nx, ny, nz);
                             }
                         }
                     }
@@ -1672,8 +1680,8 @@
                 }
             }
             
-            baseSelection = [];
-            selectedVoxels = [];
+            baseSelection.length = 0;
+            selectedVoxels.length = 0;
             hasSelection = false;
             selectionGroup.visible = false;
             selectionGroup.position.set(0,0,0);
@@ -1687,8 +1695,8 @@
                     setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat);
                 }
             }
-            baseSelection = [];
-            selectedVoxels = [];
+            baseSelection.length = 0;
+            selectedVoxels.length = 0;
             hasSelection = false;
             selectionGroup.visible = false;
             selectionGroup.position.set(0,0,0);
@@ -1697,8 +1705,8 @@
         }
 
         function deleteSelection() {
-            baseSelection = [];
-            selectedVoxels = [];
+            baseSelection.length = 0;
+            selectedVoxels.length = 0;
             hasSelection = false;
             selectionGroup.visible = false;
             selectionGroup.position.set(0,0,0);
@@ -1757,15 +1765,14 @@
             let steps = Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.25))); 
             if (steps > 300) steps = 300; 
             
-            const tempV = new THREE.Vector3();
             for (let i = 0; i <= steps; i++) {
-                tempV.lerpVectors(startPos, endPos, i / steps);
-                tempV.set(
-                    Math.round(tempV.x / VOXEL_SIZE) * VOXEL_SIZE,
-                    Math.round(tempV.y / VOXEL_SIZE) * VOXEL_SIZE,
-                    Math.round(tempV.z / VOXEL_SIZE) * VOXEL_SIZE
+                tempPos.lerpVectors(startPos, endPos, i / steps);
+                tempPos.set(
+                    Math.round(tempPos.x / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(tempPos.y / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(tempPos.z / VOXEL_SIZE) * VOXEL_SIZE
                 );
-                placeBrushVoxels(tempV, isPainting);
+                placeBrushVoxels(tempPos, isPainting);
             }
         }
 
@@ -1774,42 +1781,51 @@
             let steps = Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.25))); 
             if (steps > 300) steps = 300; 
             
-            const tempV = new THREE.Vector3();
             for (let i = 0; i <= steps; i++) {
-                tempV.lerpVectors(startPos, endPos, i / steps);
-                tempV.set(
-                    Math.round(tempV.x / VOXEL_SIZE) * VOXEL_SIZE,
-                    Math.round(tempV.y / VOXEL_SIZE) * VOXEL_SIZE,
-                    Math.round(tempV.z / VOXEL_SIZE) * VOXEL_SIZE
+                tempPos.lerpVectors(startPos, endPos, i / steps);
+                tempPos.set(
+                    Math.round(tempPos.x / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(tempPos.y / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.round(tempPos.z / VOXEL_SIZE) * VOXEL_SIZE
                 );
-                placePaintVoxels(tempV);
+                placePaintVoxels(tempPos);
             }
         }
 
+        // Optimized GC-Free BFS
         function calculateFloodFill(startX, startY, startZ) {
-            hoveredFillCoords = [];
+            hoveredFillCoords.length = 0;
             const targetMat = getVoxelMatAndColor(startX, startY, startZ, targetQueryColor);
             if (targetMat === -1) return;
 
-            const visited = new Set();
-            const queue = [[startX, startY, startZ]];
-            visited.add(`${startX},${startY},${startZ}`);
+            fillVisited.clear();
+            fillQueue.length = 0;
+            fillQueue.push(startX, startY, startZ);
+            fillVisited.add(`${startX},${startY},${startZ}`);
 
-            while(queue.length > 0 && hoveredFillCoords.length < 4000) {
-                const [x, y, z] = queue.shift();
-                hoveredFillCoords.push(new THREE.Vector3(x, y, z));
+            let qHead = 0;
+            const neighbors = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
 
-                const neighbors = [[x+1,y,z], [x-1,y,z], [x,y+1,z], [x,y-1,z], [x,y,z+1], [x,y,z-1]];
-                for (let [nx, ny, nz] of neighbors) {
+            while(qHead < fillQueue.length && hoveredFillCoords.length < 12000) {
+                const x = fillQueue[qHead++];
+                const y = fillQueue[qHead++];
+                const z = fillQueue[qHead++];
+                
+                hoveredFillCoords.push(x, y, z);
+
+                for (let i=0; i < neighbors.length; i+=3) {
+                    const nx = x + neighbors[i];
+                    const ny = y + neighbors[i+1];
+                    const nz = z + neighbors[i+2];
                     const key = `${nx},${ny},${nz}`;
-                    if (!visited.has(key)) {
-                        visited.add(key);
+                    if (!fillVisited.has(key)) {
+                        fillVisited.add(key);
                         const nMat = getVoxelMatAndColor(nx, ny, nz, queryColor);
                         if (nMat === targetMat &&
                             Math.abs(queryColor.r - targetQueryColor.r) < 0.02 &&
                             Math.abs(queryColor.g - targetQueryColor.g) < 0.02 &&
                             Math.abs(queryColor.b - targetQueryColor.b) < 0.02) {
-                            queue.push([nx, ny, nz]);
+                            fillQueue.push(nx, ny, nz);
                         }
                     }
                 }
@@ -1914,8 +1930,8 @@
 
             if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
 
-            const oThick = planeOutlineThick; // Always use the configured thickness for structural space
-            const gThick = planeGridThick;    // Always use the configured thickness for structural space
+            const oThick = planeOutlineThick; 
+            const gThick = planeGridThick;    
             const col1 = brushColor;
             const col2 = brushColor2;
 
@@ -1954,7 +1970,7 @@
                             if (planeOutline) {
                                 setVoxel(gx, gy, gz, true, col1);
                             } else {
-                                setVoxel(gx, gy, gz, false, null); // Leave hole for missing outline
+                                setVoxel(gx, gy, gz, false, null); 
                             }
                         } else {
                             const gMinU = minU + oThick;
@@ -1974,7 +1990,7 @@
                                 if (planeGrid) {
                                     setVoxel(gx, gy, gz, true, col1);
                                 } else {
-                                    setVoxel(gx, gy, gz, false, null); // Leave hole for missing grid line
+                                    setVoxel(gx, gy, gz, false, null); 
                                 }
                             } else {
                                 if (planeFill) {
@@ -2047,22 +2063,26 @@
                     if (activeTool === 'paint' && paintMode === 'bucket' && hoveredFillCoords.length > 0) {
                         let minX = Infinity, maxX = -Infinity;
                         let minY = Infinity, maxY = -Infinity;
-                        for (let i = 0; i < hoveredFillCoords.length; i++) {
-                            const p = hoveredFillCoords[i];
-                            if (p.x < minX) minX = p.x;
-                            if (p.x > maxX) maxX = p.x;
-                            if (p.y < minY) minY = p.y;
-                            if (p.y > maxY) maxY = p.y;
+                        for (let i = 0; i < hoveredFillCoords.length; i+=3) {
+                            const px = hoveredFillCoords[i];
+                            const py = hoveredFillCoords[i+1];
+                            if (px < minX) minX = px;
+                            if (px > maxX) maxX = px;
+                            if (py < minY) minY = py;
+                            if (py > maxY) maxY = py;
                         }
 
-                        hoveredFillCoords.forEach(pos => {
-                            const c = getDrawColor(pos.x, pos.y, pos.z, minX, maxX, minY, maxY);
-                            recolorVoxelSet(pos.x, pos.y, pos.z, c);
-                        });
+                        for (let i = 0; i < hoveredFillCoords.length; i+=3) {
+                            const px = hoveredFillCoords[i];
+                            const py = hoveredFillCoords[i+1];
+                            const pz = hoveredFillCoords[i+2];
+                            const c = getDrawColor(px, py, pz, minX, maxX, minY, maxY);
+                            recolorVoxelSet(px, py, pz, c);
+                        }
                         
                         leftMenuNeedsUpdate = true;
                         lastHoveredVoxel.set(Infinity, Infinity, Infinity); 
-                        hoveredFillCoords = [];
+                        hoveredFillCoords.length = 0;
                         bucketPreviewMesh.visible = false;
                     }
 
@@ -2165,7 +2185,8 @@
         function pollGamepads() {
             const session = renderer.xr.getSession();
             if (!session) return;
-            for (const source of session.inputSources) {
+            for (let i = 0; i < session.inputSources.length; i++) {
+                const source = session.inputSources[i];
                 if (source && source.gamepad) {
                     if (source.handedness === 'right') {
                         const btnA = source.gamepad.buttons[4]?.pressed || false; 
@@ -2212,9 +2233,6 @@
         }
 
         // --- Main Animation Loop ---
-        const tempQuat = new THREE.Quaternion(); const midPos = new THREE.Vector3();
-        const currentHandVec = new THREE.Vector3(); const panDelta = new THREE.Vector3();
-
         renderer.setAnimationLoop(() => {
             if (renderer.xr.isPresenting) {
                 pollGamepads();
@@ -2328,8 +2346,8 @@
                     if (gx !== lastHoveredVoxel.x || gy !== lastHoveredVoxel.y || gz !== lastHoveredVoxel.z) {
                         
                         let alreadyInRegion = false;
-                        for (let i = 0; i < hoveredFillCoords.length; i++) {
-                            if (hoveredFillCoords[i].x === gx && hoveredFillCoords[i].y === gy && hoveredFillCoords[i].z === gz) {
+                        for (let i = 0; i < hoveredFillCoords.length; i+=3) {
+                            if (hoveredFillCoords[i] === gx && hoveredFillCoords[i+1] === gy && hoveredFillCoords[i+2] === gz) {
                                 alreadyInRegion = true;
                                 break;
                             }
@@ -2339,10 +2357,11 @@
                             lastHoveredVoxel.set(gx, gy, gz);
                             calculateFloodFill(gx, gy, gz);
 
-                            if (hoveredFillCoords.length > 0) {
-                                bucketPreviewMesh.count = hoveredFillCoords.length;
-                                for (let i = 0; i < hoveredFillCoords.length; i++) {
-                                    tempMatrix.makeTranslation(hoveredFillCoords[i].x * VOXEL_SIZE, hoveredFillCoords[i].y * VOXEL_SIZE, hoveredFillCoords[i].z * VOXEL_SIZE);
+                            const pointsFound = hoveredFillCoords.length / 3;
+                            if (pointsFound > 0) {
+                                bucketPreviewMesh.count = pointsFound;
+                                for (let i = 0; i < pointsFound; i++) {
+                                    tempMatrix.makeTranslation(hoveredFillCoords[i*3] * VOXEL_SIZE, hoveredFillCoords[i*3+1] * VOXEL_SIZE, hoveredFillCoords[i*3+2] * VOXEL_SIZE);
                                     bucketPreviewMesh.setMatrixAt(i, tempMatrix);
                                 }
                                 bucketPreviewMesh.instanceMatrix.needsUpdate = true;
@@ -2358,7 +2377,7 @@
                     bucketPreviewMesh.visible = false;
                     if (activeTool !== 'paint' || paintMode !== 'bucket') {
                         lastHoveredVoxel.set(Infinity, Infinity, Infinity);
-                        hoveredFillCoords = [];
+                        hoveredFillCoords.length = 0;
                     }
                 }
 
