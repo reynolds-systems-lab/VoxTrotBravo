@@ -1271,9 +1271,11 @@
         }
 
         function applySelection() {
-            const offX = Math.round(selectionOffset.x / VOXEL_SIZE);
-            const offY = Math.round(selectionOffset.y / VOXEL_SIZE);
-            const offZ = Math.round(selectionOffset.z / VOXEL_SIZE);
+            // FIX: Using the total visual offset of the selectionGroup, NOT the delta of the final drag stroke.
+            // This prevents array copies from jumping backwards if the user's hand twitches upon releasing the trigger.
+            const offX = Math.round(selectionGroup.position.x / VOXEL_SIZE);
+            const offY = Math.round(selectionGroup.position.y / VOXEL_SIZE);
+            const offZ = Math.round(selectionGroup.position.z / VOXEL_SIZE);
             
             if (transformMode === 'copy') {
                 for (let step = 1; step <= numCopies; step++) {
