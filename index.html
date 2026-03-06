@@ -72,7 +72,12 @@
         let transformMode = 'move'; // 'move' or 'copy'
         let numCopies = 1; 
         let hasSelection = false;
+        
+        // baseSelection holds the true, unrotated original source blocks.
+        // selectedVoxels holds the active array of transformed preview blocks.
+        let baseSelection = [];
         let selectedVoxels = [];
+        
         const selectionCenter = new THREE.Vector3();
         const selectionOffset = new THREE.Vector3();
         const dragStartCtrlPos = new THREE.Vector3();
@@ -719,9 +724,9 @@
                     if (newMode && newMode !== transformMode) {
                         transformMode = newMode;
                         if (transformMode === 'copy') {
-                            for(let v of selectedVoxels) setVoxelCore(v.origX, v.origY, v.origZ, true, v.color, v.mat);
+                            for(let v of baseSelection) setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat);
                         } else {
-                            for(let v of selectedVoxels) setVoxelCore(v.origX, v.origY, v.origZ, false, null);
+                            for(let v of baseSelection) setVoxelCore(v.x, v.y, v.z, false, null);
                         }
                     }
                 }
@@ -1344,12 +1349,89 @@
                 THREE.MathUtils.degToRad(selectionRotZ), 
                 'XYZ'
             );
-            for(let v of selectedVoxels) {
-                tempVec3.set(v.origX - selectionCenter.x, v.origY - selectionCenter.y, v.origZ - selectionCenter.z);
-                tempVec3.applyEuler(tempEuler);
-                v.x = Math.round(selectionCenter.x + tempVec3.x);
-                v.y = Math.round(selectionCenter.y + tempVec3.y);
-                v.z = Math.round(selectionCenter.z + tempVec3.z);
+            const R = new THREE.Matrix4().makeRotationFromEuler(tempEuler);
+            
+            // Fast-path: Orthogonal rotations (90, 180, 270) don't create voids, safe for simple forward mapping.
+            const isOrthogonal = (selectionRotX % 90 === 0) && (selectionRotY % 90 === 0) && (selectionRotZ % 90 === 0);
+
+            selectedVoxels = [];
+
+            if (isOrthogonal) {
+                for (let v of baseSelection) {
+                    tempVec3.set(v.x - selectionCenter.x, v.y - selectionCenter.y, v.z - selectionCenter.z);
+                    tempVec3.applyMatrix4(R);
+                    selectedVoxels.push({
+                        x: Math.round(selectionCenter.x + tempVec3.x),
+                        y: Math.round(selectionCenter.y + tempVec3.y),
+                        z: Math.round(selectionCenter.z + tempVec3.z),
+                        color: v.color,
+                        mat: v.mat
+                    });
+                }
+            } else {
+                // INVERSE MAPPING for arbitrary angles to prevent "swiss cheese" voids.
+                const R_inv = new THREE.Matrix4().copy(R).invert();
+                
+                // Using integer spatial hash mapping instead of string keys to process inverse math 10x faster
+                const origMap = new Map();
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+                
+                for (let v of baseSelection) {
+                    const hash = (v.x + 32768) + (v.y + 32768) * 65536 + (v.z + 32768) * 4294967296;
+                    origMap.set(hash, v);
+                    
+                    // We calculate the boundary of the *Target* shape to scan through
+                    tempVec3.set(v.x - selectionCenter.x, v.y - selectionCenter.y, v.z - selectionCenter.z);
+                    tempVec3.applyMatrix4(R);
+                    const rx = selectionCenter.x + tempVec3.x;
+                    const ry = selectionCenter.y + tempVec3.y;
+                    const rz = selectionCenter.z + tempVec3.z;
+                    
+                    if (rx < minX) minX = rx; if (rx > maxX) maxX = rx;
+                    if (ry < minY) minY = ry; if (ry > maxY) maxY = ry;
+                    if (rz < minZ) minZ = rz; if (rz > maxZ) maxZ = rz;
+                }
+                
+                // Add 1-voxel padding border to catch soft-rotated edges
+                minX = Math.floor(minX) - 1; maxX = Math.ceil(maxX) + 1;
+                minY = Math.floor(minY) - 1; maxY = Math.ceil(maxY) + 1;
+                minZ = Math.floor(minZ) - 1; maxZ = Math.ceil(maxZ) + 1;
+                
+                // Manual unroll of matrix multiplication for inner-loop performance
+                const e = R_inv.elements;
+                const inv0 = e[0], inv4 = e[4], inv8 = e[8];
+                const inv1 = e[1], inv5 = e[5], inv9 = e[9];
+                const inv2 = e[2], inv6 = e[6], inv10 = e[10];
+
+                const cx = selectionCenter.x;
+                const cy = selectionCenter.y;
+                const cz = selectionCenter.z;
+
+                for (let x = minX; x <= maxX; x++) {
+                    const dx = x - cx;
+                    for (let y = minY; y <= maxY; y++) {
+                        const dy = y - cy;
+                        for (let z = minZ; z <= maxZ; z++) {
+                            const dz = z - cz;
+
+                            // Inverse rotate the empty target space coordinate to find its original coordinate
+                            const srcX = Math.round(cx + dx * inv0 + dy * inv4 + dz * inv8);
+                            const srcY = Math.round(cy + dx * inv1 + dy * inv5 + dz * inv9);
+                            const srcZ = Math.round(cz + dx * inv2 + dy * inv6 + dz * inv10);
+                            
+                            const hash = (srcX + 32768) + (srcY + 32768) * 65536 + (srcZ + 32768) * 4294967296;
+                            const origVoxel = origMap.get(hash);
+                            
+                            if (origVoxel) {
+                                selectedVoxels.push({
+                                    x: x, y: y, z: z,
+                                    color: origVoxel.color,
+                                    mat: origVoxel.mat
+                                });
+                            }
+                        }
+                    }
+                }
             }
             updateSelectionVisuals();
         }
@@ -1360,20 +1442,24 @@
             selectionRotX = 0;
             selectionRotY = 0;
             selectionRotZ = 0;
-            for(let v of selectedVoxels) {
-                setVoxelCore(v.origX, v.origY, v.origZ, false, null);
+            
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            
+            // BaseSelection is stored un-rotated permanently.
+            for(let v of baseSelection) {
+                setVoxelCore(v.x, v.y, v.z, false, null); // erase true original from scene
+                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+                minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
             }
+            
             hasSelection = true;
             selectionOffset.set(0,0,0);
             selectionGroup.position.set(0,0,0);
-            
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-            for(let v of selectedVoxels) {
-                minX = Math.min(minX, v.origX); maxX = Math.max(maxX, v.origX);
-                minY = Math.min(minY, v.origY); maxY = Math.max(maxY, v.origY);
-                minZ = Math.min(minZ, v.origZ); maxZ = Math.max(maxZ, v.origZ);
-            }
             selectionCenter.set( (minX + maxX)/2, (minY + maxY)/2, (minZ + maxZ)/2 );
+            
+            // selectedVoxels manages dynamic visual preview array
+            selectedVoxels = baseSelection.map(v => ({...v}));
             
             updateSelectionVisuals();
             leftMenuNeedsUpdate = true;
@@ -1390,18 +1476,18 @@
 
             if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
 
-            selectedVoxels = [];
+            baseSelection = [];
             for(let gx = minX; gx <= maxX; gx++) {
                 for(let gy = minY; gy <= maxY; gy++) {
                     for(let gz = minZ; gz <= maxZ; gz++) {
                         const matType = getVoxelMatAndColor(gx, gy, gz, tempColor);
                         if (matType !== -1) {
-                            selectedVoxels.push({ origX: gx, origY: gy, origZ: gz, x: gx, y: gy, z: gz, color: tempColor.clone(), mat: matType });
+                            baseSelection.push({ x: gx, y: gy, z: gz, color: tempColor.clone(), mat: matType });
                         }
                     }
                 }
             }
-            if (selectedVoxels.length > 0) finalizeSelection();
+            if (baseSelection.length > 0) finalizeSelection();
         }
 
         function executeSelectConnected(targetPos) {
@@ -1415,7 +1501,7 @@
             const queue = [[startX, startY, startZ]];
             visited.add(`${startX},${startY},${startZ}`);
             
-            selectedVoxels = [];
+            baseSelection = [];
 
             // 26-way adjacency includes touching opposite corners
             const selDirs = [];
@@ -1429,12 +1515,12 @@
             }
 
             // Cap the spread to avoid freezing VR
-            while(queue.length > 0 && selectedVoxels.length < 65000) {
+            while(queue.length > 0 && baseSelection.length < 65000) {
                 const [x, y, z] = queue.shift();
                 
                 const matType = getVoxelMatAndColor(x, y, z, tempColor);
                 if (matType !== -1) {
-                    selectedVoxels.push({ origX: x, origY: y, origZ: z, x: x, y: y, z: z, color: tempColor.clone(), mat: matType });
+                    baseSelection.push({ x: x, y: y, z: z, color: tempColor.clone(), mat: matType });
                     
                     for(let [dx, dy, dz] of selDirs) {
                         const nx = x + dx; const ny = y + dy; const nz = z + dz;
@@ -1448,7 +1534,7 @@
                     }
                 }
             }
-            if (selectedVoxels.length > 0) finalizeSelection();
+            if (baseSelection.length > 0) finalizeSelection();
         }
 
         function applySelection() {
@@ -1468,6 +1554,7 @@
                 }
             }
             
+            baseSelection = [];
             selectedVoxels = [];
             hasSelection = false;
             selectionGroup.visible = false;
@@ -1478,10 +1565,12 @@
 
         function cancelSelection() {
             if (transformMode === 'move') {
-                for(let v of selectedVoxels) {
-                    setVoxelCore(v.origX, v.origY, v.origZ, true, v.color, v.mat);
+                // Must restore baseSelection to avoid voiding the model!
+                for(let v of baseSelection) {
+                    setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat);
                 }
             }
+            baseSelection = [];
             selectedVoxels = [];
             hasSelection = false;
             selectionGroup.visible = false;
@@ -1491,6 +1580,7 @@
         }
 
         function deleteSelection() {
+            baseSelection = [];
             selectedVoxels = [];
             hasSelection = false;
             selectionGroup.visible = false;
