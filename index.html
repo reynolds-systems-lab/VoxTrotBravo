@@ -48,7 +48,7 @@
     <script type="module">
         import * as THREE from 'three';
         import { VRButton } from 'three/addons/webxr/VRButton.js';
-        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        // Removed XRControllerModelFactory import for performance
 
         // --- Configuration & Global State ---
         const VOXEL_SIZE = 0.05; 
@@ -383,19 +383,11 @@
         }
 
         // --- Controllers & Raycaster ---
-        const controllerModelFactory = new XRControllerModelFactory();
+        // Optimization: Removed XRControllerModelFactory to save memory and eliminate GLTF model draw calls.
         const controllerRight = renderer.xr.getController(0);
         scene.add(controllerRight);
         const controllerLeft = renderer.xr.getController(1);
         scene.add(controllerLeft);
-
-        const controllerGrip0 = renderer.xr.getControllerGrip(0);
-        controllerGrip0.add(controllerModelFactory.createControllerModel(controllerGrip0));
-        scene.add(controllerGrip0);
-
-        const controllerGrip1 = renderer.xr.getControllerGrip(1);
-        controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
-        scene.add(controllerGrip1);
 
         const raycaster = new THREE.Raycaster();
         
@@ -1897,4 +1889,4 @@
         window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
     </script>
 </body>
-</html>
+</html
