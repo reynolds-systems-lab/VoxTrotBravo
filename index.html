@@ -180,7 +180,78 @@
         }); 
         const matEmission = new THREE.MeshBasicMaterial(); 
         
-        const voxelMaterials = [matSolid, matGlass, matEmission];
+        // High-Performance custom shader for Cloud Material (Procedural UV Wireframe + Smiley Face)
+        const matCloud = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff, 
+            transparent: true, 
+            side: THREE.DoubleSide 
+        });
+        matCloud.onBeforeCompile = (shader) => {
+            shader.uniforms.lodDistance = { value: 2.5 }; 
+            shader.vertexShader = `
+                varying vec2 vUvLocal;
+                varying vec3 vWorldPosLocal;
+                ${shader.vertexShader}
+            `.replace(
+                `#include <uv_vertex>`,
+                `#include <uv_vertex>
+                 vUvLocal = uv;
+                 vec4 worldPositionLocal = vec4( position, 1.0 );
+                 #ifdef USE_INSTANCING
+                     worldPositionLocal = instanceMatrix * worldPositionLocal;
+                 #endif
+                 worldPositionLocal = modelMatrix * worldPositionLocal;
+                 vWorldPosLocal = worldPositionLocal.xyz;`
+            );
+
+            shader.fragmentShader = `
+                uniform float lodDistance;
+                varying vec2 vUvLocal;
+                varying vec3 vWorldPosLocal;
+
+                float circle(vec2 st, vec2 center, float radius) {
+                    vec2 dist = st - center;
+                    return 1.0 - smoothstep(radius - 0.01, radius + 0.01, dot(dist, dist)*4.0);
+                }
+
+                ${shader.fragmentShader}
+            `.replace(
+                `vec4 diffuseColor = vec4( diffuse, opacity );`,
+                `
+                // Distance fade for high performance LOD
+                float dist = length(cameraPosition - vWorldPosLocal);
+                float faceAlpha = 1.0 - smoothstep(lodDistance - 1.0, lodDistance, dist);
+
+                // Draw wireframe border
+                float edgeWidth = 0.05;
+                float edge = step(vUvLocal.x, edgeWidth) + step(1.0 - edgeWidth, vUvLocal.x) +
+                             step(vUvLocal.y, edgeWidth) + step(1.0 - edgeWidth, vUvLocal.y);
+                edge = clamp(edge, 0.0, 1.0);
+
+                // Draw procedural smiley face
+                float face = 0.0;
+                face += circle(vUvLocal, vec2(0.35, 0.65), 0.05); // Left eye
+                face += circle(vUvLocal, vec2(0.65, 0.65), 0.05); // Right eye
+                
+                vec2 smileCenter = vec2(0.5, 0.45);
+                float r = length(vUvLocal - smileCenter);
+                float smileT = smoothstep(0.16, 0.20, r) - smoothstep(0.20, 0.24, r);
+                float smileCut = step(vUvLocal.y, 0.45); // Cut off top half of the ring
+                face += smileT * smileCut;
+                
+                face = clamp(face, 0.0, 1.0) * faceAlpha;
+
+                float finalMask = clamp(edge + face, 0.0, 1.0);
+                
+                // Absolute transparency discard removes overdraw entirely 
+                if (finalMask < 0.1) discard;
+
+                vec4 diffuseColor = vec4( diffuse, opacity );
+                `
+            );
+        };
+        
+        const voxelMaterials = [matSolid, matGlass, matEmission, matCloud];
         const chunks = new Map(); 
 
         class ChunkLayer {
@@ -274,7 +345,7 @@
                 this.cx = cx;
                 this.cy = cy;
                 this.cz = cz;
-                this.layers = new Array(3).fill(null);
+                this.layers = new Array(4).fill(null);
                 
                 this.voxelMatMap = new Int8Array(CHUNK_VOL);
                 this.voxelMatMap.fill(-1);
@@ -306,7 +377,7 @@
             }
 
             updateBuffers() {
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 4; i++) {
                     if (this.layers[i]) this.layers[i].updateBuffers();
                 }
             }
@@ -341,7 +412,6 @@
         bucketPreviewMesh.visible = false;
         worldGroup.add(bucketPreviewMesh);
 
-        // OPTIMIZED LINE PREVIEW (Perfect Voxel Accuracy)
         const linePreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
         const linePreviewMesh = new THREE.InstancedMesh(voxelGeometry, linePreviewMat, 15000);
         linePreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -372,9 +442,16 @@
         selMeshEmission.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3);
         selMeshEmission.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
+        const selMeshCloud = new THREE.InstancedMesh(voxelGeometry, matCloud, 65000);
+        selMeshCloud.matrixAutoUpdate = false; selMeshCloud.updateMatrix();
+        selMeshCloud.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        selMeshCloud.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3);
+        selMeshCloud.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
         selectionGroup.add(selMeshSolid);
         selectionGroup.add(selMeshGlass);
         selectionGroup.add(selMeshEmission);
+        selectionGroup.add(selMeshCloud);
 
         const selBoxMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.9 });
         const selBoxMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat);
@@ -401,10 +478,12 @@
                     m2.matrixAutoUpdate = false; m2.updateMatrix();
                     const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000);
                     m3.matrixAutoUpdate = false; m3.updateMatrix();
+                    const m4 = new THREE.InstancedMesh(voxelGeometry, matCloud, 65000);
+                    m4.matrixAutoUpdate = false; m4.updateMatrix();
                     
                     const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat);
                     bMesh.matrixAutoUpdate = false;
-                    g.add(m1); g.add(m2); g.add(m3); g.add(bMesh);
+                    g.add(m1); g.add(m2); g.add(m3); g.add(m4); g.add(bMesh);
                     
                     previewContainer.add(g);
                     previewGroups.push(g);
@@ -426,9 +505,14 @@
                 g.children[2].count = selMeshEmission.count;
                 g.children[2].visible = selMeshEmission.visible;
                 
-                g.children[3].position.copy(selBoxMesh.position);
-                g.children[3].scale.copy(selBoxMesh.scale);
-                g.children[3].updateMatrix();
+                g.children[3].instanceMatrix = selMeshCloud.instanceMatrix;
+                g.children[3].instanceColor = selMeshCloud.instanceColor;
+                g.children[3].count = selMeshCloud.count;
+                g.children[3].visible = selMeshCloud.visible;
+                
+                g.children[4].position.copy(selBoxMesh.position);
+                g.children[4].scale.copy(selBoxMesh.scale);
+                g.children[4].updateMatrix();
                 
                 g.position.set(px, py, pz);
                 g.scale.set(sx, sy, sz);
@@ -661,7 +745,6 @@
             ctx.fillText(`${label}: ${val}°`, x + w/2, y + h/2);
         }
 
-        // TOOL OPTIONS MENU (X Button)
         const leftMenuCanvas = document.createElement('canvas');
         leftMenuCanvas.width = 512;
         leftMenuCanvas.height = 512;
@@ -719,20 +802,17 @@
                 drawButton(leftMenuCtx, 50, 70, 200, 50, 'SOLID', sphereMode === 'solid');
                 drawButton(leftMenuCtx, 262, 70, 200, 50, 'SHELL', sphereMode === 'shell');
             } else if (activeTool === 'plane') {
-                // Row 1: Outline & Thickness (Thickness is always adjustable to size the gap)
                 drawButton(leftMenuCtx, 30, 70, 150, 50, `OUTLINE: ${planeOutline?'ON':'OFF'}`, planeOutline);
                 drawButton(leftMenuCtx, 190, 70, 50, 50, '-', false);
                 drawButton(leftMenuCtx, 250, 70, 160, 50, `O-Thick: ${planeOutlineThick}`, false);
                 drawButton(leftMenuCtx, 420, 70, 50, 50, '+', false);
 
-                // Row 2: Fill, Grid, & Grid Thickness (Thickness is always adjustable to size the gap)
                 drawButton(leftMenuCtx, 30, 140, 100, 50, `FILL: ${planeFill?'ON':'OFF'}`, planeFill);
                 drawButton(leftMenuCtx, 140, 140, 100, 50, `GRID: ${planeGrid?'ON':'OFF'}`, planeGrid);
                 drawButton(leftMenuCtx, 250, 140, 40, 50, '-', false);
                 drawButton(leftMenuCtx, 300, 140, 120, 50, `G-Thick: ${planeGridThick}`, false);
                 drawButton(leftMenuCtx, 430, 140, 40, 50, '+', false);
 
-                // Row 3: Grid Divisions
                 drawButton(leftMenuCtx, 30, 210, 40, 50, '-', false);
                 drawButton(leftMenuCtx, 80, 210, 100, 50, `Div X: ${planeDivU}`, false);
                 drawButton(leftMenuCtx, 190, 210, 40, 50, '+', false);
@@ -741,7 +821,6 @@
                 drawButton(leftMenuCtx, 300, 210, 100, 50, `Div Y: ${planeDivV}`, false);
                 drawButton(leftMenuCtx, 410, 210, 40, 50, '+', false);
 
-                // Row 4: Plane Total Thickness
                 drawButton(leftMenuCtx, 30, 280, 150, 50, `Plane Depth:`, false);
                 drawButton(leftMenuCtx, 190, 280, 50, 50, '-', false);
                 drawButton(leftMenuCtx, 250, 280, 160, 50, `Depth: ${planeThick}`, false);
@@ -910,7 +989,7 @@
             colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)';
             colorMenuCtx.fillRect(0, 0, 512, 512);
 
-            if (isPaletteMagnified) {
+            if (isPaletteMagnified && activeMaterialType !== 3) {
                 colorMenuCtx.fillStyle = '#4facfe';
                 colorMenuCtx.font = 'bold 26px sans-serif';
                 colorMenuCtx.textAlign = 'center';
@@ -955,11 +1034,21 @@
                 colorMenuCtx.textAlign = 'center';
                 colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
 
-                drawButton(colorMenuCtx, 30, 60, 140, 50, 'SOLID', activeMaterialType === 0);
-                drawButton(colorMenuCtx, 186, 60, 140, 50, 'GLASS', activeMaterialType === 1);
-                drawButton(colorMenuCtx, 342, 60, 140, 50, 'EMISSION', activeMaterialType === 2);
+                // Now drawing 4 material types
+                drawButton(colorMenuCtx, 25, 60, 105, 50, 'SOLID', activeMaterialType === 0);
+                drawButton(colorMenuCtx, 140, 60, 105, 50, 'GLASS', activeMaterialType === 1);
+                drawButton(colorMenuCtx, 255, 60, 105, 50, 'EMISSION', activeMaterialType === 2);
+                drawButton(colorMenuCtx, 370, 60, 115, 50, 'CLOUD', activeMaterialType === 3);
 
-                if (activeMaterialType === 2) {
+                if (activeMaterialType === 3) {
+                    colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    colorMenuCtx.fillRect(30, 130, 452, 200);
+                    colorMenuCtx.fillStyle = '#fff';
+                    colorMenuCtx.font = 'bold 24px sans-serif';
+                    colorMenuCtx.fillText(`Volumetric Component`, 256, 210);
+                    colorMenuCtx.font = '16px sans-serif';
+                    colorMenuCtx.fillText(`Color Locked (White)`, 256, 250);
+                } else if (activeMaterialType === 2) {
                     const grad = colorMenuCtx.createLinearGradient(30, 130, 482, 130);
                     grad.addColorStop(0, '#000000');
                     grad.addColorStop(1, '#ffffff');
@@ -994,8 +1083,7 @@
                 drawButton(colorMenuCtx, 260, 350, 105, 40, 'GRAD-V', colorMode === 'grad_v');
                 drawButton(colorMenuCtx, 375, 350, 107, 40, 'SHIFT', colorMode === 'shift');
 
-                // ALWAYS show Color 1 & 2 unless it's Emission
-                const showColor2 = (activeMaterialType !== 2);
+                const showColor2 = (activeMaterialType === 0 || activeMaterialType === 1);
                 
                 if (!showColor2) {
                     colorMenuCtx.fillStyle = '#' + brushColor.getHexString();
@@ -1036,6 +1124,8 @@
         }
 
         function pickColorFromCanvas(cx, cy) {
+            if (activeMaterialType === 3) return; // Locked for cloud
+            
             let minX, maxX, minY, maxY;
             if (isPaletteMagnified) {
                 minX = 20; maxX = 492;
@@ -1062,28 +1152,28 @@
 
         function handleColorMenuClick(cx, cy) {
             if (cy >= 60 && cy <= 110) {
-                if (cx >= 30 && cx <= 170) activeMaterialType = 0;
-                if (cx >= 186 && cx <= 326) activeMaterialType = 1;
-                if (cx >= 342 && cx <= 482) {
+                if (cx >= 25 && cx <= 130) activeMaterialType = 0;
+                if (cx >= 140 && cx <= 245) activeMaterialType = 1;
+                if (cx >= 255 && cx <= 360) {
                     activeMaterialType = 2;
-                    activeColorSlot = 1;
-                    colorMode = 'solid'; 
-                    brushColor.setHex(0x808080); 
-                    updateCursors();
+                    activeColorSlot = 1; colorMode = 'solid'; brushColor.setHex(0x808080);
                 }
+                if (cx >= 370 && cx <= 485) {
+                    activeMaterialType = 3; 
+                    activeColorSlot = 1; colorMode = 'solid'; brushColor.setHex(0xffffff);
+                }
+                updateCursors();
             }
             if (cy >= 350 && cy <= 390) {
                 if (cx >= 30 && cx <= 135) {
-                    colorMode = 'solid';
-                    activeColorSlot = 1;
-                    updateCursors();
+                    colorMode = 'solid'; activeColorSlot = 1; updateCursors();
                 }
                 if (cx >= 145 && cx <= 250) colorMode = 'grad_h';
                 if (cx >= 260 && cx <= 365) colorMode = 'grad_v';
                 if (cx >= 375 && cx <= 482) colorMode = 'shift';
             }
             if (cy >= 410 && cy <= 470) {
-                const showColor2 = (activeMaterialType !== 2);
+                const showColor2 = (activeMaterialType === 0 || activeMaterialType === 1);
                 if (showColor2) {
                     if (cx >= 30 && cx <= 246) activeColorSlot = 1;
                     if (cx >= 266 && cx <= 482) activeColorSlot = 2;
@@ -1266,10 +1356,10 @@
             const col = new THREE.Color();
             
             const vertsArray = [];
-            const facesArrays = [[], [], []];
-            const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
+            const facesArrays = [[], [], [], []];
+            const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission", "Voxel_Cloud"];
 
-            for (let matIdx = 0; matIdx < 3; matIdx++) {
+            for (let matIdx = 0; matIdx < 4; matIdx++) {
                 chunks.forEach(chunk => {
                     const layer = chunk.layers[matIdx];
                     if (!layer || layer.mesh.count === 0) return;
@@ -1310,7 +1400,7 @@
 
             blobParts.push(vertsArray.join(""));
             
-            for (let matIdx = 0; matIdx < 3; matIdx++) {
+            for (let matIdx = 0; matIdx < 4; matIdx++) {
                 if (facesArrays[matIdx].length > 0) {
                     blobParts.push(`\ng ${matNames[matIdx]}\nusemtl ${matNames[matIdx]}\n`);
                     blobParts.push(facesArrays[matIdx].join(""));
@@ -1332,6 +1422,8 @@
         // --- Core Tool Algorithms ---
 
         function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY) {
+            if (activeMaterialType === 3) return tempColorForDraw.setHex(0xffffff);
+            
             if (colorMode === 'solid') return brushColor;
             else if (colorMode === 'grad_h') {
                 let t = 0; if (maxX > minX) t = (gx - minX) / (maxX - minX);
@@ -1434,8 +1526,8 @@
         // --- Select Tool Functions ---
 
         function updateSelectionVisuals() {
-            selMeshSolid.count = 0; selMeshGlass.count = 0; selMeshEmission.count = 0;
-            let iSolid = 0, iGlass = 0, iEmission = 0;
+            selMeshSolid.count = 0; selMeshGlass.count = 0; selMeshEmission.count = 0; selMeshCloud.count = 0;
+            let iSolid = 0, iGlass = 0, iEmission = 0, iCloud = 0;
             
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
 
@@ -1444,6 +1536,7 @@
                 if (v.mat === 0) { selMeshSolid.setMatrixAt(iSolid, tempMatrix); selMeshSolid.setColorAt(iSolid, v.color); iSolid++; }
                 else if (v.mat === 1) { selMeshGlass.setMatrixAt(iGlass, tempMatrix); selMeshGlass.setColorAt(iGlass, v.color); iGlass++; }
                 else if (v.mat === 2) { selMeshEmission.setMatrixAt(iEmission, tempMatrix); selMeshEmission.setColorAt(iEmission, v.color); iEmission++; }
+                else if (v.mat === 3) { selMeshCloud.setMatrixAt(iCloud, tempMatrix); selMeshCloud.setColorAt(iCloud, v.color); iCloud++; }
                 
                 minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
                 minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
@@ -1453,12 +1546,14 @@
             selMeshSolid.instanceMatrix.needsUpdate = true; selMeshSolid.instanceColor.needsUpdate = true;
             selMeshGlass.instanceMatrix.needsUpdate = true; selMeshGlass.instanceColor.needsUpdate = true;
             selMeshEmission.instanceMatrix.needsUpdate = true; selMeshEmission.instanceColor.needsUpdate = true;
+            selMeshCloud.instanceMatrix.needsUpdate = true; selMeshCloud.instanceColor.needsUpdate = true;
             
-            selMeshSolid.count = iSolid; selMeshGlass.count = iGlass; selMeshEmission.count = iEmission;
+            selMeshSolid.count = iSolid; selMeshGlass.count = iGlass; selMeshEmission.count = iEmission; selMeshCloud.count = iCloud;
             
             selMeshSolid.visible = iSolid > 0;
             selMeshGlass.visible = iGlass > 0;
             selMeshEmission.visible = iEmission > 0;
+            selMeshCloud.visible = iCloud > 0;
             
             if (selectedVoxels.length > 0) {
                 const cx = (minX + maxX) / 2 * VOXEL_SIZE;
@@ -2048,16 +2143,13 @@
                     }
                 } else if (activeTool === 'stroke' && strokeMode === 'line') {
                     if (isPreviewingLineRight) {
-                        // Finish the Erase line at the Left Cursor and stop chaining
                         drawLineVoxels(lineStartRight, leftTargetLocal, false);
                         isPreviewingLineRight = false;
                         lineStartRight.set(Infinity, Infinity, Infinity);
                     } else if (!isPreviewingLineLeft) {
-                        // Start tracking from Left Cursor
                         lineStartLeft.copy(leftTargetLocal);
                         isPreviewingLineLeft = true;
                     } else {
-                        // Chain segment at Left Cursor
                         drawLineVoxels(lineStartLeft, leftTargetLocal, true);
                         lineStartLeft.copy(leftTargetLocal);
                     }
@@ -2136,16 +2228,13 @@
                     applySelection();
                 } else if (activeTool === 'stroke' && strokeMode === 'line') {
                     if (isPreviewingLineLeft) {
-                        // Finish the Draw line at the Right Cursor and stop chaining
                         drawLineVoxels(lineStartLeft, rightTargetLocal, true);
                         isPreviewingLineLeft = false;
                         lineStartLeft.set(Infinity, Infinity, Infinity);
                     } else if (!isPreviewingLineRight) {
-                        // Start Erase line at Right Cursor
                         lineStartRight.copy(rightTargetLocal);
                         isPreviewingLineRight = true;
                     } else {
-                        // Chain Erase line at Right Cursor
                         drawLineVoxels(lineStartRight, rightTargetLocal, false);
                         lineStartRight.copy(rightTargetLocal); 
                     }
@@ -2304,7 +2393,7 @@
                         updateRotatedSelection();
                         leftMenuNeedsUpdate = true;
                     }
-                } else if (isColorPicking && colorMenuHovered) {
+                } else if (isColorPicking && colorMenuHovered && activeMaterialType !== 3) {
                     const cx = Math.floor(colorMenuUV.x * 512); 
                     const cy = Math.floor((1 - colorMenuUV.y) * 512);
                     
@@ -2482,7 +2571,6 @@
                     for (let i = 0; i < previewGroups.length; i++) previewGroups[i].visible = false;
                 }
 
-                // Sync all tool mirror proxies before render
                 const showToolMirrors = activeTool !== 'select';
                 syncMirrorProxies(cursorLeft, cursorLeftMirrors, showToolMirrors);
                 syncMirrorProxies(cursorRight, cursorRightMirrors, showToolMirrors && !isColorPicking);
