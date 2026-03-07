@@ -54,8 +54,7 @@
         const CHUNK_SIZE = 32;   
         const CHUNK_VOL = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
-        let totalActiveVoxels = 0; // GPU rendered instances (surface)
-        let totalDataVoxels = 0;   // Total mathematical voxels (solid volume)
+        let totalActiveVoxels = 0;
         
         let activeTool = 'brush'; 
         let strokeMode = 'continuous'; 
@@ -67,8 +66,8 @@
         let paintMode = 'brush'; 
         let exportMode = 'boxes'; 
         
-        let pyramidShape = 'cone'; 
-        let pyramidMode = 'solid'; 
+        let pyramidShape = 'cone'; // 'cone', 'pyramid', 'tetra'
+        let pyramidMode = 'solid'; // 'solid', 'shell'
         
         let planeOutline = true;
         let planeOutlineThick = 1;
@@ -185,6 +184,7 @@
         }); 
         const matEmission = new THREE.MeshBasicMaterial(); 
         
+        // High-Performance custom shader for Cloud Material (Procedural UV Wireframe + Smiley Face)
         const matCloud = new THREE.MeshBasicMaterial({ 
             color: 0xffffff, 
             transparent: true, 
@@ -222,27 +222,32 @@
             `.replace(
                 `vec4 diffuseColor = vec4( diffuse, opacity );`,
                 `
+                // Distance fade for high performance LOD
                 float dist = length(cameraPosition - vWorldPosLocal);
                 float faceAlpha = 1.0 - smoothstep(lodDistance - 1.0, lodDistance, dist);
 
+                // Draw wireframe border
                 float edgeWidth = 0.05;
                 float edge = step(vUvLocal.x, edgeWidth) + step(1.0 - edgeWidth, vUvLocal.x) +
                              step(vUvLocal.y, edgeWidth) + step(1.0 - edgeWidth, vUvLocal.y);
                 edge = clamp(edge, 0.0, 1.0);
 
+                // Draw procedural smiley face
                 float face = 0.0;
-                face += circle(vUvLocal, vec2(0.35, 0.65), 0.05); 
-                face += circle(vUvLocal, vec2(0.65, 0.65), 0.05); 
+                face += circle(vUvLocal, vec2(0.35, 0.65), 0.05); // Left eye
+                face += circle(vUvLocal, vec2(0.65, 0.65), 0.05); // Right eye
                 
                 vec2 smileCenter = vec2(0.5, 0.45);
                 float r = length(vUvLocal - smileCenter);
                 float smileT = smoothstep(0.16, 0.20, r) - smoothstep(0.20, 0.24, r);
-                float smileCut = step(vUvLocal.y, 0.45); 
+                float smileCut = step(vUvLocal.y, 0.45); // Cut off top half of the ring
                 face += smileT * smileCut;
                 
                 face = clamp(face, 0.0, 1.0) * faceAlpha;
 
                 float finalMask = clamp(edge + face, 0.0, 1.0);
+                
+                // Absolute transparency discard removes overdraw entirely 
                 if (finalMask < 0.1) discard;
 
                 vec4 diffuseColor = vec4( diffuse, opacity );
@@ -331,15 +336,8 @@
 
             updateBuffers() {
                 if (this.needsUpdate) {
-                    // UpdateRanges severely limit GPU upload overhead for optimized rendering
-                    this.mesh.instanceMatrix.updateRange.offset = 0;
-                    this.mesh.instanceMatrix.updateRange.count = this.mesh.count * 16;
                     this.mesh.instanceMatrix.needsUpdate = true;
-                    
-                    this.mesh.instanceColor.updateRange.offset = 0;
-                    this.mesh.instanceColor.updateRange.count = this.mesh.count * 3;
                     this.mesh.instanceColor.needsUpdate = true;
-                    
                     this.needsUpdate = false;
                     this.mesh.visible = this.mesh.count > 0;
                 }
@@ -355,9 +353,31 @@
                 
                 this.voxelMatMap = new Int8Array(CHUNK_VOL);
                 this.voxelMatMap.fill(-1);
-                
-                // Track voxel colors independently of InstancedMesh for Occlusion Culling
-                this.voxelColorMap = new Uint32Array(CHUNK_VOL);
+            }
+
+            addVoxel(lx, ly, lz, worldPos, color, matType) {
+                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+                const currentMat = this.voxelMatMap[localIdx];
+
+                if (currentMat !== -1 && currentMat !== matType) {
+                    this.layers[currentMat].removeVoxel(localIdx);
+                }
+
+                if (!this.layers[matType]) {
+                    this.layers[matType] = new ChunkLayer(this.cx, this.cy, this.cz, voxelMaterials[matType]);
+                }
+
+                this.voxelMatMap[localIdx] = matType;
+                this.layers[matType].addVoxel(localIdx, worldPos, color);
+            }
+
+            removeVoxel(lx, ly, lz) {
+                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+                const currentMat = this.voxelMatMap[localIdx];
+                if (currentMat !== -1) {
+                    this.layers[currentMat].removeVoxel(localIdx);
+                    this.voxelMatMap[localIdx] = -1;
+                }
             }
 
             updateBuffers() {
@@ -747,8 +767,7 @@
             leftMenuCtx.fillStyle = '#4facfe';
             leftMenuCtx.font = 'bold 22px sans-serif';
             leftMenuCtx.textAlign = 'center';
-            // Added surface culling metrics representation
-            leftMenuCtx.fillText(`Tool Options | Voxels: ${totalDataVoxels.toLocaleString()} (Vis: ${totalActiveVoxels.toLocaleString()})`, 256, 40);
+            leftMenuCtx.fillText(`Tool Options | Blocks: ${totalActiveVoxels.toLocaleString()}`, 256, 40);
 
             if (activeTool === 'brush') {
                 drawButton(leftMenuCtx, 50, 70, 200, 50, 'Shape: CUBE', brushShape === 'cube');
@@ -1046,6 +1065,7 @@
                 colorMenuCtx.textAlign = 'center';
                 colorMenuCtx.fillText(`Materials & Colors`, 256, 36);
 
+                // Now drawing 4 material types
                 drawButton(colorMenuCtx, 25, 60, 105, 50, 'SOLID', activeMaterialType === 0);
                 drawButton(colorMenuCtx, 140, 60, 105, 50, 'GLASS', activeMaterialType === 1);
                 drawButton(colorMenuCtx, 255, 60, 105, 50, 'EMISSION', activeMaterialType === 2);
@@ -1215,6 +1235,7 @@
             rightMenuCtx.textAlign = 'center';
             rightMenuCtx.fillText(`Tool Selection`, 256, 30);
 
+            // Re-spaced to fit 8 beautifully 
             drawButton(rightMenuCtx, 50, 40, 412, 45, 'Brush (Standard)', activeTool === 'brush');
             drawButton(rightMenuCtx, 50, 95, 412, 45, 'Stroke (Continuous)', activeTool === 'stroke');
             drawButton(rightMenuCtx, 50, 150, 412, 45, 'Paint (Recolor)', activeTool === 'paint');
@@ -1454,30 +1475,6 @@
             return brushColor;
         }
 
-        function getVoxelMat(gx, gy, gz) {
-            const cx = Math.floor(gx / CHUNK_SIZE);
-            const cy = Math.floor(gy / CHUNK_SIZE);
-            const cz = Math.floor(gz / CHUNK_SIZE);
-            const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
-            const chunk = chunks.get(chunkKey);
-            if (!chunk) return -1;
-            const lx = gx - (cx * CHUNK_SIZE);
-            const ly = gy - (cy * CHUNK_SIZE);
-            const lz = gz - (cz * CHUNK_SIZE);
-            return chunk.voxelMatMap[lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE)];
-        }
-
-        // Optimised occlusion checking logic
-        function isVoxelExposed(gx, gy, gz, myMat) {
-            const dirs = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
-            for(let i=0; i<18; i+=3) {
-                const nMat = getVoxelMat(gx + dirs[i], gy + dirs[i+1], gz + dirs[i+2]);
-                if (nMat === -1) return true; 
-                if ((myMat === 0 || myMat === 2) && (nMat === 1 || nMat === 3)) return true;
-            }
-            return false;
-        }
-
         function getVoxelMatAndColor(gx, gy, gz, outColor) {
             const cx = Math.floor(gx / CHUNK_SIZE);
             const cy = Math.floor(gy / CHUNK_SIZE);
@@ -1493,44 +1490,12 @@
 
             const matType = chunk.voxelMatMap[localIdx];
             if (matType !== -1 && outColor) {
-                // Reads dynamically from the Data Map rather than GPU InstancedMesh buffer!
-                outColor.setHex(chunk.voxelColorMap[localIdx]); 
+                const layer = chunk.layers[matType];
+                const instIdx = layer.voxelToIndex[localIdx];
+                if (instIdx !== 65535) layer.mesh.getColorAt(instIdx, outColor);
             }
 
             return matType;
-        }
-
-        // Dedicated helper exclusively for resolving/processing dynamic Face Occlusion Culling
-        function updateVoxelPresentation(gx, gy, gz) {
-            const cx = Math.floor(gx / CHUNK_SIZE);
-            const cy = Math.floor(gy / CHUNK_SIZE);
-            const cz = Math.floor(gz / CHUNK_SIZE);
-            const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
-            const chunk = chunks.get(chunkKey);
-            if (!chunk) return;
-
-            const lx = gx - (cx * CHUNK_SIZE);
-            const ly = gy - (cy * CHUNK_SIZE);
-            const lz = gz - (cz * CHUNK_SIZE);
-            const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
-            
-            const matType = chunk.voxelMatMap[localIdx];
-            if (matType === -1) return; 
-
-            const layer = chunk.layers[matType];
-            const exposed = isVoxelExposed(gx, gy, gz, matType);
-            
-            if (exposed) {
-                if (layer.voxelToIndex[localIdx] === 65535) {
-                    tempColor.setHex(chunk.voxelColorMap[localIdx]);
-                    tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                    layer.addVoxel(localIdx, tempPos, tempColor);
-                }
-            } else {
-                if (layer.voxelToIndex[localIdx] !== 65535) {
-                    layer.removeVoxel(localIdx);
-                }
-            }
         }
         
         function setVoxelCore(gx, gy, gz, isPainting, color, matOverride = -1) {
@@ -1542,7 +1507,6 @@
             const lx = gx - (cx * CHUNK_SIZE);
             const ly = gy - (cy * CHUNK_SIZE);
             const lz = gz - (cz * CHUNK_SIZE);
-            const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
 
             let chunk = chunks.get(chunkKey);
             
@@ -1551,47 +1515,11 @@
                     chunk = new Chunk(cx, cy, cz);
                     chunks.set(chunkKey, chunk);
                 }
+                tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
                 const matTypeToUse = matOverride !== -1 ? matOverride : activeMaterialType;
-                const oldMat = chunk.voxelMatMap[localIdx];
-                
-                if (oldMat !== -1 && oldMat !== matTypeToUse) {
-                    chunk.layers[oldMat].removeVoxel(localIdx);
-                }
-                
-                if (oldMat === -1) totalDataVoxels++;
-
-                if (!chunk.layers[matTypeToUse]) {
-                    chunk.layers[matTypeToUse] = new ChunkLayer(cx, cy, cz, voxelMaterials[matTypeToUse]);
-                }
-                
-                // Set to Virtual Data Map first
-                chunk.voxelMatMap[localIdx] = matTypeToUse;
-                chunk.voxelColorMap[localIdx] = color.getHex();
-                
-                // Refresh InstancedMesh layer presentation based on face occlusion criteria
-                updateVoxelPresentation(gx, gy, gz);
-                updateVoxelPresentation(gx+1, gy, gz);
-                updateVoxelPresentation(gx-1, gy, gz);
-                updateVoxelPresentation(gx, gy+1, gz);
-                updateVoxelPresentation(gx, gy-1, gz);
-                updateVoxelPresentation(gx, gy, gz+1);
-                updateVoxelPresentation(gx, gy, gz-1);
-                
+                chunk.addVoxel(lx, ly, lz, tempPos, color, matTypeToUse);
             } else if (chunk) {
-                const oldMat = chunk.voxelMatMap[localIdx];
-                if (oldMat !== -1) {
-                    chunk.layers[oldMat].removeVoxel(localIdx);
-                    chunk.voxelMatMap[localIdx] = -1;
-                    totalDataVoxels--;
-                    
-                    // Re-calculate the shell interior exposure criteria
-                    updateVoxelPresentation(gx+1, gy, gz);
-                    updateVoxelPresentation(gx-1, gy, gz);
-                    updateVoxelPresentation(gx, gy+1, gz);
-                    updateVoxelPresentation(gx, gy-1, gz);
-                    updateVoxelPresentation(gx, gy, gz+1);
-                    updateVoxelPresentation(gx, gy, gz-1);
-                }
+                chunk.removeVoxel(lx, ly, lz);
             }
         }
 
@@ -1607,22 +1535,12 @@
                 const cy = Math.floor(gy / CHUNK_SIZE);
                 const cz = Math.floor(gz / CHUNK_SIZE);
                 const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
-                const chunk = chunks.get(chunkKey);
-                
                 const lx = gx - (cx * CHUNK_SIZE);
                 const ly = gy - (cy * CHUNK_SIZE);
                 const lz = gz - (cz * CHUNK_SIZE);
-                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
 
-                chunk.voxelColorMap[localIdx] = color.getHex();
-
-                // Direct application logic solely if actively populated in the rendering arrays
-                const layer = chunk.layers[matType];
-                const instIdx = layer.voxelToIndex[localIdx];
-                if (instIdx !== 65535) {
-                    layer.mesh.setColorAt(instIdx, color);
-                    layer.needsUpdate = true;
-                }
+                tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
+                chunks.get(chunkKey).addVoxel(lx, ly, lz, tempPos, color, targetMatType);
             }
         }
 
@@ -1827,6 +1745,7 @@
             if (baseSelection.length > 0) finalizeSelection();
         }
 
+        // Optimized GC-Free BFS
         function executeSelectConnected(targetPos) {
             const startX = Math.round(targetPos.x / VOXEL_SIZE);
             const startY = Math.round(targetPos.y / VOXEL_SIZE);
@@ -2006,6 +1925,7 @@
             }
         }
 
+        // Optimized GC-Free BFS
         function calculateFloodFill(startX, startY, startZ) {
             hoveredFillCoords.length = 0;
             const targetMat = getVoxelMatAndColor(startX, startY, startZ, targetQueryColor);
@@ -2128,11 +2048,13 @@
             const minY = Math.min(gStartY, gEndY); const maxY = Math.max(gStartY, gEndY);
             const minZ = Math.min(gStartZ, gEndZ); const maxZ = Math.max(gStartZ, gEndZ);
 
+            // Safety limit to maintain VR framerate
             if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
 
             const cx = (minX + maxX) / 2;
             const cz = (minZ + maxZ) / 2;
 
+            // Draw base at the starting point, taper towards the release point
             const apexY = startPos.y <= endPos.y ? maxY : minY;
             const baseY = startPos.y <= endPos.y ? minY : maxY;
             const H = Math.abs(maxY - minY);
@@ -2144,6 +2066,7 @@
                 if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) return false;
                 if (H === 0) return true; 
 
+                // Taper factor 't'. (1 at the base, 0 at the apex)
                 const t = Math.abs(y - apexY) / H;
                 if (t <= 0) return (x === Math.round(cx) && z === Math.round(cz));
 
@@ -2157,12 +2080,13 @@
                 if (pyramidShape === 'cone') {
                     const dx = (x - cx) / rCurX;
                     const dz = (z - cz) / rCurZ;
-                    return (dx * dx + dz * dz) <= 1.05; 
+                    return (dx * dx + dz * dz) <= 1.05; // Ellipse math
                 } else if (pyramidShape === 'pyramid') {
-                    return Math.abs(x - cx) <= (rCurX + 0.5) && Math.abs(z - cz) <= (rCurZ + 0.5); 
+                    return Math.abs(x - cx) <= (rCurX + 0.5) && Math.abs(z - cz) <= (rCurZ + 0.5); // Square math
                 } else if (pyramidShape === 'tetra') {
                     const nx = (x - cx) / rCurX;
                     const nz = (z - cz) / rCurZ;
+                    // Standard equilateral bounding triangle (base is at -1, point is at 1)
                     return nz >= -1.05 && nz <= 1.05 - Math.abs(nx) * 2;
                 }
                 return false;
@@ -2528,8 +2452,8 @@
                     };
 
                     if (source.handedness === 'right') {
-                        const btnA = getBtn(4, 3); 
-                        const btnB = getBtn(5, 2); 
+                        const btnA = getBtn(4, 3); // A or Thumbstick
+                        const btnB = getBtn(5, 2); // B or Touchpad
 
                         if (btnA && !lastRightBtnA) {
                             rightMenuMesh.visible = !rightMenuMesh.visible;
@@ -2548,8 +2472,8 @@
                         lastRightBtnA = btnA; lastRightBtnB = btnB;
                     }
                     if (source.handedness === 'left') {
-                        const btnX = getBtn(4, 3); 
-                        const btnY = getBtn(5, 2); 
+                        const btnX = getBtn(4, 3); // X or Thumbstick
+                        const btnY = getBtn(5, 2); // Y or Touchpad
                         
                         if (btnX && !lastLeftBtnX) {
                             leftMenuMesh.visible = !leftMenuMesh.visible;
@@ -2769,7 +2693,7 @@
                         const r = brushSize - 1;
                         const rSq = (r + 0.1) * (r + 0.1); 
                         
-                        fillVisited.clear(); 
+                        fillVisited.clear(); // Reusing the integer hash Set from Flood Fill to prevent rendering duplicate instances
 
                         for (let i = 0; i <= steps; i++) {
                             tempPos.lerpVectors(startPos, endPos, i / steps);
@@ -2782,6 +2706,7 @@
                                     for (let dz = -r; dz <= r; dz++) {
                                         if (brushShape === 'sphere' && (dx*dx + dy*dy + dz*dz > rSq)) continue;
                                         
+                                        // Lightning-fast bitshifted hash to prevent memory allocations
                                         const hash = (cx+dx + 32768) + (cy+dy + 32768) * 65536 + (cz+dz + 32768) * 4294967296;
                                         if (!fillVisited.has(hash)) {
                                             fillVisited.add(hash);
