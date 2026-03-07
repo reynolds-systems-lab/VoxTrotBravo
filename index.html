@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoxTrotBravo</title>
+    <title>VoxTrotBravo PCVR</title>
     <style>
         body {
             margin: 0;
@@ -54,7 +54,8 @@
         const CHUNK_SIZE = 32;   
         const CHUNK_VOL = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
-        let totalActiveVoxels = 0;
+        let totalActiveVoxels = 0; // Total voxels existing in data
+        let visibleVoxels = 0;     // Voxels currently passed to GPU (Outer shell)
         
         let activeTool = 'brush'; 
         let strokeMode = 'continuous'; 
@@ -120,7 +121,6 @@
         const lastHoveredVoxel = new THREE.Vector3(Infinity, Infinity, Infinity);
 
         // --- Performance & GC Optimization Pre-allocations ---
-        const dirtyLayers = new Set(); // O(1) performance updates for chunk buffers
         const rotR = new THREE.Matrix4();
         const rotR_inv = new THREE.Matrix4();
         const selRotEuler = new THREE.Euler();
@@ -141,6 +141,8 @@
         const rightPointerPos = new THREE.Vector3();
         const leftPointerPos = new THREE.Vector3();
 
+        const dirtyVisualVoxels = new Set(); // Queue for batch rendering
+
         // --- Scene Setup ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a1a2e);
@@ -149,7 +151,8 @@
         camera.position.set(0, 1.6, 3);
 
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-        renderer.setPixelRatio(window.devicePixelRatio);
+        // PERFORMANCE: Force PCVR pixel ratio to 1 to drastically improve fill-rate rendering speed.
+        renderer.setPixelRatio(1); 
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
@@ -188,7 +191,6 @@
                 this.mesh.matrixAutoUpdate = false;
                 this.mesh.updateMatrix();
                 this.mesh.visible = false; 
-                this.mesh.frustumCulled = true; // Optimization: Ensure off-screen chunks cull early
                 this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
                 this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CHUNK_VOL * 3), 3);
                 this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -202,17 +204,14 @@
                 this.voxelToIndex = new Uint16Array(CHUNK_VOL);
                 this.voxelToIndex.fill(65535); 
                 this.indexToLocal = new Uint16Array(CHUNK_VOL); 
-            }
-
-            markDirty() {
-                dirtyLayers.add(this);
+                this.needsUpdate = false;
             }
 
             addVoxel(localIdx, worldPos, color) {
                 if (this.voxelToIndex[localIdx] !== 65535) {
                     const instIdx = this.voxelToIndex[localIdx];
                     this.mesh.setColorAt(instIdx, color);
-                    this.markDirty();
+                    this.needsUpdate = true;
                 } else {
                     const instIdx = this.mesh.count;
                     this.voxelToIndex[localIdx] = instIdx;
@@ -221,8 +220,7 @@
                     this.mesh.setMatrixAt(instIdx, tempMatrix);
                     this.mesh.setColorAt(instIdx, color);
                     this.mesh.count++;
-                    totalActiveVoxels++;
-                    this.markDirty();
+                    this.needsUpdate = true;
                 }
             }
 
@@ -243,15 +241,17 @@
 
                     this.voxelToIndex[localIdx] = 65535;
                     this.mesh.count--;
-                    totalActiveVoxels--;
-                    this.markDirty();
+                    this.needsUpdate = true;
                 }
             }
 
             updateBuffers() {
-                this.mesh.instanceMatrix.needsUpdate = true;
-                this.mesh.instanceColor.needsUpdate = true;
-                this.mesh.visible = this.mesh.count > 0;
+                if (this.needsUpdate) {
+                    this.mesh.instanceMatrix.needsUpdate = true;
+                    this.mesh.instanceColor.needsUpdate = true;
+                    this.needsUpdate = false;
+                    this.mesh.visible = this.mesh.count > 0;
+                }
             }
         }
 
@@ -259,31 +259,98 @@
             constructor(cx, cy, cz) {
                 this.cx = cx; this.cy = cy; this.cz = cz;
                 this.layers = new Array(3).fill(null);
+                
+                // DATA SEPARATION: Voxel map and colors live in memory, not just GPU
                 this.voxelMatMap = new Int8Array(CHUNK_VOL);
                 this.voxelMatMap.fill(-1);
+                this.voxelColorR = new Uint8Array(CHUNK_VOL);
+                this.voxelColorG = new Uint8Array(CHUNK_VOL);
+                this.voxelColorB = new Uint8Array(CHUNK_VOL);
             }
 
-            addVoxel(lx, ly, lz, worldPos, color, matType) {
-                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
-                const currentMat = this.voxelMatMap[localIdx];
-                if (currentMat !== -1 && currentMat !== matType) {
-                    this.layers[currentMat].removeVoxel(localIdx);
+            updateBuffers() {
+                for (let i = 0; i < 3; i++) {
+                    if (this.layers[i]) this.layers[i].updateBuffers();
                 }
-                if (!this.layers[matType]) {
-                    this.layers[matType] = new ChunkLayer(this.cx, this.cy, this.cz, voxelMaterials[matType]);
-                }
-                this.voxelMatMap[localIdx] = matType;
-                this.layers[matType].addVoxel(localIdx, worldPos, color);
             }
+        }
 
-            removeVoxel(lx, ly, lz) {
+        // --- Hidden Surface Culling & Update Queuing Engine ---
+        function getVoxelMat(gx, gy, gz) {
+            const cx = Math.floor(gx / CHUNK_SIZE); const cy = Math.floor(gy / CHUNK_SIZE); const cz = Math.floor(gz / CHUNK_SIZE);
+            const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
+            const chunk = chunks.get(chunkKey);
+            if (!chunk) return -1;
+            const lx = gx - (cx * CHUNK_SIZE); const ly = gy - (cy * CHUNK_SIZE); const lz = gz - (cz * CHUNK_SIZE);
+            return chunk.voxelMatMap[lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE)];
+        }
+
+        function isVoxelExposed(gx, gy, gz, myMatType) {
+            let m;
+            m = getVoxelMat(gx+1, gy, gz); if (m === -1 || (m === 1 && myMatType !== 1)) return true;
+            m = getVoxelMat(gx-1, gy, gz); if (m === -1 || (m === 1 && myMatType !== 1)) return true;
+            m = getVoxelMat(gx, gy+1, gz); if (m === -1 || (m === 1 && myMatType !== 1)) return true;
+            m = getVoxelMat(gx, gy-1, gz); if (m === -1 || (m === 1 && myMatType !== 1)) return true;
+            m = getVoxelMat(gx, gy, gz+1); if (m === -1 || (m === 1 && myMatType !== 1)) return true;
+            m = getVoxelMat(gx, gy, gz-1); if (m === -1 || (m === 1 && myMatType !== 1)) return true;
+            return false;
+        }
+
+        function flagVoxelForUpdate(gx, gy, gz) {
+            dirtyVisualVoxels.add((gx + 32768) + ((gy + 32768) * 65536) + ((gz + 32768) * 4294967296));
+        }
+
+        function flushVisualUpdates() {
+            for (const key of dirtyVisualVoxels) {
+                const gx = (key % 65536) - 32768;
+                const gy = (Math.floor(key / 65536) % 65536) - 32768;
+                const gz = Math.floor(key / 4294967296) - 32768;
+                
+                const cx = Math.floor(gx / CHUNK_SIZE); const cy = Math.floor(gy / CHUNK_SIZE); const cz = Math.floor(gz / CHUNK_SIZE);
+                const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
+                const chunk = chunks.get(chunkKey);
+                if (!chunk) continue;
+
+                const lx = gx - (cx * CHUNK_SIZE); const ly = gy - (cy * CHUNK_SIZE); const lz = gz - (cz * CHUNK_SIZE);
                 const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
-                const currentMat = this.voxelMatMap[localIdx];
-                if (currentMat !== -1) {
-                    this.layers[currentMat].removeVoxel(localIdx);
-                    this.voxelMatMap[localIdx] = -1;
+                const matType = chunk.voxelMatMap[localIdx];
+
+                if (matType === -1) {
+                    for(let i=0; i<3; i++) {
+                        if (chunk.layers[i] && chunk.layers[i].voxelToIndex[localIdx] !== 65535) {
+                            chunk.layers[i].removeVoxel(localIdx);
+                            visibleVoxels--;
+                        }
+                    }
+                    continue;
+                }
+
+                const exposed = isVoxelExposed(gx, gy, gz, matType);
+
+                if (exposed) {
+                    for(let i=0; i<3; i++) {
+                        if (i === matType) continue;
+                        if (chunk.layers[i] && chunk.layers[i].voxelToIndex[localIdx] !== 65535) {
+                            chunk.layers[i].removeVoxel(localIdx);
+                            visibleVoxels--;
+                        }
+                    }
+                    if (!chunk.layers[matType]) {
+                        chunk.layers[matType] = new ChunkLayer(chunk.cx, chunk.cy, chunk.cz, voxelMaterials[matType]);
+                    }
+                    if (chunk.layers[matType].voxelToIndex[localIdx] === 65535) visibleVoxels++;
+                    
+                    tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
+                    tempColor.setRGB(chunk.voxelColorR[localIdx]/255, chunk.voxelColorG[localIdx]/255, chunk.voxelColorB[localIdx]/255);
+                    chunk.layers[matType].addVoxel(localIdx, tempPos, tempColor);
+                } else {
+                    if (chunk.layers[matType] && chunk.layers[matType].voxelToIndex[localIdx] !== 65535) {
+                        chunk.layers[matType].removeVoxel(localIdx);
+                        visibleVoxels--;
+                    }
                 }
             }
+            dirtyVisualVoxels.clear();
         }
 
         // --- Cursors, Selection & Previews ---
@@ -550,7 +617,7 @@
         function updateLeftMenuTexture() {
             leftMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; leftMenuCtx.fillRect(0, 0, 512, 512);
             leftMenuCtx.fillStyle = '#4facfe'; leftMenuCtx.font = 'bold 22px sans-serif'; leftMenuCtx.textAlign = 'center';
-            leftMenuCtx.fillText(`Tool Options | Blocks: ${totalActiveVoxels.toLocaleString()}`, 256, 40);
+            leftMenuCtx.fillText(`Tool Options | Data: ${totalActiveVoxels.toLocaleString()} | Vis: ${visibleVoxels.toLocaleString()}`, 256, 40);
 
             if (activeTool === 'brush') {
                 drawButton(leftMenuCtx, 50, 70, 200, 50, 'Shape: CUBE', brushShape === 'cube'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
@@ -794,15 +861,15 @@
             }
             
             const mat4 = new THREE.Matrix4(); const pos = new THREE.Vector3(); const col = new THREE.Color();
-            let vertsArray = []; const facesArrays = [[], [], []]; const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
-
-            // Memory Opt: Limit array size to prevent out of memory crash on joining massive strings
-            const FLUSH_LIMIT = 20000; 
+            const vertsArray = []; const facesArrays = [[], [], []]; const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
 
             for (let matIdx = 0; matIdx < 3; matIdx++) {
                 chunks.forEach(chunk => {
                     const layer = chunk.layers[matIdx];
                     if (!layer || layer.mesh.count === 0) return;
+                    
+                    // PERFORMANCE NOTE: Iterating over layer.mesh means we only export the VISUALLY exposed voxels!
+                    // This generates an optimized, hollow shell geometry automatically, making Blender much happier.
                     for (let i = 0; i < layer.mesh.count; i++) {
                         const localIdx = layer.indexToLocal[i]; if (localIdx === 65535) continue;
                         const lx = localIdx % CHUNK_SIZE; const ly = Math.floor(localIdx / CHUNK_SIZE) % CHUNK_SIZE; const lz = Math.floor(localIdx / (CHUNK_SIZE * CHUNK_SIZE));
@@ -812,6 +879,7 @@
                         const r = col.r.toFixed(4); const g = col.g.toFixed(4); const b = col.b.toFixed(4);
                         
                         dirs.forEach(dir => {
+                            // hasVoxel checks against the data layer, so it correctly excludes faces between solid blocks and hollow core blocks
                             if (!hasVoxel(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
                                 dir.v.forEach(vert => {
                                     pos.copy(vert).applyMatrix4(mat4).applyMatrix4(worldGroup.matrixWorld);
@@ -821,30 +889,17 @@
                                     facesArrays[matIdx].push(`f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2}\n`); facesArrays[matIdx].push(`f ${vertexOffset} ${vertexOffset+2} ${vertexOffset+3}\n`);
                                 } else facesArrays[matIdx].push(`f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2} ${vertexOffset+3}\n`);
                                 vertexOffset += 4;
-
-                                // Prevent Out Of Memory String Join on enormous voxel counts
-                                if (vertsArray.length > FLUSH_LIMIT) {
-                                    blobParts.push(vertsArray.join(""));
-                                    vertsArray.length = 0;
-                                }
                             }
                         });
                     }
                 });
             }
 
-            if (vertsArray.length > 0) {
-                blobParts.push(vertsArray.join(""));
-            }
-
+            blobParts.push(vertsArray.join(""));
             for (let matIdx = 0; matIdx < 3; matIdx++) {
                 if (facesArrays[matIdx].length > 0) {
                     blobParts.push(`\ng ${matNames[matIdx]}\nusemtl ${matNames[matIdx]}\n`);
-                    let matFaces = facesArrays[matIdx];
-                    // Slice and flush to avoid single giant strings
-                    for (let i = 0; i < matFaces.length; i += FLUSH_LIMIT) {
-                        blobParts.push(matFaces.slice(i, i + FLUSH_LIMIT).join(""));
-                    }
+                    blobParts.push(facesArrays[matIdx].join(""));
                 }
             }
             
@@ -867,7 +922,9 @@
             const chunk = chunks.get(chunkKey); if (!chunk) return -1;
             const localIdx = (gx - (cx * CHUNK_SIZE)) + ((gy - (cy * CHUNK_SIZE)) * CHUNK_SIZE) + ((gz - (cz * CHUNK_SIZE)) * CHUNK_SIZE * CHUNK_SIZE);
             const matType = chunk.voxelMatMap[localIdx];
-            if (matType !== -1 && outColor) { const layer = chunk.layers[matType]; const instIdx = layer.voxelToIndex[localIdx]; if (instIdx !== 65535) layer.mesh.getColorAt(instIdx, outColor); }
+            if (matType !== -1 && outColor) { 
+                outColor.setRGB(chunk.voxelColorR[localIdx]/255, chunk.voxelColorG[localIdx]/255, chunk.voxelColorB[localIdx]/255);
+            }
             return matType;
         }
         
@@ -875,12 +932,38 @@
             const cx = Math.floor(gx / CHUNK_SIZE); const cy = Math.floor(gy / CHUNK_SIZE); const cz = Math.floor(gz / CHUNK_SIZE);
             const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
             const lx = gx - (cx * CHUNK_SIZE); const ly = gy - (cy * CHUNK_SIZE); const lz = gz - (cz * CHUNK_SIZE);
+            const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+            
             let chunk = chunks.get(chunkKey);
+
             if (isPainting) {
                 if (!chunk) { chunk = new Chunk(cx, cy, cz); chunks.set(chunkKey, chunk); }
-                tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                chunk.addVoxel(lx, ly, lz, tempPos, color, matOverride !== -1 ? matOverride : activeMaterialType);
-            } else if (chunk) chunk.removeVoxel(lx, ly, lz);
+                const mat = matOverride !== -1 ? matOverride : activeMaterialType;
+                
+                if (chunk.voxelMatMap[localIdx] === -1) totalActiveVoxels++;
+                
+                chunk.voxelMatMap[localIdx] = mat;
+                chunk.voxelColorR[localIdx] = color.r * 255;
+                chunk.voxelColorG[localIdx] = color.g * 255;
+                chunk.voxelColorB[localIdx] = color.b * 255;
+
+                // Queue visual updates for this and neighbors
+                flagVoxelForUpdate(gx, gy, gz);
+                flagVoxelForUpdate(gx+1, gy, gz); flagVoxelForUpdate(gx-1, gy, gz);
+                flagVoxelForUpdate(gx, gy+1, gz); flagVoxelForUpdate(gx, gy-1, gz);
+                flagVoxelForUpdate(gx, gy, gz+1); flagVoxelForUpdate(gx, gy, gz-1);
+            } else {
+                if (chunk && chunk.voxelMatMap[localIdx] !== -1) {
+                    chunk.voxelMatMap[localIdx] = -1;
+                    totalActiveVoxels--;
+                    
+                    // Queue visual updates for this and neighbors to expose hidden inner faces
+                    flagVoxelForUpdate(gx, gy, gz);
+                    flagVoxelForUpdate(gx+1, gy, gz); flagVoxelForUpdate(gx-1, gy, gz);
+                    flagVoxelForUpdate(gx, gy+1, gz); flagVoxelForUpdate(gx, gy-1, gz);
+                    flagVoxelForUpdate(gx, gy, gz+1); flagVoxelForUpdate(gx, gy, gz-1);
+                }
+            }
         }
 
         function recolorVoxel(gx, gy, gz, color, targetMatType) {
@@ -889,9 +972,19 @@
                 if (matType === targetMatType && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
                 const cx = Math.floor(gx / CHUNK_SIZE); const cy = Math.floor(gy / CHUNK_SIZE); const cz = Math.floor(gz / CHUNK_SIZE);
                 const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
+                const chunk = chunks.get(chunkKey);
                 const lx = gx - (cx * CHUNK_SIZE); const ly = gy - (cy * CHUNK_SIZE); const lz = gz - (cz * CHUNK_SIZE);
-                tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                chunks.get(chunkKey).addVoxel(lx, ly, lz, tempPos, color, targetMatType);
+                const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+                
+                chunk.voxelMatMap[localIdx] = targetMatType;
+                chunk.voxelColorR[localIdx] = color.r * 255;
+                chunk.voxelColorG[localIdx] = color.g * 255;
+                chunk.voxelColorB[localIdx] = color.b * 255;
+
+                flagVoxelForUpdate(gx, gy, gz);
+                flagVoxelForUpdate(gx+1, gy, gz); flagVoxelForUpdate(gx-1, gy, gz);
+                flagVoxelForUpdate(gx, gy+1, gz); flagVoxelForUpdate(gx, gy-1, gz);
+                flagVoxelForUpdate(gx, gy, gz+1); flagVoxelForUpdate(gx, gy, gz-1);
             }
         }
 
@@ -1305,9 +1398,7 @@
                     lastMenuUpdateTime = Date.now();
                 }
 
-                // OPTIMIZATION: Raycast only when menus are active and present
-                const rightMenusVisible = (rightMenuMesh && rightMenuMesh.visible) || (globalMenuMesh && globalMenuMesh.visible);
-                if (rightMenusVisible && xrLeft) {
+                if ((rightMenuMesh.visible || globalMenuMesh.visible) && xrLeft) {
                     tempMatrix.identity().extractRotation(xrLeft.matrixWorld); raycaster.ray.origin.setFromMatrixPosition(xrLeft.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
                     if (rightMenuMesh.visible) {
                         const intersects = raycaster.intersectObject(rightMenuMesh);
@@ -1319,9 +1410,7 @@
                     leftLaserLine.visible = true;
                 } else { rightMenuHovered = false; globalMenuHovered = false; if(leftLaserLine) leftLaserLine.visible = false; }
 
-                // OPTIMIZATION: Raycast only when menus are active and present
-                const leftMenusVisible = (leftMenuMesh && leftMenuMesh.visible) || (colorMenuMesh && colorMenuMesh.visible);
-                if (leftMenusVisible && xrRight) {
+                if ((leftMenuMesh.visible || colorMenuMesh.visible) && xrRight) {
                     tempMatrix.identity().extractRotation(xrRight.matrixWorld); raycaster.ray.origin.setFromMatrixPosition(xrRight.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
                     if (leftMenuMesh.visible) {
                         const intersects = raycaster.intersectObject(leftMenuMesh);
@@ -1474,11 +1563,11 @@
                 syncMirrorProxies(bucketPreviewMesh, bucketPreviewMirrors, showToolMirrors);
                 syncMirrorProxies(linePreviewMesh, linePreviewMirrors, showToolMirrors);
 
-                // OPTIMIZATION: Only update buffers for chunks that actually changed this frame (O(1) updates)
-                dirtyLayers.forEach(layer => {
-                    layer.updateBuffers();
-                });
-                dirtyLayers.clear();
+                // --- FLUSH BATCHED VISUAL UPDATES ---
+                // Processes all occlusion calculations at once right before uploading buffers to GPU
+                flushVisualUpdates();
+
+                chunks.forEach(chunk => chunk.updateBuffers());
             }
             renderer.render(scene, camera);
         });
