@@ -1239,6 +1239,8 @@
                     }
                 }
 
+                const altColor = activeColorSlot === 1 ? brushColor2 : brushColor;
+
                 if (clearInterior && isPainting && !isFace && (boxMode === 'shell' || boxMode === 'wireframe')) {
                     if (!(isDivVoxel && gridMode === 'internal')) {
                         setVoxel(gx, gy, gz, false, null);
@@ -1247,12 +1249,13 @@
                 }
 
                 if (boxMode === 'wireframe') {
-                    if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, isDivVoxel && !isEdge ? (activeColorSlot === 1 ? brushColor2 : brushColor) : c);
-                    else if (wireFill && isFace) setVoxel(gx, gy, gz, isPainting, activeColorSlot === 1 ? brushColor2 : brushColor);
+                    if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, altColor);
+                    else if (wireFill && isFace) setVoxel(gx, gy, gz, isPainting, c);
                 } else if (boxMode === 'shell') {
-                    if (isFace || isDivVoxel) setVoxel(gx, gy, gz, isPainting, isDivVoxel && !isFace ? (activeColorSlot === 1 ? brushColor2 : brushColor) : c);
+                    if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, altColor);
+                    else if (isFace) setVoxel(gx, gy, gz, isPainting, c);
                 } else {
-                    if (isDivVoxel) setVoxel(gx, gy, gz, isPainting, activeColorSlot === 1 ? brushColor2 : brushColor);
+                    if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, altColor);
                     else setVoxel(gx, gy, gz, isPainting, c);
                 }
             }
@@ -1388,55 +1391,57 @@
                         }
                     }
 
-                    // Tweak 1: Divisions map exclusively to the surface shell
                     let isDivVoxel = isDiv(gw);
-                    if (!isSurface) isDivVoxel = false; 
+                    if (gridMode === 'surface' && !isSurface) isDivVoxel = false; 
 
-                    // Tweak 1: Real-time mathematical wireframe (hollows the interior flawlessly)
-                    if (triangleMode === 'wireframe') {
-                        let isWire = false;
-                        
-                        if (Math.abs(gw - baseW) < wireWidth) isWire = true;
-                        if (isDivVoxel) isWire = true;
+                    const altColor = activeColorSlot === 1 ? brushColor2 : brushColor;
+                    
+                    let isEdge = false;
+                    if (Math.abs(gw - baseW) < wireWidth) isEdge = true;
 
-                        const N_legs = N === 0 ? 8 : N; 
-                        const nu = ru > 0 ? (gu - cu) / ru : 0;
-                        const nv = rv > 0 ? (gv - cv) / rv : 0;
-                        
-                        let phi = Math.atan2(nv, nu);
-                        if (phi < 0) phi += 2 * Math.PI;
-                        
-                        let onLeg = false;
-                        const r_scaled = Math.sqrt(nu*nu + nv*nv) * ((rX + rY) / 2);
-                        if (r_scaled < wireWidth) {
-                            onLeg = true; 
-                        } else {
-                            for(let i=0; i < N_legs; i++) {
-                                const tp = (i * (2 * Math.PI / N_legs) - (N === 0 ? 0 : Math.PI / N_legs) + 2 * Math.PI) % (2 * Math.PI);
-                                let diff = Math.abs(phi - tp);
-                                if (diff > Math.PI) diff = 2 * Math.PI - diff;
-                                
-                                if (diff * r_scaled <= (wireWidth - 0.2)) {
-                                    onLeg = true; break;
-                                }
+                    const N_legs = N === 0 ? 8 : N; 
+                    const nu = ru > 0 ? (gu - cu) / ru : 0;
+                    const nv = rv > 0 ? (gv - cv) / rv : 0;
+                    
+                    let phi = Math.atan2(nv, nu);
+                    if (phi < 0) phi += 2 * Math.PI;
+                    
+                    const r_scaled = Math.sqrt(nu*nu + nv*nv) * ((rX + rY) / 2);
+                    if (r_scaled < wireWidth) {
+                        isEdge = true; 
+                    } else {
+                        for(let i=0; i < N_legs; i++) {
+                            const tp = (i * (2 * Math.PI / N_legs) - (N === 0 ? 0 : Math.PI / N_legs) + 2 * Math.PI) % (2 * Math.PI);
+                            let diff = Math.abs(phi - tp);
+                            if (diff > Math.PI) diff = 2 * Math.PI - diff;
+                            
+                            if (diff * r_scaled <= (wireWidth - 0.2)) {
+                                isEdge = true; break;
                             }
                         }
-                        if (onLeg) isWire = true;
+                    }
 
+                    if (triangleMode === 'wireframe') {
                         if (isSurface) {
-                            if (isWire) setVoxel(gx, gy, gz, isPainting, isDivVoxel && !onLeg && Math.abs(gw - baseW) >= wireWidth ? (activeColorSlot === 1 ? brushColor2 : brushColor) : c);
-                            else if (wireFill) setVoxel(gx, gy, gz, isPainting, activeColorSlot === 1 ? brushColor2 : brushColor);
-                        } else if (clearInterior && isPainting) {
-                            setVoxel(gx, gy, gz, false, null);
+                            if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, altColor);
+                            else if (wireFill) setVoxel(gx, gy, gz, isPainting, c);
+                        } else {
+                            if (isDivVoxel && gridMode === 'internal') {
+                                setVoxel(gx, gy, gz, isPainting, altColor);
+                            } else if (clearInterior && isPainting) {
+                                setVoxel(gx, gy, gz, false, null);
+                            }
                         }
                     } else {
                         if (clearInterior && isPainting && !isSurface && triangleMode === 'shell') {
-                            setVoxel(gx, gy, gz, false, null);
-                            continue;
+                            if (!(isDivVoxel && gridMode === 'internal')) {
+                                setVoxel(gx, gy, gz, false, null);
+                                continue;
+                            }
                         }
 
-                        if (isDivVoxel) {
-                            setVoxel(gx, gy, gz, isPainting, activeColorSlot === 1 ? brushColor2 : brushColor);
+                        if ((isEdge && isSurface) || isDivVoxel) {
+                            setVoxel(gx, gy, gz, isPainting, altColor);
                         } else if (triangleMode === 'solid' || isSurface) {
                             setVoxel(gx, gy, gz, isPainting, c);
                         }
