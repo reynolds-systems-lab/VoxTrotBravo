@@ -124,7 +124,7 @@
         
         let shiftProgress = 0;
         let shiftDir = 1;
-        const tempColorForDraw = [new THREE.Color(), new THREE.Color()]; // Array helps prevent reference overwrites inside tools loops
+        const tempColorForDraw = [new THREE.Color(), new THREE.Color()]; 
         
         let isVerticalLock = true;
         let mirrorX = false;
@@ -165,9 +165,10 @@
         const targetQueryColor = new THREE.Color();
         const rightPointerPos = new THREE.Vector3();
         const leftPointerPos = new THREE.Vector3();
-
-        let isExporting = false;
-        let exportProgress = 0;
+        
+        // Hoisted constant arrays to prevent repetitive allocation
+        const selDirs = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1, 1,1,0, -1,-1,0, 1,-1,0, -1,1,0, 1,0,1, -1,0,-1, 1,0,-1, -1,0,1, 0,1,1, 0,-1,-1, 0,1,-1, 0,-1,1, 1,1,1, -1,-1,-1, 1,-1,1, -1,1,-1, 1,1,-1, -1,-1,1, 1,-1,-1, -1,1,1];
+        const fillNeighbors = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
 
         // --- Scene Setup ---
         const scene = new THREE.Scene();
@@ -177,7 +178,8 @@
         camera.position.set(0, 1.6, 3);
 
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-        renderer.setPixelRatio(window.devicePixelRatio);
+        // Cap pixel ratio so massive desktop displays don't crash WebXR initial buffer allocs
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
@@ -212,12 +214,16 @@
 
         class ChunkLayer {
             constructor(cx, cy, cz, material) {
-                this.mesh = new THREE.InstancedMesh(voxelGeometry, material, CHUNK_VOL);
+                this.cx = cx; this.cy = cy; this.cz = cz;
+                this.material = material;
+                this.capacity = 128; // Dynamic sizing - drastically saves VRAM
+                
+                this.mesh = new THREE.InstancedMesh(voxelGeometry, material, this.capacity);
                 this.mesh.matrixAutoUpdate = false;
                 this.mesh.updateMatrix();
                 this.mesh.visible = false; 
                 this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-                this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CHUNK_VOL * 3), 3);
+                this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 3), 3);
                 this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
                 this.mesh.count = 0;
                 this.mesh.boundingSphere = new THREE.Sphere(
@@ -232,12 +238,39 @@
                 this.needsUpdate = false;
             }
 
+            resize(newCapacity) {
+                const oldMesh = this.mesh;
+                const newMesh = new THREE.InstancedMesh(voxelGeometry, this.material, newCapacity);
+                newMesh.matrixAutoUpdate = false;
+                newMesh.updateMatrix();
+                newMesh.visible = oldMesh.visible;
+                newMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                newMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(newCapacity * 3), 3);
+                newMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+                newMesh.count = oldMesh.count;
+                newMesh.boundingSphere = oldMesh.boundingSphere;
+
+                // Safely copy old buffers to newly sized GPU buffers
+                newMesh.instanceMatrix.array.set(oldMesh.instanceMatrix.array.subarray(0, oldMesh.count * 16));
+                newMesh.instanceColor.array.set(oldMesh.instanceColor.array.subarray(0, oldMesh.count * 3));
+
+                worldGroup.remove(oldMesh);
+                oldMesh.dispose();
+                this.mesh = newMesh;
+                worldGroup.add(this.mesh);
+                this.capacity = newCapacity;
+                this.needsUpdate = true;
+            }
+
             addVoxel(localIdx, worldPos, color) {
                 if (this.voxelToIndex[localIdx] !== 65535) {
                     const instIdx = this.voxelToIndex[localIdx];
                     this.mesh.setColorAt(instIdx, color);
                     this.needsUpdate = true;
                 } else {
+                    if (this.mesh.count >= this.capacity) {
+                        this.resize(Math.min(this.capacity * 4, CHUNK_VOL));
+                    }
                     const instIdx = this.mesh.count;
                     this.voxelToIndex[localIdx] = instIdx;
                     this.indexToLocal[instIdx] = localIdx;
@@ -340,21 +373,21 @@
 
         const bucketPreviewMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false });
         const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, bucketPreviewMat, 8000);
-        bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); bucketPreviewMesh.matrixAutoUpdate = false; bucketPreviewMesh.updateMatrix(); bucketPreviewMesh.visible = false; bucketPreviewMesh.count = 0;
+        bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); bucketPreviewMesh.matrixAutoUpdate = false; bucketPreviewMesh.updateMatrix(); bucketPreviewMesh.visible = false;
         worldGroup.add(bucketPreviewMesh);
 
         const linePreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
         const linePreviewMesh = new THREE.InstancedMesh(voxelGeometry, linePreviewMat, 15000);
-        linePreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); linePreviewMesh.matrixAutoUpdate = false; linePreviewMesh.updateMatrix(); linePreviewMesh.visible = false; linePreviewMesh.count = 0;
+        linePreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); linePreviewMesh.matrixAutoUpdate = false; linePreviewMesh.updateMatrix(); linePreviewMesh.visible = false;
         worldGroup.add(linePreviewMesh);
 
         const selectionGroup = new THREE.Group();
         selectionGroup.visible = false;
         worldGroup.add(selectionGroup);
 
-        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); selMeshSolid.matrixAutoUpdate = false; selMeshSolid.updateMatrix(); selMeshSolid.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshSolid.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshSolid.instanceColor.setUsage(THREE.DynamicDrawUsage); selMeshSolid.count = 0;
-        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); selMeshGlass.matrixAutoUpdate = false; selMeshGlass.updateMatrix(); selMeshGlass.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshGlass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshGlass.instanceColor.setUsage(THREE.DynamicDrawUsage); selMeshGlass.count = 0;
-        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); selMeshEmission.matrixAutoUpdate = false; selMeshEmission.updateMatrix(); selMeshEmission.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshEmission.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshEmission.instanceColor.setUsage(THREE.DynamicDrawUsage); selMeshEmission.count = 0;
+        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); selMeshSolid.matrixAutoUpdate = false; selMeshSolid.updateMatrix(); selMeshSolid.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshSolid.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshSolid.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); selMeshGlass.matrixAutoUpdate = false; selMeshGlass.updateMatrix(); selMeshGlass.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshGlass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshGlass.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); selMeshEmission.matrixAutoUpdate = false; selMeshEmission.updateMatrix(); selMeshEmission.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshEmission.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshEmission.instanceColor.setUsage(THREE.DynamicDrawUsage);
         selectionGroup.add(selMeshSolid); selectionGroup.add(selMeshGlass); selectionGroup.add(selMeshEmission);
 
         const selBoxMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.9 });
@@ -375,9 +408,10 @@
                 if (pIdx >= previewGroups.length) {
                     const g = new THREE.Group();
                     g.matrixAutoUpdate = false;
-                    const m1 = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); m1.matrixAutoUpdate = false; m1.updateMatrix(); m1.count = 0;
-                    const m2 = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); m2.matrixAutoUpdate = false; m2.updateMatrix(); m2.count = 0;
-                    const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); m3.matrixAutoUpdate = false; m3.updateMatrix(); m3.count = 0;
+                    // Allocate 1 instead of 65000 to prevent orphaned massive VRAM leak
+                    const m1 = new THREE.InstancedMesh(voxelGeometry, matSolid, 1); m1.matrixAutoUpdate = false;
+                    const m2 = new THREE.InstancedMesh(voxelGeometry, matGlass, 1); m2.matrixAutoUpdate = false;
+                    const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 1); m3.matrixAutoUpdate = false;
                     const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat); bMesh.matrixAutoUpdate = false;
                     g.add(m1); g.add(m2); g.add(m3); g.add(bMesh);
                     previewContainer.add(g);
@@ -416,10 +450,9 @@
             for (let i = 0; i < 3; i++) {
                 let proxy;
                 if (baseMesh.isInstancedMesh) {
-                    proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, baseMesh.instanceMatrix.count);
+                    proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, 1);
                     proxy.instanceMatrix = baseMesh.instanceMatrix;
                     if (baseMesh.instanceColor) proxy.instanceColor = baseMesh.instanceColor;
-                    proxy.count = 0; // Initialize proxy count to 0 to avoid massive uninitialized draw calls
                 } else {
                     proxy = new THREE.Mesh(baseMesh.geometry, baseMesh.material);
                 }
@@ -573,7 +606,7 @@
 
         // TOOL OPTIONS MENU (X Button)
         const leftMenuCanvas = document.createElement('canvas'); leftMenuCanvas.width = 512; leftMenuCanvas.height = 512;
-        const leftMenuCtx = leftMenuCanvas.getContext('2d', { willReadFrequently: true });
+        const leftMenuCtx = leftMenuCanvas.getContext('2d');
         const leftMenuTexture = new THREE.CanvasTexture(leftMenuCanvas);
         const leftMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: leftMenuTexture, transparent: true, side: THREE.DoubleSide }));
         leftMenuMesh.visible = false; leftMenuMesh.position.set(0, 0.15, -0.05); leftMenuMesh.rotation.x = -Math.PI / 4;
@@ -729,7 +762,7 @@
         // COLOR & MATERIAL DUAL-SLOT MENU (Y Button)
         let isPaletteMagnified = false;
         const colorMenuCanvas = document.createElement('canvas'); colorMenuCanvas.width = 512; colorMenuCanvas.height = 512;
-        const colorMenuCtx = colorMenuCanvas.getContext('2d', { willReadFrequently: true });
+        const colorMenuCtx = colorMenuCanvas.getContext('2d');
         const colorMenuTexture = new THREE.CanvasTexture(colorMenuCanvas);
         const colorMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: colorMenuTexture, transparent: true, side: THREE.DoubleSide }));
         colorMenuMesh.visible = false; colorMenuMesh.position.set(0, 0.15, -0.05); colorMenuMesh.rotation.x = -Math.PI / 4;
@@ -856,7 +889,7 @@
 
         // TOOL SELECTION MENU (Right Menu - A Button)
         const rightMenuCanvas = document.createElement('canvas'); rightMenuCanvas.width = 512; rightMenuCanvas.height = 512;
-        const rightMenuCtx = rightMenuCanvas.getContext('2d', { willReadFrequently: true });
+        const rightMenuCtx = rightMenuCanvas.getContext('2d');
         const rightMenuTexture = new THREE.CanvasTexture(rightMenuCanvas);
         const rightMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: rightMenuTexture, transparent: true, side: THREE.DoubleSide }));
         rightMenuMesh.visible = false; rightMenuMesh.position.set(0, 0.15, -0.05); rightMenuMesh.rotation.x = -Math.PI / 4;
@@ -903,7 +936,7 @@
 
         // GLOBAL SETTINGS MENU (Right Menu - B Button)
         const globalMenuCanvas = document.createElement('canvas'); globalMenuCanvas.width = 512; globalMenuCanvas.height = 512;
-        const globalMenuCtx = globalMenuCanvas.getContext('2d', { willReadFrequently: true });
+        const globalMenuCtx = globalMenuCanvas.getContext('2d');
         const globalMenuTexture = new THREE.CanvasTexture(globalMenuCanvas);
         const globalMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: globalMenuTexture, transparent: true, side: THREE.DoubleSide }));
         globalMenuMesh.visible = false; globalMenuMesh.position.set(0, 0.15, -0.05); globalMenuMesh.rotation.x = -Math.PI / 4;
@@ -922,18 +955,11 @@
             drawButton(globalMenuCtx, 40, 210, 200, 50, 'Export: BOXES', exportMode === 'boxes');
             drawButton(globalMenuCtx, 272, 210, 200, 50, 'Export: MESH', exportMode === 'mesh');
             
-            if (isExporting) {
-                drawButton(globalMenuCtx, 40, 290, 432, 70, `EXPORTING... ${exportProgress}%`, true);
-            } else {
-                drawButton(globalMenuCtx, 40, 290, 432, 70, 'EXPORT TO .OBJ', false);
-            }
-            
+            drawButton(globalMenuCtx, 40, 290, 432, 70, 'EXPORT TO .OBJ', false);
             globalMenuTexture.needsUpdate = true;
         }
 
         function handleGlobalMenuClick(cx, cy) {
-            if (isExporting) return; // Prevent clicks while exporting
-            
             if (cy >= 70 && cy <= 120) {
                 if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock;
                 if (cx >= 272 && cx <= 472) clearInterior = !clearInterior;
@@ -946,20 +972,19 @@
                 if (cx >= 40 && cx <= 240) exportMode = 'boxes';
                 if (cx >= 272 && cx <= 472) exportMode = 'mesh';
             }
-            if (cy >= 290 && cy <= 360 && cx >= 40 && cx <= 472) exportToOBJAsync();
+            if (cy >= 290 && cy <= 360 && cx >= 40 && cx <= 472) exportToOBJ();
             globalMenuNeedsUpdate = true;
         }
 
         let leftMenuNeedsUpdate = true; let rightMenuNeedsUpdate = true; let colorMenuNeedsUpdate = true; let globalMenuNeedsUpdate = true; let lastMenuUpdateTime = 0;
-        updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
+        
+        // Wait for system fonts to ensure initial canvases render perfectly instead of falling back or requiring a refresh.
+        document.fonts.ready.then(() => {
+            updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
+        });
 
-        // --- Export Pipeline (Async / Chunked to prevent memory crashes and VR timeouts) ---
-        async function exportToOBJAsync() {
-            if (isExporting) return;
-            isExporting = true;
-            exportProgress = 0;
-            globalMenuNeedsUpdate = true;
-
+        // --- Export Pipeline ---
+        function exportToOBJ() {
             const isMesh = exportMode === 'mesh';
             const blobParts = ["# VoxTrotBravo Export\n", "mtllib voxel_materials.mtl\n"];
             let vertexOffset = 1; const hs = VOXEL_SIZE / 2;
@@ -982,20 +1007,12 @@
             }
             
             const mat4 = new THREE.Matrix4(); const pos = new THREE.Vector3(); const col = new THREE.Color();
-            
-            // Use chunked string arrays to prevent V8 out-of-memory limits when combining huge strings
-            const vertChunks = []; const faceChunks = [[], [], []];
-            let currentVertChunk = ""; let currentFaceChunk = ["", "", ""];
-            const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
+            const vertsArray = []; const facesArrays = [[], [], []]; const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
 
-            let processedChunks = 0;
-            const totalChunks = chunks.size;
-            let lastYieldTime = performance.now();
-
-            for (let chunk of chunks.values()) {
-                for (let matIdx = 0; matIdx < 3; matIdx++) {
+            for (let matIdx = 0; matIdx < 3; matIdx++) {
+                chunks.forEach(chunk => {
                     const layer = chunk.layers[matIdx];
-                    if (!layer || layer.mesh.count === 0) continue;
+                    if (!layer || layer.mesh.count === 0) return;
                     for (let i = 0; i < layer.mesh.count; i++) {
                         const localIdx = layer.indexToLocal[i]; if (localIdx === 65535) continue;
                         const lx = localIdx % CHUNK_SIZE; const ly = Math.floor(localIdx / CHUNK_SIZE) % CHUNK_SIZE; const lz = Math.floor(localIdx / (CHUNK_SIZE * CHUNK_SIZE));
@@ -1008,53 +1025,31 @@
                             if (!hasVoxel(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
                                 dir.v.forEach(vert => {
                                     pos.copy(vert).applyMatrix4(mat4).applyMatrix4(worldGroup.matrixWorld);
-                                    currentVertChunk += `v ${pos.x.toFixed(4)} ${pos.y.toFixed(4)} ${pos.z.toFixed(4)} ${r} ${g} ${b}\n`;
+                                    // Pushing raw tokens drastically reduces GC pressure compared to massive template strings
+                                    vertsArray.push("v ", pos.x.toFixed(4), " ", pos.y.toFixed(4), " ", pos.z.toFixed(4), " ", r, " ", g, " ", b, "\n");
                                 });
                                 if (isMesh) {
-                                    currentFaceChunk[matIdx] += `f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2}\n`; 
-                                    currentFaceChunk[matIdx] += `f ${vertexOffset} ${vertexOffset+2} ${vertexOffset+3}\n`;
+                                    facesArrays[matIdx].push("f ", vertexOffset, " ", vertexOffset+1, " ", vertexOffset+2, "\n", "f ", vertexOffset, " ", vertexOffset+2, " ", vertexOffset+3, "\n");
                                 } else {
-                                    currentFaceChunk[matIdx] += `f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2} ${vertexOffset+3}\n`;
+                                    facesArrays[matIdx].push("f ", vertexOffset, " ", vertexOffset+1, " ", vertexOffset+2, " ", vertexOffset+3, "\n");
                                 }
                                 vertexOffset += 4;
-
-                                // Flush to arrays if string length grows too large
-                                if (currentVertChunk.length > 250000) { vertChunks.push(currentVertChunk); currentVertChunk = ""; }
-                                if (currentFaceChunk[matIdx].length > 250000) { faceChunks[matIdx].push(currentFaceChunk[matIdx]); currentFaceChunk[matIdx] = ""; }
                             }
                         });
                     }
-                }
-                
-                processedChunks++;
-                // Yield execution to the browser every 25ms to prevent main thread blocking and VR drops
-                if (performance.now() - lastYieldTime > 25) {
-                    exportProgress = Math.floor((processedChunks / totalChunks) * 100);
-                    globalMenuNeedsUpdate = true;
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                    lastYieldTime = performance.now();
-                }
+                });
             }
 
-            // Flush final strings
-            if (currentVertChunk.length > 0) vertChunks.push(currentVertChunk);
-            for(let i=0; i<3; i++) if (currentFaceChunk[i].length > 0) faceChunks[i].push(currentFaceChunk[i]);
-
-            // Construct exact Blob structure
-            for(let c of vertChunks) blobParts.push(c);
+            blobParts.push(vertsArray.join(""));
             for (let matIdx = 0; matIdx < 3; matIdx++) {
-                if (faceChunks[matIdx].length > 0) {
+                if (facesArrays[matIdx].length > 0) {
                     blobParts.push(`\ng ${matNames[matIdx]}\nusemtl ${matNames[matIdx]}\n`);
-                    for(let c of faceChunks[matIdx]) blobParts.push(c);
+                    blobParts.push(facesArrays[matIdx].join(""));
                 }
             }
             
             const blob = new Blob(blobParts, { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a');
             a.style.display = 'none'; a.href = url; a.download = isMesh ? 'voxtrotbravo_mesh.obj' : 'voxtrotbravo_boxes.obj'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-
-            isExporting = false;
-            exportProgress = 0;
-            globalMenuNeedsUpdate = true;
         }
 
         // --- Core Tool Algorithms & Color Handlers ---
@@ -1212,7 +1207,6 @@
             const targetMat = getVoxelMatAndColor(startX, startY, startZ, targetQueryColor); if (targetMat === -1) return; 
             selVisited.clear(); selQueue.length = 0; selQueue.push(startX, startY, startZ); selVisited.add((startX + 32768) + (startY + 32768) * 65536 + (startZ + 32768) * 4294967296);
             baseSelection.length = 0;
-            const selDirs = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1, 1,1,0, -1,-1,0, 1,-1,0, -1,1,0, 1,0,1, -1,0,-1, 1,0,-1, -1,0,1, 0,1,1, 0,-1,-1, 0,1,-1, 0,-1,1, 1,1,1, -1,-1,-1, 1,-1,1, -1,1,-1, 1,1,-1, -1,-1,1, 1,-1,-1, -1,1,1];
             let qHead = 0;
             while(qHead < selQueue.length && baseSelection.length < 64000) {
                 const x = selQueue[qHead++]; const y = selQueue[qHead++]; const z = selQueue[qHead++];
@@ -1283,12 +1277,12 @@
         function calculateFloodFill(startX, startY, startZ) {
             hoveredFillCoords.length = 0; const targetMat = getVoxelMatAndColor(startX, startY, startZ, targetQueryColor); if (targetMat === -1) return;
             fillVisited.clear(); fillQueue.length = 0; fillQueue.push(startX, startY, startZ); fillVisited.add((startX + 32768) + (startY + 32768) * 65536 + (startZ + 32768) * 4294967296);
-            let qHead = 0; const neighbors = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
+            let qHead = 0;
             while(qHead < fillQueue.length && hoveredFillCoords.length < 12000) {
                 const x = fillQueue[qHead++]; const y = fillQueue[qHead++]; const z = fillQueue[qHead++];
                 hoveredFillCoords.push(x, y, z);
-                for (let i=0; i < neighbors.length; i+=3) {
-                    const nx = x + neighbors[i]; const ny = y + neighbors[i+1]; const nz = z + neighbors[i+2];
+                for (let i=0; i < fillNeighbors.length; i+=3) {
+                    const nx = x + fillNeighbors[i]; const ny = y + fillNeighbors[i+1]; const nz = z + fillNeighbors[i+2];
                     const key = (nx + 32768) + (ny + 32768) * 65536 + (nz + 32768) * 4294967296;
                     if (!fillVisited.has(key)) {
                         fillVisited.add(key);
