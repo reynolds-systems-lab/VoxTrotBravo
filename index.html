@@ -882,55 +882,61 @@
         colorMenuMesh.visible = false; colorMenuMesh.position.set(0, 0.15, -0.05); colorMenuMesh.rotation.x = -Math.PI / 4;
         xrLeft.add(colorMenuMesh);
 
-        function updateColorMenuTexture() {
-            colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; colorMenuCtx.fillRect(0, 0, 512, 512);
-            if (isPaletteMagnified) {
-                colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 26px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Precision Picker`, 256, 36);
-                if (matTypes[activeMatSlot] === 2) {
-                    const grad = colorMenuCtx.createLinearGradient(20, 50, 492, 50); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(20, 50, 472, 400);
+        function updateColorMenuTexture(isJustPreview = false) {
+            if (!isJustPreview) {
+                colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; colorMenuCtx.fillRect(0, 0, 512, 512);
+                if (isPaletteMagnified) {
+                    colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 26px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Precision Picker`, 256, 36);
+                    if (matTypes[activeMatSlot] === 2) {
+                        const grad = colorMenuCtx.createLinearGradient(20, 50, 492, 50); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(20, 50, 472, 400);
+                    } else {
+                        const gradH = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
+                        gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
+                        colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(20, 50, 472, 400);
+                        const gradV = colorMenuCtx.createLinearGradient(20, 50, 20, 450);
+                        gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
+                        colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(20, 50, 472, 400);
+                    }
                 } else {
-                    const gradH = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
-                    gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
-                    colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(20, 50, 472, 400);
-                    const gradV = colorMenuCtx.createLinearGradient(20, 50, 20, 450);
-                    gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
-                    colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(20, 50, 472, 400);
+                    colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 22px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Materials & Colors`, 256, 30);
+                    
+                    // Active Slot Tabs
+                    drawButton(colorMenuCtx, 30, 45, 220, 45, 'SLOT 1 (MAIN)', activeMatSlot === 0);
+                    drawButton(colorMenuCtx, 262, 45, 220, 45, 'SLOT 2 (WIRE/DIV)', activeMatSlot === 1);
+                    
+                    // Material Selector for Active Slot
+                    const mType = matTypes[activeMatSlot];
+                    drawButton(colorMenuCtx, 30, 100, 140, 45, 'SOLID', mType === 0); 
+                    drawButton(colorMenuCtx, 186, 100, 140, 45, 'GLASS', mType === 1); 
+                    drawButton(colorMenuCtx, 342, 100, 140, 45, 'EMISSION', mType === 2);
+                    
+                    if (mType === 2) {
+                        const grad = colorMenuCtx.createLinearGradient(30, 155, 482, 155); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(30, 155, 452, 160);
+                        colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)'; colorMenuCtx.fillRect(30, 200, 452, 60); colorMenuCtx.fillStyle = '#fff'; colorMenuCtx.font = 'bold 24px sans-serif'; colorMenuCtx.fillText(`Emission Brightness Range`, 256, 235);
+                    } else {
+                        const gradH = colorMenuCtx.createLinearGradient(30, 155, 482, 155);
+                        gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
+                        colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(30, 155, 452, 160);
+                        const gradV = colorMenuCtx.createLinearGradient(30, 155, 30, 315);
+                        gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
+                        colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(30, 155, 452, 160);
+                    }
+
+                    // Color Mode
+                    const cMode = colorModes[activeMatSlot];
+                    drawButton(colorMenuCtx, 30, 325, 105, 45, 'SOLID', cMode === 'solid'); 
+                    drawButton(colorMenuCtx, 145, 325, 105, 45, 'GRAD-H', cMode === 'grad_h'); 
+                    drawButton(colorMenuCtx, 260, 325, 105, 45, 'GRAD-V', cMode === 'grad_v'); 
+                    drawButton(colorMenuCtx, 375, 325, 107, 45, 'SHIFT', cMode === 'shift');
                 }
+            }
+
+            // Always update the bottom color assignments (Preview Area)
+            if (isPaletteMagnified) {
                 const activeColorHex = slotColors[activeMatSlot][activeColorSubSlot].getHexString(); colorMenuCtx.fillStyle = '#' + activeColorHex; colorMenuCtx.fillRect(20, 460, 472, 40);
                 const hsl = {}; slotColors[activeMatSlot][activeColorSubSlot].getHSL(hsl); colorMenuCtx.fillStyle = hsl.l > 0.6 ? 'black' : 'white'; colorMenuCtx.font = 'bold 20px sans-serif'; colorMenuCtx.fillText(`Release trigger to apply`, 256, 487);
             } else {
-                colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 22px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Materials & Colors`, 256, 30);
-                
-                // Active Slot Tabs
-                drawButton(colorMenuCtx, 30, 45, 220, 45, 'SLOT 1 (MAIN)', activeMatSlot === 0);
-                drawButton(colorMenuCtx, 262, 45, 220, 45, 'SLOT 2 (WIRE/DIV)', activeMatSlot === 1);
-                
-                // Material Selector for Active Slot
                 const mType = matTypes[activeMatSlot];
-                drawButton(colorMenuCtx, 30, 100, 140, 45, 'SOLID', mType === 0); 
-                drawButton(colorMenuCtx, 186, 100, 140, 45, 'GLASS', mType === 1); 
-                drawButton(colorMenuCtx, 342, 100, 140, 45, 'EMISSION', mType === 2);
-                
-                if (mType === 2) {
-                    const grad = colorMenuCtx.createLinearGradient(30, 155, 482, 155); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(30, 155, 452, 160);
-                    colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)'; colorMenuCtx.fillRect(30, 200, 452, 60); colorMenuCtx.fillStyle = '#fff'; colorMenuCtx.font = 'bold 24px sans-serif'; colorMenuCtx.fillText(`Emission Brightness Range`, 256, 235);
-                } else {
-                    const gradH = colorMenuCtx.createLinearGradient(30, 155, 482, 155);
-                    gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
-                    colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(30, 155, 452, 160);
-                    const gradV = colorMenuCtx.createLinearGradient(30, 155, 30, 315);
-                    gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
-                    colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(30, 155, 452, 160);
-                }
-
-                // Color Mode
-                const cMode = colorModes[activeMatSlot];
-                drawButton(colorMenuCtx, 30, 325, 105, 45, 'SOLID', cMode === 'solid'); 
-                drawButton(colorMenuCtx, 145, 325, 105, 45, 'GRAD-H', cMode === 'grad_h'); 
-                drawButton(colorMenuCtx, 260, 325, 105, 45, 'GRAD-V', cMode === 'grad_v'); 
-                drawButton(colorMenuCtx, 375, 325, 107, 45, 'SHIFT', cMode === 'shift');
-                
-                // Color Assignments A & B
                 const cA = slotColors[activeMatSlot][0];
                 const cB = slotColors[activeMatSlot][1];
                 const showColor2 = (mType !== 2);
@@ -967,7 +973,7 @@
                 const l = Math.max(0, Math.min(1, 1.0 - ((cy - minY) / (maxY - minY)))); 
                 targetColor.setHSL(h, 1.0, l); 
             }
-            updateCursors(); colorMenuNeedsUpdate = true; 
+            updateCursors(); colorMenuNeedsPreviewUpdate = true; 
         }
 
         function handleColorMenuClick(cx, cy) {
@@ -1091,6 +1097,7 @@
         }
 
         let leftMenuNeedsUpdate = true; let rightMenuNeedsUpdate = true; let colorMenuNeedsUpdate = true; let globalMenuNeedsUpdate = true; let lastMenuUpdateTime = 0;
+        let colorMenuNeedsPreviewUpdate = false;
         updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
 
         // --- Export Pipeline ---
@@ -1912,11 +1919,18 @@
                 pollGamepads();
 
                 if (Date.now() - lastMenuUpdateTime > 100) { 
-                    if (leftMenuMesh.visible && leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; }
-                    if (rightMenuMesh.visible && rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; }
-                    if (colorMenuMesh.visible && colorMenuNeedsUpdate) { updateColorMenuTexture(); colorMenuNeedsUpdate = false; }
-                    if (globalMenuMesh.visible && globalMenuNeedsUpdate) { updateGlobalMenuTexture(); globalMenuNeedsUpdate = false; }
-                    lastMenuUpdateTime = Date.now();
+                    let updated = false;
+                    if (leftMenuMesh.visible && leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; updated = true; }
+                    if (rightMenuMesh.visible && rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; updated = true; }
+                    
+                    if (colorMenuMesh.visible) {
+                        if (colorMenuNeedsUpdate) { updateColorMenuTexture(false); colorMenuNeedsUpdate = false; colorMenuNeedsPreviewUpdate = false; updated = true; }
+                        else if (colorMenuNeedsPreviewUpdate) { updateColorMenuTexture(true); colorMenuNeedsPreviewUpdate = false; updated = true; }
+                    }
+
+                    if (globalMenuMesh.visible && globalMenuNeedsUpdate) { updateGlobalMenuTexture(); globalMenuNeedsUpdate = false; updated = true; }
+                    
+                    if (updated) lastMenuUpdateTime = Date.now();
                 }
 
                 if ((rightMenuMesh.visible || globalMenuMesh.visible) && xrLeft) {
