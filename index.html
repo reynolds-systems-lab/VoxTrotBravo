@@ -166,157 +166,6 @@
         const rightPointerPos = new THREE.Vector3();
         const leftPointerPos = new THREE.Vector3();
 
-        // --- WebGPU Compute Engine (Hybrid Architecture) ---
-        class VoxelComputeEngine {
-            constructor() {
-                this.device = null;
-                this.pipelineSphere = null;
-                this.ready = false;
-                
-                this.maxOutputElements = 2000000;
-                this.paramsBuffer = null;
-                this.counterBuffer = null;
-                this.outBuffer = null;
-                this.readCounterBuffer = null;
-                this.bindGroup = null;
-            }
-
-            async init() {
-                if (!navigator.gpu) return;
-                try {
-                    const adapter = await navigator.gpu.requestAdapter();
-                    if (!adapter) return;
-                    this.device = await adapter.requestDevice();
-
-                    const shader = `
-                        struct Params {
-                            minX: f32, maxX: f32, minY: f32, maxY: f32,
-                            minZ: f32, maxZ: f32, cx: f32, cy: f32,
-                            cz: f32, rx: f32, ry: f32, rz: f32,
-                            mode: f32, clearInterior: f32, maxOut: f32, pad2: f32
-                        }
-                        
-                        struct Counter {
-                            count: atomic<u32>
-                        }
-                        
-                        struct OutData {
-                            data: array<vec4<f32>>
-                        }
-
-                        @group(0) @binding(0) var<uniform> params: Params;
-                        @group(0) @binding(1) var<storage, read_write> counter: Counter;
-                        @group(0) @binding(2) var<storage, read_write> out_data: OutData;
-
-                        @compute @workgroup_size(8, 8, 8)
-                        fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-                            let gx = f32(global_id.x) + params.minX;
-                            let gy = f32(global_id.y) + params.minY;
-                            let gz = f32(global_id.z) + params.minZ;
-
-                            if (gx > params.maxX || gy > params.maxY || gz > params.maxZ) { return; }
-
-                            let nx = select(0.0, (gx - params.cx) / params.rx, params.rx > 0.0);
-                            let ny = select(0.0, (gy - params.cy) / params.ry, params.ry > 0.0);
-                            let nz = select(0.0, (gz - params.cz) / params.rz, params.rz > 0.0);
-
-                            if ((nx*nx + ny*ny + nz*nz) <= 1.05) {
-                                var action = 0u;
-                                if (params.mode == 1.0) { 
-                                    let nx1 = select(0.0, ((gx+1.0) - params.cx) / params.rx, params.rx > 0.0);
-                                    let nx2 = select(0.0, ((gx-1.0) - params.cx) / params.rx, params.rx > 0.0);
-                                    let ny1 = select(0.0, ((gy+1.0) - params.cy) / params.ry, params.ry > 0.0);
-                                    let ny2 = select(0.0, ((gy-1.0) - params.cy) / params.ry, params.ry > 0.0);
-                                    let nz1 = select(0.0, ((gz+1.0) - params.cz) / params.rz, params.rz > 0.0);
-                                    let nz2 = select(0.0, ((gz-1.0) - params.cz) / params.rz, params.rz > 0.0);
-
-                                    if (nx1*nx1 + ny*ny + nz*nz > 1.05 || nx2*nx2 + ny*ny + nz*nz > 1.05 ||
-                                        nx*nx + ny1*ny1 + nz*nz > 1.05 || nx*nx + ny2*ny2 + nz*nz > 1.05 ||
-                                        nx*nx + ny*ny + nz1*nz1 > 1.05 || nx*nx + ny*ny + nz2*nz2 > 1.05) {
-                                        action = 1u;
-                                    } else if (params.clearInterior == 1.0) {
-                                        action = 2u;
-                                    }
-                                } else {
-                                    action = 1u;
-                                }
-
-                                if (action > 0u) {
-                                    let idx = atomicAdd(&counter.count, 1u);
-                                    if (idx < u32(params.maxOut)) {
-                                        out_data.data[idx] = vec4<f32>(gx, gy, gz, f32(action));
-                                    }
-                                }
-                            }
-                        }
-                    `;
-                    const module = this.device.createShaderModule({ code: shader });
-                    this.pipelineSphere = this.device.createComputePipeline({
-                        layout: 'auto',
-                        compute: { module, entryPoint: 'main' }
-                    });
-
-                    this.paramsBuffer = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-                    this.counterBuffer = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
-                    this.outBuffer = this.device.createBuffer({ size: this.maxOutputElements * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-                    this.readCounterBuffer = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-
-                    this.bindGroup = this.device.createBindGroup({
-                        layout: this.pipelineSphere.getBindGroupLayout(0),
-                        entries: [
-                            { binding: 0, resource: { buffer: this.paramsBuffer } },
-                            { binding: 1, resource: { buffer: this.counterBuffer } },
-                            { binding: 2, resource: { buffer: this.outBuffer } }
-                        ]
-                    });
-
-                    this.ready = true;
-                    console.log("WebGPU Compute Acceleration Ready (Optimized Atomic Append)");
-                } catch(e) { console.warn("WebGPU initialization failed. Falling back to CPU.", e); }
-            }
-
-            async computeSphere(minX, maxX, minY, maxY, minZ, maxZ, cx, cy, cz, rx, ry, rz, mode, clearInterior) {
-                if (!this.ready) return null;
-                const w = maxX - minX + 1; const h = maxY - minY + 1; const d = maxZ - minZ + 1;
-
-                const paramsData = new Float32Array([minX, maxX, minY, maxY, minZ, maxZ, cx, cy, cz, rx, ry, rz, mode, clearInterior, this.maxOutputElements, 0]);
-                this.device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
-                
-                this.device.queue.writeBuffer(this.counterBuffer, 0, new Uint32Array([0, 0, 0, 0]));
-
-                const commandEncoder = this.device.createCommandEncoder();
-                const passEncoder = commandEncoder.beginComputePass();
-                passEncoder.setPipeline(this.pipelineSphere);
-                passEncoder.setBindGroup(0, this.bindGroup);
-                passEncoder.dispatchWorkgroups(Math.ceil(w/8), Math.ceil(h/8), Math.ceil(d/8));
-                passEncoder.end();
-
-                commandEncoder.copyBufferToBuffer(this.counterBuffer, 0, this.readCounterBuffer, 0, 4);
-                this.device.queue.submit([commandEncoder.finish()]);
-
-                await this.readCounterBuffer.mapAsync(GPUMapMode.READ);
-                const count = new Uint32Array(this.readCounterBuffer.getMappedRange())[0];
-                this.readCounterBuffer.unmap();
-
-                const elementsToRead = Math.min(count, this.maxOutputElements);
-                if (elementsToRead === 0) return new Float32Array(0);
-
-                const readDataBuffer = this.device.createBuffer({ size: elementsToRead * 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-                const copyEncoder = this.device.createCommandEncoder();
-                copyEncoder.copyBufferToBuffer(this.outBuffer, 0, readDataBuffer, 0, elementsToRead * 16);
-                this.device.queue.submit([copyEncoder.finish()]);
-
-                await readDataBuffer.mapAsync(GPUMapMode.READ);
-                const data = new Float32Array(readDataBuffer.getMappedRange()).slice(); 
-                readDataBuffer.unmap();
-                readDataBuffer.destroy(); 
-                return data;
-            }
-        }
-        
-        const computeEngine = new VoxelComputeEngine();
-        computeEngine.init();
-
         // --- Scene Setup ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a1a2e);
@@ -327,7 +176,7 @@
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true; // WebXR relies on WebGLRenderer
+        renderer.xr.enabled = true;
 
         document.body.appendChild(renderer.domElement);
         document.body.appendChild(VRButton.createButton(renderer));
@@ -488,21 +337,21 @@
 
         const bucketPreviewMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false });
         const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, bucketPreviewMat, 8000);
-        bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); bucketPreviewMesh.matrixAutoUpdate = false; bucketPreviewMesh.updateMatrix(); bucketPreviewMesh.visible = false;
+        bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); bucketPreviewMesh.matrixAutoUpdate = false; bucketPreviewMesh.updateMatrix(); bucketPreviewMesh.visible = false; bucketPreviewMesh.count = 0;
         worldGroup.add(bucketPreviewMesh);
 
         const linePreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
         const linePreviewMesh = new THREE.InstancedMesh(voxelGeometry, linePreviewMat, 15000);
-        linePreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); linePreviewMesh.matrixAutoUpdate = false; linePreviewMesh.updateMatrix(); linePreviewMesh.visible = false;
+        linePreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); linePreviewMesh.matrixAutoUpdate = false; linePreviewMesh.updateMatrix(); linePreviewMesh.visible = false; linePreviewMesh.count = 0;
         worldGroup.add(linePreviewMesh);
 
         const selectionGroup = new THREE.Group();
         selectionGroup.visible = false;
         worldGroup.add(selectionGroup);
 
-        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); selMeshSolid.matrixAutoUpdate = false; selMeshSolid.updateMatrix(); selMeshSolid.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshSolid.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshSolid.instanceColor.setUsage(THREE.DynamicDrawUsage);
-        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); selMeshGlass.matrixAutoUpdate = false; selMeshGlass.updateMatrix(); selMeshGlass.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshGlass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshGlass.instanceColor.setUsage(THREE.DynamicDrawUsage);
-        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); selMeshEmission.matrixAutoUpdate = false; selMeshEmission.updateMatrix(); selMeshEmission.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshEmission.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshEmission.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); selMeshSolid.matrixAutoUpdate = false; selMeshSolid.updateMatrix(); selMeshSolid.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshSolid.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshSolid.instanceColor.setUsage(THREE.DynamicDrawUsage); selMeshSolid.count = 0;
+        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); selMeshGlass.matrixAutoUpdate = false; selMeshGlass.updateMatrix(); selMeshGlass.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshGlass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshGlass.instanceColor.setUsage(THREE.DynamicDrawUsage); selMeshGlass.count = 0;
+        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); selMeshEmission.matrixAutoUpdate = false; selMeshEmission.updateMatrix(); selMeshEmission.instanceMatrix.setUsage(THREE.DynamicDrawUsage); selMeshEmission.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(65000 * 3), 3); selMeshEmission.instanceColor.setUsage(THREE.DynamicDrawUsage); selMeshEmission.count = 0;
         selectionGroup.add(selMeshSolid); selectionGroup.add(selMeshGlass); selectionGroup.add(selMeshEmission);
 
         const selBoxMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.9 });
@@ -523,9 +372,9 @@
                 if (pIdx >= previewGroups.length) {
                     const g = new THREE.Group();
                     g.matrixAutoUpdate = false;
-                    const m1 = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); m1.matrixAutoUpdate = false; m1.updateMatrix();
-                    const m2 = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); m2.matrixAutoUpdate = false; m2.updateMatrix();
-                    const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); m3.matrixAutoUpdate = false; m3.updateMatrix();
+                    const m1 = new THREE.InstancedMesh(voxelGeometry, matSolid, 65000); m1.matrixAutoUpdate = false; m1.updateMatrix(); m1.count = 0;
+                    const m2 = new THREE.InstancedMesh(voxelGeometry, matGlass, 65000); m2.matrixAutoUpdate = false; m2.updateMatrix(); m2.count = 0;
+                    const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 65000); m3.matrixAutoUpdate = false; m3.updateMatrix(); m3.count = 0;
                     const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat); bMesh.matrixAutoUpdate = false;
                     g.add(m1); g.add(m2); g.add(m3); g.add(bMesh);
                     previewContainer.add(g);
@@ -567,6 +416,7 @@
                     proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, baseMesh.instanceMatrix.count);
                     proxy.instanceMatrix = baseMesh.instanceMatrix;
                     if (baseMesh.instanceColor) proxy.instanceColor = baseMesh.instanceColor;
+                    proxy.count = 0; // Initialize proxy count to 0 to avoid massive uninitialized draw calls
                 } else {
                     proxy = new THREE.Mesh(baseMesh.geometry, baseMesh.material);
                 }
@@ -882,61 +732,55 @@
         colorMenuMesh.visible = false; colorMenuMesh.position.set(0, 0.15, -0.05); colorMenuMesh.rotation.x = -Math.PI / 4;
         xrLeft.add(colorMenuMesh);
 
-        function updateColorMenuTexture(isJustPreview = false) {
-            if (!isJustPreview) {
-                colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; colorMenuCtx.fillRect(0, 0, 512, 512);
-                if (isPaletteMagnified) {
-                    colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 26px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Precision Picker`, 256, 36);
-                    if (matTypes[activeMatSlot] === 2) {
-                        const grad = colorMenuCtx.createLinearGradient(20, 50, 492, 50); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(20, 50, 472, 400);
-                    } else {
-                        const gradH = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
-                        gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
-                        colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(20, 50, 472, 400);
-                        const gradV = colorMenuCtx.createLinearGradient(20, 50, 20, 450);
-                        gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
-                        colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(20, 50, 472, 400);
-                    }
-                } else {
-                    colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 22px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Materials & Colors`, 256, 30);
-                    
-                    // Active Slot Tabs
-                    drawButton(colorMenuCtx, 30, 45, 220, 45, 'SLOT 1 (MAIN)', activeMatSlot === 0);
-                    drawButton(colorMenuCtx, 262, 45, 220, 45, 'SLOT 2 (WIRE/DIV)', activeMatSlot === 1);
-                    
-                    // Material Selector for Active Slot
-                    const mType = matTypes[activeMatSlot];
-                    drawButton(colorMenuCtx, 30, 100, 140, 45, 'SOLID', mType === 0); 
-                    drawButton(colorMenuCtx, 186, 100, 140, 45, 'GLASS', mType === 1); 
-                    drawButton(colorMenuCtx, 342, 100, 140, 45, 'EMISSION', mType === 2);
-                    
-                    if (mType === 2) {
-                        const grad = colorMenuCtx.createLinearGradient(30, 155, 482, 155); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(30, 155, 452, 160);
-                        colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)'; colorMenuCtx.fillRect(30, 200, 452, 60); colorMenuCtx.fillStyle = '#fff'; colorMenuCtx.font = 'bold 24px sans-serif'; colorMenuCtx.fillText(`Emission Brightness Range`, 256, 235);
-                    } else {
-                        const gradH = colorMenuCtx.createLinearGradient(30, 155, 482, 155);
-                        gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
-                        colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(30, 155, 452, 160);
-                        const gradV = colorMenuCtx.createLinearGradient(30, 155, 30, 315);
-                        gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
-                        colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(30, 155, 452, 160);
-                    }
-
-                    // Color Mode
-                    const cMode = colorModes[activeMatSlot];
-                    drawButton(colorMenuCtx, 30, 325, 105, 45, 'SOLID', cMode === 'solid'); 
-                    drawButton(colorMenuCtx, 145, 325, 105, 45, 'GRAD-H', cMode === 'grad_h'); 
-                    drawButton(colorMenuCtx, 260, 325, 105, 45, 'GRAD-V', cMode === 'grad_v'); 
-                    drawButton(colorMenuCtx, 375, 325, 107, 45, 'SHIFT', cMode === 'shift');
-                }
-            }
-
-            // Always update the bottom color assignments (Preview Area)
+        function updateColorMenuTexture() {
+            colorMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; colorMenuCtx.fillRect(0, 0, 512, 512);
             if (isPaletteMagnified) {
+                colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 26px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Precision Picker`, 256, 36);
+                if (matTypes[activeMatSlot] === 2) {
+                    const grad = colorMenuCtx.createLinearGradient(20, 50, 492, 50); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(20, 50, 472, 400);
+                } else {
+                    const gradH = colorMenuCtx.createLinearGradient(20, 50, 492, 50);
+                    gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
+                    colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(20, 50, 472, 400);
+                    const gradV = colorMenuCtx.createLinearGradient(20, 50, 20, 450);
+                    gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
+                    colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(20, 50, 472, 400);
+                }
                 const activeColorHex = slotColors[activeMatSlot][activeColorSubSlot].getHexString(); colorMenuCtx.fillStyle = '#' + activeColorHex; colorMenuCtx.fillRect(20, 460, 472, 40);
                 const hsl = {}; slotColors[activeMatSlot][activeColorSubSlot].getHSL(hsl); colorMenuCtx.fillStyle = hsl.l > 0.6 ? 'black' : 'white'; colorMenuCtx.font = 'bold 20px sans-serif'; colorMenuCtx.fillText(`Release trigger to apply`, 256, 487);
             } else {
+                colorMenuCtx.fillStyle = '#4facfe'; colorMenuCtx.font = 'bold 22px sans-serif'; colorMenuCtx.textAlign = 'center'; colorMenuCtx.fillText(`Materials & Colors`, 256, 30);
+                
+                // Active Slot Tabs
+                drawButton(colorMenuCtx, 30, 45, 220, 45, 'SLOT 1 (MAIN)', activeMatSlot === 0);
+                drawButton(colorMenuCtx, 262, 45, 220, 45, 'SLOT 2 (WIRE/DIV)', activeMatSlot === 1);
+                
+                // Material Selector for Active Slot
                 const mType = matTypes[activeMatSlot];
+                drawButton(colorMenuCtx, 30, 100, 140, 45, 'SOLID', mType === 0); 
+                drawButton(colorMenuCtx, 186, 100, 140, 45, 'GLASS', mType === 1); 
+                drawButton(colorMenuCtx, 342, 100, 140, 45, 'EMISSION', mType === 2);
+                
+                if (mType === 2) {
+                    const grad = colorMenuCtx.createLinearGradient(30, 155, 482, 155); grad.addColorStop(0, '#000000'); grad.addColorStop(1, '#ffffff'); colorMenuCtx.fillStyle = grad; colorMenuCtx.fillRect(30, 155, 452, 160);
+                    colorMenuCtx.fillStyle = 'rgba(0, 0, 0, 0.4)'; colorMenuCtx.fillRect(30, 200, 452, 60); colorMenuCtx.fillStyle = '#fff'; colorMenuCtx.font = 'bold 24px sans-serif'; colorMenuCtx.fillText(`Emission Brightness Range`, 256, 235);
+                } else {
+                    const gradH = colorMenuCtx.createLinearGradient(30, 155, 482, 155);
+                    gradH.addColorStop(0, '#ff0000'); gradH.addColorStop(1/6, '#ffff00'); gradH.addColorStop(2/6, '#00ff00'); gradH.addColorStop(3/6, '#00ffff'); gradH.addColorStop(4/6, '#0000ff'); gradH.addColorStop(5/6, '#ff00ff'); gradH.addColorStop(1, '#ff0000');
+                    colorMenuCtx.fillStyle = gradH; colorMenuCtx.fillRect(30, 155, 452, 160);
+                    const gradV = colorMenuCtx.createLinearGradient(30, 155, 30, 315);
+                    gradV.addColorStop(0, 'rgba(255,255,255,1)'); gradV.addColorStop(0.5, 'rgba(255,255,255,0)'); gradV.addColorStop(0.5, 'rgba(0,0,0,0)'); gradV.addColorStop(1, 'rgba(0,0,0,1)');
+                    colorMenuCtx.fillStyle = gradV; colorMenuCtx.fillRect(30, 155, 452, 160);
+                }
+
+                // Color Mode
+                const cMode = colorModes[activeMatSlot];
+                drawButton(colorMenuCtx, 30, 325, 105, 45, 'SOLID', cMode === 'solid'); 
+                drawButton(colorMenuCtx, 145, 325, 105, 45, 'GRAD-H', cMode === 'grad_h'); 
+                drawButton(colorMenuCtx, 260, 325, 105, 45, 'GRAD-V', cMode === 'grad_v'); 
+                drawButton(colorMenuCtx, 375, 325, 107, 45, 'SHIFT', cMode === 'shift');
+                
+                // Color Assignments A & B
                 const cA = slotColors[activeMatSlot][0];
                 const cB = slotColors[activeMatSlot][1];
                 const showColor2 = (mType !== 2);
@@ -973,7 +817,7 @@
                 const l = Math.max(0, Math.min(1, 1.0 - ((cy - minY) / (maxY - minY)))); 
                 targetColor.setHSL(h, 1.0, l); 
             }
-            updateCursors(); colorMenuNeedsPreviewUpdate = true; 
+            updateCursors(); colorMenuNeedsUpdate = true; 
         }
 
         function handleColorMenuClick(cx, cy) {
@@ -1097,7 +941,6 @@
         }
 
         let leftMenuNeedsUpdate = true; let rightMenuNeedsUpdate = true; let colorMenuNeedsUpdate = true; let globalMenuNeedsUpdate = true; let lastMenuUpdateTime = 0;
-        let colorMenuNeedsPreviewUpdate = false;
         updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
 
         // --- Export Pipeline ---
@@ -1495,56 +1338,12 @@
             leftMenuNeedsUpdate = true;
         }
 
-        async function executeQuadSphereTool(startPos, endPos, isPainting) {
+        function executeQuadSphereTool(startPos, endPos, isPainting) {
             const minX = Math.min(Math.round(startPos.x / VOXEL_SIZE), Math.round(endPos.x / VOXEL_SIZE)); const maxX = Math.max(Math.round(startPos.x / VOXEL_SIZE), Math.round(endPos.x / VOXEL_SIZE));
             const minY = Math.min(Math.round(startPos.y / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE)); const maxY = Math.max(Math.round(startPos.y / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE));
             const minZ = Math.min(Math.round(startPos.z / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE)); const maxZ = Math.max(Math.round(startPos.z / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE));
             if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
-            const cx = (minX + maxX) / 2; const cy = (minY + maxY) / 2; const cz = (minZ + maxZ) / 2; 
-            const rx = (maxX - minX) / 2; const ry = (maxY - minY) / 2; const rz = (maxZ - minZ) / 2;
-
-            const volume = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
-            let gpuSuccess = false;
-
-            // WebGPU Acceleration Path
-            if (computeEngine.ready && volume > 25000) { 
-                try {
-                    const data = await computeEngine.computeSphere(minX, maxX, minY, maxY, minZ, maxZ, cx, cy, cz, rx, ry, rz, sphereMode === 'shell' ? 1 : 0, clearInterior && isPainting ? 1 : 0);
-                    if (data) {
-                        const totalVoxels = data.length / 4;
-                        let currentIndex = 0;
-
-                        function processChunk() {
-                            const chunkLimit = Math.min(currentIndex + 4000, totalVoxels);
-                            for(; currentIndex < chunkLimit; currentIndex++) {
-                                const idx = currentIndex * 4;
-                                const gx = Math.round(data[idx]); const gy = Math.round(data[idx+1]); const gz = Math.round(data[idx+2]); const action = Math.round(data[idx+3]);
-                                
-                                if (action === 1) {
-                                    const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
-                                    setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
-                                } else if (action === 2) {
-                                    setVoxel(gx, gy, gz, false, null);
-                                }
-                            }
-
-                            if (currentIndex < totalVoxels) {
-                                setTimeout(processChunk, 0); 
-                            } else {
-                                leftMenuNeedsUpdate = true; 
-                            }
-                        }
-                        processChunk();
-                        gpuSuccess = true;
-                    }
-                } catch(e) {
-                    console.warn("WebGPU compute failed, falling back to CPU. Ensure standard WebGPU compliance.", e);
-                }
-            }
-
-            if (gpuSuccess) return; // Early exit, WebGPU succeeded
-
-            // Fallback CPU Path (Safe, smooth for smaller volumes or unsupported browsers)
+            const cx = (minX + maxX) / 2; const cy = (minY + maxY) / 2; const cz = (minZ + maxZ) / 2; const rx = (maxX - minX) / 2; const ry = (maxY - minY) / 2; const rz = (maxZ - minZ) / 2;
             const isInside = (x, y, z) => { const nx = rx > 0 ? (x - cx) / rx : 0; const ny = ry > 0 ? (y - cy) / ry : 0; const nz = rz > 0 ? (z - cz) / rz : 0; return (nx * nx + ny * ny + nz * nz) <= 1.05; };
             for(let gx = minX; gx <= maxX; gx++) for(let gy = minY; gy <= maxY; gy++) for(let gz = minZ; gz <= maxZ; gz++) {
                 if (isInside(gx, gy, gz)) {
@@ -1890,6 +1689,9 @@
             }
         }
 
+        // Pre-compile shaders for desktop to ease VR transition workload
+        renderer.compile(scene, camera);
+
         // --- Main Animation Loop ---
         renderer.setAnimationLoop(() => {
             // Constant stable increment for Color-Shift behavior regardless of logic frame rates
@@ -1919,18 +1721,11 @@
                 pollGamepads();
 
                 if (Date.now() - lastMenuUpdateTime > 100) { 
-                    let updated = false;
-                    if (leftMenuMesh.visible && leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; updated = true; }
-                    if (rightMenuMesh.visible && rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; updated = true; }
-                    
-                    if (colorMenuMesh.visible) {
-                        if (colorMenuNeedsUpdate) { updateColorMenuTexture(false); colorMenuNeedsUpdate = false; colorMenuNeedsPreviewUpdate = false; updated = true; }
-                        else if (colorMenuNeedsPreviewUpdate) { updateColorMenuTexture(true); colorMenuNeedsPreviewUpdate = false; updated = true; }
-                    }
-
-                    if (globalMenuMesh.visible && globalMenuNeedsUpdate) { updateGlobalMenuTexture(); globalMenuNeedsUpdate = false; updated = true; }
-                    
-                    if (updated) lastMenuUpdateTime = Date.now();
+                    if (leftMenuMesh.visible && leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; }
+                    if (rightMenuMesh.visible && rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; }
+                    if (colorMenuMesh.visible && colorMenuNeedsUpdate) { updateColorMenuTexture(); colorMenuNeedsUpdate = false; }
+                    if (globalMenuMesh.visible && globalMenuNeedsUpdate) { updateGlobalMenuTexture(); globalMenuNeedsUpdate = false; }
+                    lastMenuUpdateTime = Date.now();
                 }
 
                 if ((rightMenuMesh.visible || globalMenuMesh.visible) && xrLeft) {
