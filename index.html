@@ -1024,11 +1024,12 @@
         updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
 
         // --- Export Pipeline ---
-        // (Unchanged: Outputs proper materials and vertex colors for Blender python script mapping)
+        // Highly optimized chunked export to prevent Out-Of-Memory (OOM) crashes on 800k+ models.
         function exportToOBJ() {
             const isMesh = exportMode === 'mesh';
-            const blobParts = ["# VoxTrotBravo Export\n", "mtllib voxel_materials.mtl\n"];
-            let vertexOffset = 1; const hs = VOXEL_SIZE / 2;
+            const blobParts = ["# VoxTrotBravo Export\nmtllib voxel_materials.mtl\n"];
+            let vertexOffset = 1; 
+            const hs = VOXEL_SIZE / 2;
             const faceVerts = {
                 px: [new THREE.Vector3( hs, -hs,  hs), new THREE.Vector3( hs, -hs, -hs), new THREE.Vector3( hs,  hs, -hs), new THREE.Vector3( hs,  hs,  hs)],
                 nx: [new THREE.Vector3(-hs, -hs, -hs), new THREE.Vector3(-hs, -hs,  hs), new THREE.Vector3(-hs,  hs,  hs), new THREE.Vector3(-hs,  hs, -hs)],
@@ -1048,7 +1049,15 @@
             }
             
             const mat4 = new THREE.Matrix4(); const pos = new THREE.Vector3(); const col = new THREE.Color();
-            const vertsArray = []; const facesArrays = [[], [], []]; const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
+            const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
+
+            let vertAcc = "";
+            const faceAccs = ["", "", ""];
+            const faceChunks = [[], [], []];
+            const FLUSH_LIMIT = 2000000; // ~2MB string chunks to prevent massive array allocations
+
+            const worldMat = worldGroup.matrixWorld;
+            const dirLen = dirs.length;
 
             for (let matIdx = 0; matIdx < 3; matIdx++) {
                 chunks.forEach(chunk => {
@@ -1059,35 +1068,58 @@
                         const lx = localIdx % CHUNK_SIZE; const ly = Math.floor(localIdx / CHUNK_SIZE) % CHUNK_SIZE; const lz = Math.floor(localIdx / (CHUNK_SIZE * CHUNK_SIZE));
                         const gx = (chunk.cx * CHUNK_SIZE) + lx; const gy = (chunk.cy * CHUNK_SIZE) + ly; const gz = (chunk.cz * CHUNK_SIZE) + lz;
 
-                        layer.mesh.getMatrixAt(i, mat4); layer.mesh.getColorAt(i, col);
-                        const r = col.r.toFixed(4); const g = col.g.toFixed(4); const b = col.b.toFixed(4);
+                        layer.mesh.getMatrixAt(i, mat4); 
+                        mat4.premultiply(worldMat); // Optimize: Apply world transform once per voxel, massively saving CPU vs per-vertex
                         
-                        dirs.forEach(dir => {
+                        layer.mesh.getColorAt(i, col);
+                        const r = col.r.toFixed(3); const g = col.g.toFixed(3); const b = col.b.toFixed(3);
+                        
+                        for (let d = 0; d < dirLen; d++) {
+                            const dir = dirs[d];
                             if (!hasVoxel(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
-                                dir.v.forEach(vert => {
-                                    pos.copy(vert).applyMatrix4(mat4).applyMatrix4(worldGroup.matrixWorld);
-                                    vertsArray.push(`v ${pos.x.toFixed(4)} ${pos.y.toFixed(4)} ${pos.z.toFixed(4)} ${r} ${g} ${b}\n`);
-                                });
+                                for (let v = 0; v < 4; v++) {
+                                    pos.copy(dir.v[v]).applyMatrix4(mat4);
+                                    vertAcc += `v ${pos.x.toFixed(4)} ${pos.y.toFixed(4)} ${pos.z.toFixed(4)} ${r} ${g} ${b}\n`;
+                                }
+                                
+                                if (vertAcc.length > FLUSH_LIMIT) { blobParts.push(vertAcc); vertAcc = ""; }
+
                                 if (isMesh) {
-                                    facesArrays[matIdx].push(`f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2}\n`); facesArrays[matIdx].push(`f ${vertexOffset} ${vertexOffset+2} ${vertexOffset+3}\n`);
-                                } else facesArrays[matIdx].push(`f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2} ${vertexOffset+3}\n`);
+                                    faceAccs[matIdx] += `f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2}\nf ${vertexOffset} ${vertexOffset+2} ${vertexOffset+3}\n`;
+                                } else {
+                                    faceAccs[matIdx] += `f ${vertexOffset} ${vertexOffset+1} ${vertexOffset+2} ${vertexOffset+3}\n`;
+                                }
+                                
+                                if (faceAccs[matIdx].length > FLUSH_LIMIT) {
+                                    faceChunks[matIdx].push(faceAccs[matIdx]);
+                                    faceAccs[matIdx] = "";
+                                }
                                 vertexOffset += 4;
                             }
-                        });
+                        }
                     }
                 });
             }
 
-            blobParts.push(vertsArray.join(""));
+            if (vertAcc.length > 0) blobParts.push(vertAcc);
             for (let matIdx = 0; matIdx < 3; matIdx++) {
-                if (facesArrays[matIdx].length > 0) {
+                if (faceChunks[matIdx].length > 0 || faceAccs[matIdx].length > 0) {
                     blobParts.push(`\ng ${matNames[matIdx]}\nusemtl ${matNames[matIdx]}\n`);
-                    blobParts.push(facesArrays[matIdx].join(""));
+                    blobParts.push(...faceChunks[matIdx]);
+                    if (faceAccs[matIdx].length > 0) blobParts.push(faceAccs[matIdx]);
                 }
             }
             
-            const blob = new Blob(blobParts, { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a');
-            a.style.display = 'none'; a.href = url; a.download = isMesh ? 'voxtrotbravo_mesh.obj' : 'voxtrotbravo_boxes.obj'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            const blob = new Blob(blobParts, { type: 'text/plain' }); 
+            const url = URL.createObjectURL(blob); 
+            const a = document.createElement('a');
+            a.style.display = 'none'; 
+            a.href = url; 
+            a.download = isMesh ? 'voxtrotbravo_mesh.obj' : 'voxtrotbravo_boxes.obj'; 
+            document.body.appendChild(a); 
+            a.click(); 
+            document.body.removeChild(a); 
+            URL.revokeObjectURL(url);
         }
 
         // --- Core Tool Algorithms & Color Handlers ---
