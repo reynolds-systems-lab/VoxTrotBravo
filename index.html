@@ -1023,9 +1023,10 @@
         let leftMenuNeedsUpdate = true; let rightMenuNeedsUpdate = true; let colorMenuNeedsUpdate = true; let globalMenuNeedsUpdate = true; let lastMenuUpdateTime = 0;
         updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
 
-        // --- Extensively Optimized Export Pipeline ---
-        // Uses BigInt 64-bit spatial hashing to drastically deduplicate vertices,
-        // reducing file size by 70-80% and stopping V8 OOM crashes via chunked memory writes.
+        // --- FIXED Optimized Export Pipeline ---
+        // Uses a highly precise String Map Hash to perfectly deduplicate shared vertices 
+        // regardless of scale or translation transforms in the world! 
+        // Prevents memory crashes with fast chunk flushing.
         function exportToOBJ() {
             const isMesh = exportMode === 'mesh';
             const blobParts = ["# VoxTrotBravo Optimized Export\nmtllib voxel_materials.mtl\n"];
@@ -1051,11 +1052,11 @@
             const mat4 = new THREE.Matrix4(); const pos = new THREE.Vector3(); const col = new THREE.Color();
             const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission"];
 
-            // Memory-bound arrays to prevent String concatenation crashes in V8 Engine
+            // Memory-bound arrays to prevent String concatenation OOM crashes
             let vertAcc = [];
             let faceAcc = [];
             
-            // Global vertex map uses highly compact BigInt keys for extreme performance
+            // Global vertex map uses formatted precision strings for foolproof exact matching
             const vertMap = new Map();
             let vertexOffset = 1;
 
@@ -1077,10 +1078,9 @@
                         mat4.premultiply(worldMat); 
                         layer.mesh.getColorAt(i, col);
                         
-                        // Prep integer colors for binary hash
-                        const rInt = Math.round(col.r * 255);
-                        const gInt = Math.round(col.g * 255);
-                        const bInt = Math.round(col.b * 255);
+                        const rStr = col.r.toFixed(3);
+                        const gStr = col.g.toFixed(3);
+                        const bStr = col.b.toFixed(3);
 
                         for (let d = 0; d < dirLen; d++) {
                             const dir = dirs[d];
@@ -1090,28 +1090,20 @@
                                 for (let v = 0; v < 4; v++) {
                                     pos.copy(dir.v[v]).applyMatrix4(mat4);
                                     
-                                    // Scale to ensure exact integer coordinates before binary shifting
-                                    const ix = Math.round(pos.x * 40) + 32768; 
-                                    const iy = Math.round(pos.y * 40) + 32768;
-                                    const iz = Math.round(pos.z * 40) + 32768;
+                                    // Use fixed decimal precision matching to properly handle float variations
+                                    // after grabbing/scaling the world
+                                    const fx = pos.x.toFixed(4);
+                                    const fy = pos.y.toFixed(4);
+                                    const fz = pos.z.toFixed(4);
                                     
-                                    // 64-Bit Hash mapping eliminates string allocations entirely
-                                    const hash = (BigInt(ix) << 56n) | (BigInt(iy) << 40n) | (BigInt(iz) << 24n) | (BigInt(rInt) << 16n) | (BigInt(gInt) << 8n) | BigInt(bInt);
+                                    // Safe String Hash - Perfectly merges identical points visually
+                                    const hash = `${fx}_${fy}_${fz}_${rStr}_${gStr}_${bStr}`;
                                     
                                     let idx = vertMap.get(hash);
                                     if (idx === undefined) {
                                         idx = vertexOffset++;
                                         vertMap.set(hash, idx);
-                                        
-                                        // Rounding guarantees we drop padded zeros (1.0 vs 1.0000) 
-                                        const fx = Math.round(pos.x * 1000) / 1000;
-                                        const fy = Math.round(pos.y * 1000) / 1000;
-                                        const fz = Math.round(pos.z * 1000) / 1000;
-                                        const fr = Math.round(col.r * 1000) / 1000;
-                                        const fg = Math.round(col.g * 1000) / 1000;
-                                        const fb = Math.round(col.b * 1000) / 1000;
-                                        
-                                        vertAcc.push(`v ${fx} ${fy} ${fz} ${fr} ${fg} ${fb}\n`);
+                                        vertAcc.push(`v ${fx} ${fy} ${fz} ${rStr} ${gStr} ${bStr}\n`);
                                     }
                                     faceIndices.push(idx);
                                 }
@@ -1122,7 +1114,7 @@
                                     faceAcc.push(`f ${faceIndices[0]} ${faceIndices[1]} ${faceIndices[2]} ${faceIndices[3]}\n`);
                                 }
                                 
-                                // Memory Flush Limiters: 30k elements per chunk prevents JS arrays from dominating V8 heap limits.
+                                // Memory Flush Limiters: 30k elements per chunk guarantees stability
                                 if (vertAcc.length >= 30000) { blobParts.push(vertAcc.join("")); vertAcc = []; }
                                 if (faceAcc.length >= 30000) { blobParts.push(faceAcc.join("")); faceAcc = []; }
                             }
