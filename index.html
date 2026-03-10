@@ -148,6 +148,7 @@
         let copyStepRotX = 0;
         let copyStepRotY = 0;
         let copyStepRotZ = 0;
+        let copyStepScale = 1.0;
         let activeSliderDrag = null; 
 
         // --- Dual-Slot Material System ---
@@ -502,13 +503,16 @@
                 bMesh.scale.copy(selBoxMesh.scale);
                 bMesh.updateMatrix();
 
-                // Start rotation cascade from 0 for step 1, matching the base copied group perfectly
+                // Rotate and scale based exactly on iterative step
                 pivotGroup.rotation.set(
-                    THREE.MathUtils.degToRad(copyStepRotX * (step - 1)),
-                    THREE.MathUtils.degToRad(copyStepRotY * (step - 1)),
-                    THREE.MathUtils.degToRad(copyStepRotZ * (step - 1)),
+                    THREE.MathUtils.degToRad(copyStepRotX * step),
+                    THREE.MathUtils.degToRad(copyStepRotY * step),
+                    THREE.MathUtils.degToRad(copyStepRotZ * step),
                     'XYZ'
                 );
+                
+                const stScale = Math.pow(copyStepScale, step);
+                pivotGroup.scale.set(stScale, stScale, stScale);
                 pivotGroup.updateMatrix();
 
                 g.position.set(pCX + px, pCY + py, pCZ + pz);
@@ -528,7 +532,7 @@
 
             for (let step = 1; step <= steps; step++) {
                 const cx = offX * step; const cy = offY * step; const cz = offZ * step;
-                if (step > 1) getPreviewGroup(cx, cy, cz, 1, 1, 1, step);
+                if (step >= 1) getPreviewGroup(cx, cy, cz, 1, 1, 1, step);
                 if (mirrorX) getPreviewGroup(-cx, cy, cz, -1, 1, 1, step);
                 if (mirrorZ) getPreviewGroup(cx, cy, -cz, 1, 1, -1, step);
                 if (mirrorX && mirrorZ) getPreviewGroup(-cx, cy, -cz, -1, 1, -1, step);
@@ -791,9 +795,10 @@
                     if (transformMode === 'copy') { 
                         drawButton(leftMenuCtx, 50, 260, 80, 30, '[-]', false); drawButton(leftMenuCtx, 140, 260, 232, 30, `Copies: ${numCopies}`, false); drawButton(leftMenuCtx, 382, 260, 80, 30, '[+]', false); 
                         drawSlider(leftMenuCtx, 50, 300, 412, 30, 'STEP ROT X', copyStepRotX, -180, 180);
-                        drawSlider(leftMenuCtx, 50, 340, 412, 30, 'STEP ROT Y', copyStepRotY, -180, 180);
-                        drawSlider(leftMenuCtx, 50, 380, 412, 30, 'STEP ROT Z', copyStepRotZ, -180, 180);
-                        drawButton(leftMenuCtx, 50, 420, 130, 40, 'APPLY', false); drawButton(leftMenuCtx, 190, 420, 130, 40, 'CANCEL', false); drawButton(leftMenuCtx, 330, 420, 132, 40, 'DELETE', false);
+                        drawSlider(leftMenuCtx, 50, 335, 412, 30, 'STEP ROT Y', copyStepRotY, -180, 180);
+                        drawSlider(leftMenuCtx, 50, 370, 412, 30, 'STEP ROT Z', copyStepRotZ, -180, 180);
+                        drawSlider(leftMenuCtx, 50, 405, 412, 30, 'STEP SCALE', copyStepScale, 0.1, 5.0, 'STEP SCL: %vx');
+                        drawButton(leftMenuCtx, 50, 445, 130, 40, 'APPLY', false); drawButton(leftMenuCtx, 190, 445, 130, 40, 'CANCEL', false); drawButton(leftMenuCtx, 330, 445, 132, 40, 'DELETE', false);
                     } else {
                         drawButton(leftMenuCtx, 50, 270, 130, 40, 'APPLY', false); drawButton(leftMenuCtx, 190, 270, 130, 40, 'CANCEL', false); drawButton(leftMenuCtx, 330, 270, 132, 40, 'DELETE', false);
                     }
@@ -801,7 +806,7 @@
                     if (isSettingPivot) {
                         leftMenuCtx.fillStyle = '#ffff00';
                         leftMenuCtx.font = 'bold 18px sans-serif';
-                        leftMenuCtx.fillText('Use Right Trigger to Pick Pivot Point.', 256, 490);
+                        leftMenuCtx.fillText('Use Right Trigger to Pick Pivot Point.', 256, 495);
                     }
                 }
             }
@@ -824,7 +829,7 @@
                 }
                 if (transformMode === 'copy') {
                     if (cy >= 260 && cy <= 290) { if (cx >= 50 && cx <= 130) numCopies = Math.max(1, numCopies - 1); if (cx >= 382 && cx <= 462) numCopies = Math.min(20, numCopies + 1); }
-                    if (cy >= 420 && cy <= 460) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); }
+                    if (cy >= 445 && cy <= 485) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); }
                 } else {
                     if (cy >= 270 && cy <= 310) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); }
                 }
@@ -1344,7 +1349,7 @@
 
         function finalizeSelection() {
             transformMode = 'move'; numCopies = 1; selectionRotX = 0; selectionRotY = 0; selectionRotZ = 0; selectionScale = 1.0;
-            copyStepRotX = 0; copyStepRotY = 0; copyStepRotZ = 0;
+            copyStepRotX = 0; copyStepRotY = 0; copyStepRotZ = 0; copyStepScale = 1.0;
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
             for(let v of baseSelection) {
                 setVoxelCore(v.x, v.y, v.z, false, null); 
@@ -1423,18 +1428,55 @@
             const offX = Math.round(selectionGroup.position.x / VOXEL_SIZE); const offY = Math.round(selectionGroup.position.y / VOXEL_SIZE); const offZ = Math.round(selectionGroup.position.z / VOXEL_SIZE);
             if (transformMode === 'copy') { 
                 const pCX = pivotPoint.x; const pCY = pivotPoint.y; const pCZ = pivotPoint.z;
+                
+                origMap.clear();
+                for (let v of selectedVoxels) {
+                    origMap.set((v.x + 32768) + (v.y + 32768) * 65536 + (v.z + 32768) * 4294967296, v);
+                }
+
                 for (let step = 1; step <= numCopies; step++) {
                     const sEuler = new THREE.Euler(
-                        THREE.MathUtils.degToRad(copyStepRotX * (step - 1)), 
-                        THREE.MathUtils.degToRad(copyStepRotY * (step - 1)), 
-                        THREE.MathUtils.degToRad(copyStepRotZ * (step - 1)), 
+                        THREE.MathUtils.degToRad(copyStepRotX * step), 
+                        THREE.MathUtils.degToRad(copyStepRotY * step), 
+                        THREE.MathUtils.degToRad(copyStepRotZ * step), 
                         'XYZ'
                     );
+                    const stScale = Math.pow(copyStepScale, step);
                     const sMat = new THREE.Matrix4().makeRotationFromEuler(sEuler);
+                    const scaleMat = new THREE.Matrix4().makeScale(stScale, stScale, stScale);
+                    sMat.multiply(scaleMat);
+                    
+                    const invMat = new THREE.Matrix4().copy(sMat).invert();
+                    
+                    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
                     for(let v of selectedVoxels) {
                         tempPos.set(v.x - pCX, v.y - pCY, v.z - pCZ);
                         tempPos.applyMatrix4(sMat);
-                        setVoxel(Math.round(pCX + offX * step + tempPos.x), Math.round(pCY + offY * step + tempPos.y), Math.round(pCZ + offZ * step + tempPos.z), true, v.color, v.mat);
+                        const rx = pCX + offX * step + tempPos.x; 
+                        const ry = pCY + offY * step + tempPos.y; 
+                        const rz = pCZ + offZ * step + tempPos.z;
+                        if (rx < minX) minX = rx; if (rx > maxX) maxX = rx; if (ry < minY) minY = ry; if (ry > maxY) maxY = ry; if (rz < minZ) minZ = rz; if (rz > maxZ) maxZ = rz;
+                    }
+                    minX = Math.floor(minX) - 1; maxX = Math.ceil(maxX) + 1; 
+                    minY = Math.floor(minY) - 1; maxY = Math.ceil(maxY) + 1; 
+                    minZ = Math.floor(minZ) - 1; maxZ = Math.ceil(maxZ) + 1;
+                    
+                    const e = invMat.elements; const inv0 = e[0], inv4 = e[4], inv8 = e[8]; const inv1 = e[1], inv5 = e[5], inv9 = e[9]; const inv2 = e[2], inv6 = e[6], inv10 = e[10];
+                    const tgtCX = pCX + offX * step; const tgtCY = pCY + offY * step; const tgtCZ = pCZ + offZ * step;
+
+                    for (let x = minX; x <= maxX; x++) {
+                        const dx = x - tgtCX;
+                        for (let y = minY; y <= maxY; y++) {
+                            const dy = y - tgtCY;
+                            for (let z = minZ; z <= maxZ; z++) {
+                                const dz = z - tgtCZ;
+                                const srcX = Math.round(pCX + dx * inv0 + dy * inv4 + dz * inv8); 
+                                const srcY = Math.round(pCY + dx * inv1 + dy * inv5 + dz * inv9); 
+                                const srcZ = Math.round(pCZ + dx * inv2 + dy * inv6 + dz * inv10);
+                                const origVoxel = origMap.get((srcX + 32768) + (srcY + 32768) * 65536 + (srcZ + 32768) * 4294967296);
+                                if (origVoxel) setVoxel(x, y, z, true, origVoxel.color, origVoxel.mat);
+                            }
+                        }
                     }
                 }
             } 
@@ -1873,8 +1915,9 @@
                         else if (cy >= 220 && cy <= 250) activeSliderDrag = 'scale'; 
                         else if (transformMode === 'copy') {
                             if (cy >= 300 && cy <= 330) activeSliderDrag = 'stepRotX';
-                            else if (cy >= 340 && cy <= 370) activeSliderDrag = 'stepRotY';
-                            else if (cy >= 380 && cy <= 410) activeSliderDrag = 'stepRotZ';
+                            else if (cy >= 335 && cy <= 365) activeSliderDrag = 'stepRotY';
+                            else if (cy >= 370 && cy <= 400) activeSliderDrag = 'stepRotZ';
+                            else if (cy >= 405 && cy <= 435) activeSliderDrag = 'stepScale';
                             else handleLeftMenuClick(cx, cy);
                         } else handleLeftMenuClick(cx, cy); 
                     } else handleLeftMenuClick(cx, cy);
@@ -2063,9 +2106,10 @@
                     const pct = Math.max(0, Math.min(1, (cx - 50) / 412)); 
                     let changed = false;
 
-                    if (activeSliderDrag === 'scale') {
+                    if (activeSliderDrag === 'scale' || activeSliderDrag === 'stepScale') {
                         const s = Math.round((0.1 + pct * 4.9) * 10) / 10;
-                        if (selectionScale !== s) { selectionScale = s; changed = true; }
+                        if (activeSliderDrag === 'scale' && selectionScale !== s) { selectionScale = s; changed = true; }
+                        if (activeSliderDrag === 'stepScale' && copyStepScale !== s) { copyStepScale = s; changed = true; }
                     } else {
                         const snappedVal = Math.round((-180 + pct * 360) / 15) * 15;
                         if (activeSliderDrag === 'rotX' && selectionRotX !== snappedVal) { selectionRotX = snappedVal; changed = true; }
