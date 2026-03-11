@@ -160,8 +160,6 @@
             [new THREE.Color(0x00ffcc), new THREE.Color(0xffff00)]  
         ];
         
-        let shiftProgress = 0;
-        let shiftDir = 1;
         const tempColorForDraw = [new THREE.Color(), new THREE.Color()]; 
         
         // --- Symmetry & Settings ---
@@ -404,12 +402,12 @@
         worldGroup.add(spherePreviewMesh);
 
         const bucketPreviewMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false });
-        const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, bucketPreviewMat, 30000);
+        const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, bucketPreviewMat, 60000);
         bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); bucketPreviewMesh.matrixAutoUpdate = false; bucketPreviewMesh.visible = false;
         worldGroup.add(bucketPreviewMesh);
 
         const linePreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
-        const linePreviewMesh = new THREE.InstancedMesh(voxelGeometry, linePreviewMat, 30000);
+        const linePreviewMesh = new THREE.InstancedMesh(voxelGeometry, linePreviewMat, 60000);
         linePreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); linePreviewMesh.matrixAutoUpdate = false; linePreviewMesh.visible = false;
         worldGroup.add(linePreviewMesh);
 
@@ -887,9 +885,9 @@
                 else if (cy >= 280 && cy <= 330) { if (cx >= 190 && cx <= 240) planeThick = Math.max(1, planeThick - 1); if (cx >= 420 && cx <= 470) planeThick = Math.min(20, planeThick + 1); }
             } else if ((activeTool === 'paint' && paintMode === 'brush') || activeTool === 'stroke') {
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
-                if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(5, brushSize + 1); }
+                if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(20, brushSize + 1); }
             } else if (activeTool === 'brush') {
-                if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(5, brushSize + 1); } 
+                if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(20, brushSize + 1); } 
             } else if (activeTool === 'box') {
                 if (cy >= 140 && cy <= 190 && boxMode === 'wireframe') {
                     if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1);
@@ -1193,7 +1191,7 @@
             if (mode === 'solid') return cA;
             else if (mode === 'grad_h') { let t = 0; if (maxX > minX) t = (gx - minX) / (maxX - minX); return tempColorForDraw[slotIndex].copy(cA).lerp(cB, t); } 
             else if (mode === 'grad_v') { let t = 0; if (maxY > minY) t = (gy - minY) / (maxY - minY); return tempColorForDraw[slotIndex].copy(cA).lerp(cB, t); } 
-            else if (mode === 'shift') { return tempColorForDraw[slotIndex].copy(cA).lerp(cB, shiftProgress); }
+            else if (mode === 'shift') return cA; 
             return cA;
         }
 
@@ -1212,10 +1210,25 @@
             const chunkKey = (cx + 65536) + ((cy + 65536) * 131072) + ((cz + 65536) * 17179869184);
             const lx = gx - (cx * CHUNK_SIZE); const ly = gy - (cy * CHUNK_SIZE); const lz = gz - (cz * CHUNK_SIZE);
             let chunk = chunks.get(chunkKey);
+            
             if (isPainting) {
-                if (!chunk) { chunk = new Chunk(cx, cy, cz); chunks.set(chunkKey, chunk); }
+                const targetMat = matOverride !== -1 ? matOverride : matTypes[0];
+                if (chunk) {
+                    const localIdx = lx + (ly * CHUNK_SIZE) + (lz * CHUNK_SIZE * CHUNK_SIZE);
+                    const currentMat = chunk.voxelMatMap[localIdx];
+                    if (currentMat === targetMat) {
+                        const layer = chunk.layers[currentMat];
+                        const instIdx = layer.voxelToIndex[localIdx];
+                        layer.mesh.getColorAt(instIdx, tempColor);
+                        if (Math.abs(tempColor.r - color.r) < 0.01 && Math.abs(tempColor.g - color.g) < 0.01 && Math.abs(tempColor.b - color.b) < 0.01) {
+                            return; // Optimization: Skip if exact same mat and color
+                        }
+                    }
+                } else {
+                    chunk = new Chunk(cx, cy, cz); chunks.set(chunkKey, chunk);
+                }
                 tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                chunk.addVoxel(lx, ly, lz, tempPos, color, matOverride !== -1 ? matOverride : matTypes[0]);
+                chunk.addVoxel(lx, ly, lz, tempPos, color, targetMat);
             } else if (chunk) chunk.removeVoxel(lx, ly, lz);
         }
 
@@ -1441,7 +1454,38 @@
         function cancelSelection() { if (transformMode === 'move') for(let v of baseSelection) setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat); deleteSelection(); }
         function deleteSelection() { baseSelection.length = 0; selectedVoxels.length = 0; hasSelection = false; selectionGroup.visible = false; selectionGroup.position.set(0,0,0); selectionOffset.set(0,0,0); pivotIndicator.visible = false; isSettingPivot = false; leftMenuNeedsUpdate = true; }
 
-        // --- Brushes ---
+        // --- Optimized Swept Brushes ---
+        function getSweptBrushBounds(startPos, endPos) {
+            const A = new THREE.Vector3(Math.round(startPos.x / VOXEL_SIZE), Math.round(startPos.y / VOXEL_SIZE), Math.round(startPos.z / VOXEL_SIZE));
+            const B = new THREE.Vector3(Math.round(endPos.x / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE));
+            const r = brushSize - 1;
+            return {
+                A, B, r,
+                minX: Math.min(A.x, B.x) - r, maxX: Math.max(A.x, B.x) + r,
+                minY: Math.min(A.y, B.y) - r, maxY: Math.max(A.y, B.y) + r,
+                minZ: Math.min(A.z, B.z) - r, maxZ: Math.max(A.z, B.z) + r,
+                dGx: B.x - A.x, dGy: B.y - A.y, dGz: B.z - A.z,
+                segLenSq: (B.x - A.x)**2 + (B.y - A.y)**2 + (B.z - A.z)**2,
+                rSq: (r + 0.1) * (r + 0.1)
+            };
+        }
+
+        function isInsideSweptBrush(x, y, z, bounds) {
+            if (brushShape === 'sphere') {
+                const px = x - bounds.A.x; const py = y - bounds.A.y; const pz = z - bounds.A.z;
+                let t = 0;
+                if (bounds.segLenSq > 0) t = Math.max(0, Math.min(1, (px * bounds.dGx + py * bounds.dGy + pz * bounds.dGz) / bounds.segLenSq));
+                const projX = t * bounds.dGx; const projY = t * bounds.dGy; const projZ = t * bounds.dGz;
+                return ((px - projX)**2 + (py - projY)**2 + (pz - projZ)**2) <= bounds.rSq;
+            } else {
+                let tMin = 0; let tMax = 1; let valid = true;
+                if (bounds.dGx === 0) { if (Math.abs(x - bounds.A.x) > bounds.r) valid = false; } else { let tx1 = (x - bounds.A.x - bounds.r)/bounds.dGx; let tx2 = (x - bounds.A.x + bounds.r)/bounds.dGx; if (tx1 > tx2) { let tmp = tx1; tx1 = tx2; tx2 = tmp; } if (tx1 > tMin) tMin = tx1; if (tx2 < tMax) tMax = tx2; if (tMin > tMax) valid = false; }
+                if (valid) { if (bounds.dGy === 0) { if (Math.abs(y - bounds.A.y) > bounds.r) valid = false; } else { let ty1 = (y - bounds.A.y - bounds.r)/bounds.dGy; let ty2 = (y - bounds.A.y + bounds.r)/bounds.dGy; if (ty1 > ty2) { let tmp = ty1; ty1 = ty2; ty2 = tmp; } if (ty1 > tMin) tMin = ty1; if (ty2 < tMax) tMax = ty2; if (tMin > tMax) valid = false; } }
+                if (valid) { if (bounds.dGz === 0) { if (Math.abs(z - bounds.A.z) > bounds.r) valid = false; } else { let tz1 = (z - bounds.A.z - bounds.r)/bounds.dGz; let tz2 = (z - bounds.A.z + bounds.r)/bounds.dGz; if (tz1 > tz2) { let tmp = tz1; tz1 = tz2; tz2 = tmp; } if (tz1 > tMin) tMin = tz1; if (tz2 < tMax) tMax = tz2; if (tMin > tMax) valid = false; } }
+                return valid;
+            }
+        }
+
         function placeBrushVoxels(targetPos, isPainting) {
             const r = brushSize - 1; const rSq = (r + 0.1) * (r + 0.1); 
             const centerGx = Math.round(targetPos.x / VOXEL_SIZE); const centerGy = Math.round(targetPos.y / VOXEL_SIZE); const centerGz = Math.round(targetPos.z / VOXEL_SIZE);
@@ -1464,19 +1508,31 @@
         }
 
         function drawLineVoxels(startPos, endPos, isPainting) {
-            const steps = Math.min(300, Math.max(1, Math.ceil(startPos.distanceTo(endPos) / (VOXEL_SIZE * 0.25)))); 
-            for (let i = 0; i <= steps; i++) {
-                tempPos.lerpVectors(startPos, endPos, i / steps); tempPos.set(Math.round(tempPos.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(tempPos.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(tempPos.z / VOXEL_SIZE) * VOXEL_SIZE);
-                placeBrushVoxels(tempPos, isPainting);
+            const bounds = getSweptBrushBounds(startPos, endPos);
+            for (let x = bounds.minX; x <= bounds.maxX; x++) {
+                for (let y = bounds.minY; y <= bounds.maxY; y++) {
+                    for (let z = bounds.minZ; z <= bounds.maxZ; z++) {
+                        if (isInsideSweptBrush(x, y, z, bounds)) {
+                            setVoxel(x, y, z, isPainting, getDrawColor(x, y, z, bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, 0), matTypes[0]);
+                        }
+                    }
+                }
             }
+            leftMenuNeedsUpdate = true;
         }
 
         function drawPaintLineVoxels(startPos, endPos) {
-            const steps = Math.min(300, Math.max(1, Math.ceil(startPos.distanceTo(endPos) / (VOXEL_SIZE * 0.25)))); 
-            for (let i = 0; i <= steps; i++) {
-                tempPos.lerpVectors(startPos, endPos, i / steps); tempPos.set(Math.round(tempPos.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(tempPos.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(tempPos.z / VOXEL_SIZE) * VOXEL_SIZE);
-                placePaintVoxels(tempPos);
+            const bounds = getSweptBrushBounds(startPos, endPos);
+            for (let x = bounds.minX; x <= bounds.maxX; x++) {
+                for (let y = bounds.minY; y <= bounds.maxY; y++) {
+                    for (let z = bounds.minZ; z <= bounds.maxZ; z++) {
+                        if (isInsideSweptBrush(x, y, z, bounds)) {
+                            recolorVoxelSet(x, y, z, getDrawColor(x, y, z, bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, 0));
+                        }
+                    }
+                }
             }
+            leftMenuNeedsUpdate = true;
         }
 
         function calculateFloodFill(startX, startY, startZ) {
@@ -1852,9 +1908,6 @@
 
         // --- Main Animation Loop ---
         renderer.setAnimationLoop(() => {
-            shiftProgress += 0.005 * shiftDir;
-            if (shiftProgress >= 1) { shiftProgress = 1; shiftDir = -1; }
-            if (shiftProgress <= 0) { shiftProgress = 0; shiftDir = 1; }
 
             if (renderer.xr.isPresenting) {
                 const session = renderer.xr.getSession();
@@ -1985,6 +2038,19 @@
                 } else { bucketPreviewMesh.visible = false; if (activeTool !== 'paint' || paintMode !== 'bucket') { lastHoveredVoxel.set(Infinity, Infinity, Infinity); hoveredFillCoords.length = 0; } }
 
                 if (xrRight && isDrawing) {
+                    // Gradual, random color hue shift while drawing 
+                    for (let i = 0; i < 2; i++) {
+                        if (colorModes[i] === 'shift') {
+                            const hsl = {};
+                            slotColors[i][0].getHSL(hsl);
+                            hsl.h = (hsl.h + 0.003 + (Math.random() - 0.5) * 0.002) % 1.0;
+                            if (hsl.h < 0) hsl.h += 1.0;
+                            slotColors[i][0].setHSL(hsl.h, 1.0, 0.5);
+                            colorMenuNeedsUpdate = true;
+                        }
+                    }
+                    if (colorModes[0] === 'shift' || colorModes[1] === 'shift') updateCursors();
+
                     if (activeTool === 'select' && hasSelection && !isSettingPivot) {
                         selectionOffset.copy(rightTargetLocal).sub(dragStartCtrlPos);
                         selectionOffset.set(Math.round(selectionOffset.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(selectionOffset.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(selectionOffset.z / VOXEL_SIZE) * VOXEL_SIZE);
@@ -2024,15 +2090,19 @@
                     else if (isPreviewingLineLeft) { previewLineStart = lineStartLeft; previewLineEnd = leftTargetLocal; previewLinePainting = false; }
                     
                     if (previewLineStart) {
-                        const steps = Math.min(300, Math.max(1, Math.ceil(previewLineStart.distanceTo(previewLineEnd) / (VOXEL_SIZE * 0.25)))); 
-                        let instCount = 0; const r = brushSize - 1; const rSq = (r + 0.1) * (r + 0.1); 
-                        fillVisited.clear();
-                        for (let i = 0; i <= steps; i++) {
-                            tempPos.lerpVectors(previewLineStart, previewLineEnd, i / steps); const cx = Math.round(tempPos.x / VOXEL_SIZE); const cy = Math.round(tempPos.y / VOXEL_SIZE); const cz = Math.round(tempPos.z / VOXEL_SIZE);
-                            for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
-                                if (brushShape === 'sphere' && (dx*dx + dy*dy + dz*dz > rSq)) continue;
-                                const hash = (cx+dx + 32768) + (cy+dy + 32768) * 65536 + (cz+dz + 32768) * 4294967296;
-                                if (!fillVisited.has(hash)) { fillVisited.add(hash); if (instCount < 30000) { tempMatrix.makeTranslation((cx+dx)*VOXEL_SIZE, (cy+dy)*VOXEL_SIZE, (cz+dz)*VOXEL_SIZE); linePreviewMesh.setMatrixAt(instCount, tempMatrix); instCount++; } }
+                        const bounds = getSweptBrushBounds(previewLineStart, previewLineEnd);
+                        let instCount = 0; 
+                        for (let x = bounds.minX; x <= bounds.maxX; x++) {
+                            for (let y = bounds.minY; y <= bounds.maxY; y++) {
+                                for (let z = bounds.minZ; z <= bounds.maxZ; z++) {
+                                    if (isInsideSweptBrush(x, y, z, bounds)) {
+                                        if (instCount < 60000) { 
+                                            tempMatrix.makeTranslation(x * VOXEL_SIZE, y * VOXEL_SIZE, z * VOXEL_SIZE); 
+                                            linePreviewMesh.setMatrixAt(instCount, tempMatrix); 
+                                            instCount++; 
+                                        }
+                                    }
+                                }
                             }
                         }
                         linePreviewMesh.count = instCount; linePreviewMesh.instanceMatrix.needsUpdate = true;
