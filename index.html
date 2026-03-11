@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoxTrotBravo</title>
+    <title>VoxTrotBravo - Optimized</title>
     <style>
         body {
             margin: 0;
@@ -47,59 +47,6 @@
             margin-top: 20px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* Desktop Panel for VR & Export */
-        #desktop-panel {
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 500;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 15px;
-            pointer-events: auto;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 15px 20px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .export-row {
-            display: flex;
-            gap: 10px;
-            width: 100%;
-            justify-content: center;
-        }
-        .export-btn {
-            background: #222;
-            color: #4facfe;
-            border: 1px solid #4facfe;
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 14px;
-            font-weight: bold;
-            transition: all 0.2s ease;
-            text-transform: uppercase;
-        }
-        .export-btn:hover { background: #4facfe; color: #000; }
-        .export-btn:active { transform: scale(0.95); }
-        #vr-button-container {
-            display: flex;
-            justify-content: center;
-            width: 100%;
-        }
-        
-        /* Export Loading Feedback */
-        #export-loading {
-            display: none;
-            color: #00ffcc;
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
     </style>
     <script type="importmap">
         {
@@ -124,28 +71,23 @@
         <p><b>A & B (Right):</b> Tools & Settings | <b>X & Y (Left):</b> Tool Options & Materials</p>
     </div>
 
-    <div id="desktop-panel">
-        <div id="export-loading">Optimizing & Assembling Export... Please wait.</div>
-        <div class="export-row">
-            <button id="btn-export-boxes" class="export-btn">Export OBJ (Boxes)</button>
-            <button id="btn-export-mesh" class="export-btn">Export OBJ (Mesh)</button>
-        </div>
-        <div id="vr-button-container"></div>
-    </div>
-
     <script type="module">
         import * as THREE from 'three';
         import { VRButton } from 'three/addons/webxr/VRButton.js';
 
         document.addEventListener('DOMContentLoaded', () => {
 
-        // --- Configuration & Global State ---
+        // ============================================================================
+        // [SECTION 1] CONFIGURATION & GLOBAL STATE
+        // ============================================================================
+        
         const VOXEL_SIZE = 0.05; 
         const CHUNK_SIZE = 32;   
         const CHUNK_VOL = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
         let totalActiveVoxels = 0;
         
+        // --- Tool States ---
         let activeTool = 'brush'; 
         let strokeMode = 'continuous'; 
         let brushShape = 'cube'; 
@@ -153,10 +95,7 @@
         
         let boxMode = 'shell'; 
         let boxGridMode = 'internal';
-        let boxDivX = 1;
-        let boxDivY = 1;
-        let boxDivZ = 1;
-        let boxDivThick = 1;
+        let boxDivX = 1, boxDivY = 1, boxDivZ = 1, boxDivThick = 1;
 
         let sphereMode = 'shell';
         
@@ -164,79 +103,47 @@
         let triangleMode = 'solid';
         let triangleAxis = 'Y';
         let triangleGridMode = 'internal';
-        let triangleDivs = 1;
-        let triangleDivThick = 1;
+        let triangleDivs = 1, triangleDivThick = 1;
         let triangleCap = true;
         let pyramidLegs = 4;
         
-        let wireWidth = 1; 
-        let wireFill = false; 
-
-        let paintMode = 'brush'; 
-        let exportMode = 'boxes'; 
+        let wireWidth = 1, wireFill = false; 
+        let paintMode = 'brush', exportMode = 'boxes'; 
         
-        let planeOutline = true;
-        let planeOutlineThick = 1;
-        let planeFill = true;
-        let planeGrid = true;
-        let planeGridThick = 1;
-        let planeDivU = 2;
-        let planeDivV = 2;
-        let planeThick = 1;
+        let planeOutline = true, planeOutlineThick = 1;
+        let planeFill = true, planeGrid = true, planeGridThick = 1;
+        let planeDivU = 2, planeDivV = 2, planeThick = 1;
         
-        let selectMode = 'box'; 
-        let selectFilter = 'all';
-        let transformMode = 'move'; 
-        let numCopies = 1; 
-        let hasSelection = false;
-        
-        let baseSelection = [];
-        let selectedVoxels = [];
-        
-        const selectionCenter = new THREE.Vector3();
-        const pivotPoint = new THREE.Vector3();
+        // --- Selection States ---
+        let selectMode = 'box', selectFilter = 'all', transformMode = 'move'; 
+        let numCopies = 1, hasSelection = false;
+        let baseSelection = [], selectedVoxels = [];
+        const selectionCenter = new THREE.Vector3(), pivotPoint = new THREE.Vector3();
         let isSettingPivot = false;
 
-        const selectionOffset = new THREE.Vector3();
-        const dragStartCtrlPos = new THREE.Vector3();
-        const dragStartOffset = new THREE.Vector3();
-        
-        let selectionRotX = 0;
-        let selectionRotY = 0;
-        let selectionRotZ = 0;
-        let selectionScale = 1.0;
-        
-        let copyStepRotX = 0;
-        let copyStepRotY = 0;
-        let copyStepRotZ = 0;
-        let copyStepScale = 1.0;
+        const selectionOffset = new THREE.Vector3(), dragStartCtrlPos = new THREE.Vector3(), dragStartOffset = new THREE.Vector3();
+        let selectionRotX = 0, selectionRotY = 0, selectionRotZ = 0, selectionScale = 1.0;
+        let copyStepRotX = 0, copyStepRotY = 0, copyStepRotZ = 0, copyStepScale = 1.0;
         let activeSliderDrag = null; 
 
-        // --- Dual-Slot Material System & Joystick Colors ---
-        let activeMatSlot = 0; 
-        let activeColorSubSlot = 0; 
-        const matTypes = [0, 0]; 
-        const colorModes = ['solid', 'solid']; 
+        // --- Material & Color Systems ---
+        let activeMatSlot = 0, activeColorSubSlot = 0; 
+        const matTypes = [0, 0], colorModes = ['solid', 'solid']; 
         const slotColors = [
             [new THREE.Color(0x4facfe), new THREE.Color(0xff0055)],
             [new THREE.Color(0x00ffcc), new THREE.Color(0xffff00)]  
         ];
-        
         const tempColorForDraw = [new THREE.Color(), new THREE.Color()]; 
         
         let joystickColorEnabled = false;
-        let joyLightA = 0.5;
-        let joyLightB = 0.5;
+        let joyLightA = 0.5, joyLightB = 0.5;
 
-        // --- Symmetry & Settings ---
+        // --- Global Settings ---
         let isVerticalLock = true;
         let clearInterior = false; 
-        let mirrorX = false;
-        let mirrorZ = false;
+        let mirrorX = false, mirrorZ = false;
         let polarSymmetry = 1; 
-        
-        let polarCos = new Float32Array([1]);
-        let polarSin = new Float32Array([0]);
+        let polarCos = new Float32Array([1]), polarSin = new Float32Array([0]);
         
         function updatePolarArrays() {
             polarCos = new Float32Array(polarSymmetry);
@@ -249,57 +156,41 @@
         }
         updatePolarArrays();
 
-        let isPreviewingBox = false;
-        let isPreviewingSphere = false;
-        let isPreviewingPlane = false;
-        let isPreviewingTriangle = false;
-        let isPreviewingLineLeft = false;
-        let isPreviewingLineRight = false;
-
+        // --- Interaction Flow States ---
+        let isPreviewingBox = false, isPreviewingSphere = false, isPreviewingPlane = false;
+        let isPreviewingTriangle = false, isPreviewingLineLeft = false, isPreviewingLineRight = false;
         const drawStartPos = new THREE.Vector3();
         const lineStartLeft = new THREE.Vector3(Infinity, Infinity, Infinity);
         const lineStartRight = new THREE.Vector3(Infinity, Infinity, Infinity);
 
-        const currentRightQuat = new THREE.Quaternion();
-        const currentLeftQuat = new THREE.Quaternion();
-        const lastPaintedQuatRight = new THREE.Quaternion();
-        const lastPaintedQuatLeft = new THREE.Quaternion();
-        const lineStartQuatRight = new THREE.Quaternion();
-        const lineStartQuatLeft = new THREE.Quaternion();
+        const currentRightQuat = new THREE.Quaternion(), currentLeftQuat = new THREE.Quaternion();
+        const lastPaintedQuatRight = new THREE.Quaternion(), lastPaintedQuatLeft = new THREE.Quaternion();
+        const lineStartQuatRight = new THREE.Quaternion(), lineStartQuatLeft = new THREE.Quaternion();
 
         const hoveredFillCoords = new Int32Array(36000); 
         let hoveredFillCount = 0;
         const lastHoveredVoxel = new THREE.Vector3(Infinity, Infinity, Infinity);
 
-        // --- Pre-allocated optimization objects ---
-        const rotR = new THREE.Matrix4();
-        const rotR_inv = new THREE.Matrix4();
+        // ============================================================================
+        // [SECTION 2] OPTIMIZATIONS & PRE-ALLOCATED OBJECTS
+        // ============================================================================
+        
+        const rotR = new THREE.Matrix4(), rotR_inv = new THREE.Matrix4();
         const selRotEuler = new THREE.Euler();
-        const fillVisited = new Set();
-        const fillQueue = [];
-        const selVisited = new Set();
-        const selQueue = [];
+        const fillVisited = new Set(), fillQueue = [];
+        const selVisited = new Set(), selQueue = [];
         const origMap = new Map();
-        const tempMatrix = new THREE.Matrix4();
-        const tempColor = new THREE.Color();
-        const tempPos = new THREE.Vector3();
-        const tempQuat = new THREE.Quaternion(); 
-        const midPos = new THREE.Vector3();
-        const currentHandVec = new THREE.Vector3(); 
-        const panDelta = new THREE.Vector3();
-        const queryColor = new THREE.Color();
-        const targetQueryColor = new THREE.Color();
-        const rightPointerPos = new THREE.Vector3();
-        const leftPointerPos = new THREE.Vector3();
+        
+        // Crucial Temp Variables to avoid Garbage Collection Spikes
+        const tempMatrix = new THREE.Matrix4(), tempColor = new THREE.Color(), tempPos = new THREE.Vector3(), tempQuat = new THREE.Quaternion(); 
+        const midPos = new THREE.Vector3(), currentHandVec = new THREE.Vector3(), panDelta = new THREE.Vector3();
+        const queryColor = new THREE.Color(), targetQueryColor = new THREE.Color();
+        const rightPointerPos = new THREE.Vector3(), leftPointerPos = new THREE.Vector3();
         const cursorGeos = {}; 
         const shiftHsl = { h: 0, s: 0, l: 0 };
         const sweptBounds = { A: new THREE.Vector3(), B: new THREE.Vector3(), r: 0, minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0, dGx: 0, dGy: 0, dGz: 0, segLenSq: 0, rSq: 0 };
 
-        // Ribbon specific optimization objects
-        const _ribbonP = new THREE.Vector3();
-        const _ribbonQ = new THREE.Quaternion();
-        const _ribbonRVec = new THREE.Vector3();
-        const _ribbonVPos = new THREE.Vector3();
+        const _ribbonP = new THREE.Vector3(), _ribbonQ = new THREE.Quaternion(), _ribbonRVec = new THREE.Vector3(), _ribbonVPos = new THREE.Vector3();
 
         function updateSweptBrushBounds(startPos, endPos) {
             sweptBounds.A.set(Math.round(startPos.x / VOXEL_SIZE), Math.round(startPos.y / VOXEL_SIZE), Math.round(startPos.z / VOXEL_SIZE));
@@ -334,7 +225,10 @@
             }
         }
 
-        // --- Scene Setup ---
+        // ============================================================================
+        // [SECTION 3] SCENE SETUP & VOXEL ENGINE CORE
+        // ============================================================================
+        
         const canvas = document.createElement('canvas');
         document.body.appendChild(canvas);
         
@@ -353,14 +247,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
-        // Custom Placement for VR Button into Desktop UI Panel
-        const vrBtn = VRButton.createButton(renderer);
-        vrBtn.style.position = 'relative';
-        vrBtn.style.bottom = 'auto';
-        vrBtn.style.left = 'auto';
-        vrBtn.style.transform = 'none';
-        vrBtn.style.margin = '0 auto';
-        document.getElementById('vr-button-container').appendChild(vrBtn);
+        document.body.appendChild(VRButton.createButton(renderer));
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambientLight);
@@ -377,7 +264,7 @@
         gridHelper.matrixAutoUpdate = false; gridHelper.updateMatrix();
         worldGroup.add(gridHelper);
 
-        // --- Chunk System ---
+        // --- Voxel Engine ---
         const voxelGeometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
         const matSolid = new THREE.MeshLambertMaterial(); 
         const matGlass = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false }); 
@@ -504,7 +391,10 @@
             updateBuffers() { for (let i = 0; i < 3; i++) if (this.layers[i]) this.layers[i].updateBuffers(); }
         }
 
-        // --- Previews & Cursors ---
+        // ============================================================================
+        // [SECTION 4] PREVIEWS, CURSORS & SYMMETRY HELPERS
+        // ============================================================================
+        
         const cursorLeftMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, wireframe: true });
         const cursorLeft = new THREE.Mesh(new THREE.BufferGeometry(), cursorLeftMat);
         worldGroup.add(cursorLeft);
@@ -657,7 +547,6 @@
             }
         }
 
-        // --- Symmetry Proxy Pool ---
         function createMirrorProxies(baseMesh) {
             const proxies = [];
             for (let i = 0; i < 63; i++) {
@@ -699,13 +588,12 @@
                 const sz = mirrors[m][1];
 
                 for (let p = 0; p < polarSymmetry; p++) {
-                    if (m === 0 && p === 0) continue; // Original mesh handled natively
+                    if (m === 0 && p === 0) continue; 
                     if (pIdx >= proxies.length) break;
 
                     const proxy = proxies[pIdx++];
                     proxy.visible = true;
 
-                    // Direct world-aligned transformations using no temporary allocations inside loop
                     const mx = baseMesh.position.x * sx;
                     const mz = baseMesh.position.z * sz;
                     let fx = mx, fz = mz, rotAngle = 0;
@@ -815,7 +703,10 @@
             else spherePreviewMat.color.setHex(0xff0055);
         }
 
-        // --- PCVR CONTROLLERS ---
+        // ============================================================================
+        // [SECTION 5] XR CONTROLLERS & RAYCASTING SETUP
+        // ============================================================================
+        
         let xrRight = null; let xrLeft = null;
         let gripRight = null; let gripLeft = null;
 
@@ -838,7 +729,11 @@
         const rightLaserLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
         rightLaserLine.scale.z = 5; rightLaserLine.visible = false; xrRight.add(rightLaserLine);
 
-        // --- Interactive VR Menus ---
+
+        // ============================================================================
+        // [SECTION 6] UI MENUS & EVENT HANDLERS
+        // ============================================================================
+        
         function drawButton(ctx, x, y, w, h, text, isActive) {
             ctx.fillStyle = isActive ? '#4facfe' : '#333'; ctx.fillRect(x, y, w, h);
             ctx.strokeStyle = isActive ? '#fff' : '#888'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
@@ -1116,7 +1011,6 @@
                     const hsl2 = {}; cB.getHSL(hsl2); colorMenuCtx.fillStyle = hsl2.l > 0.6 ? 'black' : 'white'; colorMenuCtx.fillText('Color B', 374, 410);
                 }
 
-                // JOYSTICK CONTROLS
                 drawButton(colorMenuCtx, 30, 445, 452, 35, `JOYSTICK MAPPING: ${joystickColorEnabled ? 'ON' : 'OFF'}`, joystickColorEnabled);
                 drawSlider(colorMenuCtx, 30, 485, 216, 25, 'L-LUM', joyLightA, 0, 1, 'L-LUM: %v');
                 drawSlider(colorMenuCtx, 266, 485, 216, 25, 'R-LUM', joyLightB, 0, 1, 'R-LUM: %v');
@@ -1227,52 +1121,57 @@
 
         function updateGlobalMenuTexture() {
             globalMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; globalMenuCtx.fillRect(0, 0, 512, 512);
-            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Global Settings`, 256, 60);
+            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Global Settings`, 256, 40);
             
-            drawButton(globalMenuCtx, 40, 110, 200, 60, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
-            drawButton(globalMenuCtx, 272, 110, 200, 60, `Clear Inside: ${clearInterior ? 'ON' : 'OFF'}`, clearInterior);
+            drawButton(globalMenuCtx, 40, 70, 200, 50, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
+            drawButton(globalMenuCtx, 272, 70, 200, 50, `Clear Inside: ${clearInterior ? 'ON' : 'OFF'}`, clearInterior);
 
-            drawButton(globalMenuCtx, 40, 210, 200, 60, `Mirror X: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
-            drawButton(globalMenuCtx, 272, 210, 200, 60, `Mirror Z: ${mirrorZ ? 'ON' : 'OFF'}`, mirrorZ);
+            drawButton(globalMenuCtx, 40, 140, 200, 50, `Mirror X: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
+            drawButton(globalMenuCtx, 272, 140, 200, 50, `Mirror Z: ${mirrorZ ? 'ON' : 'OFF'}`, mirrorZ);
 
-            drawButton(globalMenuCtx, 40, 310, 60, 60, '-', false);
-            drawButton(globalMenuCtx, 120, 310, 272, 60, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1);
-            drawButton(globalMenuCtx, 412, 310, 60, 60, '+', false);
+            drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false);
+            drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1);
+            drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
 
+            drawButton(globalMenuCtx, 40, 280, 200, 50, 'Export: BOXES', exportMode === 'boxes');
+            drawButton(globalMenuCtx, 272, 280, 200, 50, 'Export: MESH', exportMode === 'mesh');
+            
+            drawButton(globalMenuCtx, 40, 350, 432, 60, 'EXPORT TO .OBJ', false);
             globalMenuTexture.needsUpdate = true;
         }
 
         function handleGlobalMenuClick(cx, cy) {
-            if (cy >= 110 && cy <= 170) {
+            if (cy >= 70 && cy <= 120) {
                 if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock;
                 if (cx >= 272 && cx <= 472) clearInterior = !clearInterior;
             }
-            if (cy >= 210 && cy <= 270) {
+            if (cy >= 140 && cy <= 190) {
                 if (cx >= 40 && cx <= 240) mirrorX = !mirrorX;
                 if (cx >= 272 && cx <= 472) mirrorZ = !mirrorZ;
             }
-            if (cy >= 310 && cy <= 370) {
-                if (cx >= 40 && cx <= 100) polarSymmetry = Math.max(1, polarSymmetry - 1);
-                if (cx >= 412 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1);
-                if (cx >= 120 && cx <= 392) polarSymmetry = polarSymmetry === 1 ? 4 : 1;
+            if (cy >= 210 && cy <= 260) {
+                if (cx >= 40 && cx <= 90) polarSymmetry = Math.max(1, polarSymmetry - 1);
+                if (cx >= 422 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1);
+                if (cx >= 100 && cx <= 412) polarSymmetry = polarSymmetry === 1 ? 4 : 1;
                 updatePolarArrays();
             }
+            if (cy >= 280 && cy <= 330) {
+                if (cx >= 40 && cx <= 240) exportMode = 'boxes';
+                if (cx >= 272 && cx <= 472) exportMode = 'mesh';
+            }
+            if (cy >= 350 && cy <= 410 && cx >= 40 && cx <= 472) exportToOBJ();
             globalMenuNeedsUpdate = true;
         }
 
         let leftMenuNeedsUpdate = true; let rightMenuNeedsUpdate = true; let colorMenuNeedsUpdate = true; let globalMenuNeedsUpdate = true; let lastMenuUpdateTime = 0;
         updateLeftMenuTexture(); updateRightMenuTexture(); updateColorMenuTexture(); updateGlobalMenuTexture();
 
-        // --- Export Feature optimized for huge PCVR models ---
-        let isExporting = false;
-        async function exportToOBJ() {
-            if (isExporting) return;
-            isExporting = true;
-            document.getElementById('export-loading').style.display = 'block';
 
-            // Wait a tick to let the UI render the loading message
-            await new Promise(r => setTimeout(r, 50)); 
-
+        // ============================================================================
+        // [SECTION 7] BLENDER OBJ EXPORT PIPELINE
+        // ============================================================================
+        
+        function exportToOBJ() {
             const isMesh = exportMode === 'mesh';
             const vertBlobParts = ["# VoxTrotBravo Optimized Vertices\n"];
             const faceBlobParts = ["\n# VoxTrotBravo Faces\nmtllib voxel_materials.mtl\n"];
@@ -1300,20 +1199,9 @@
             let vertAcc = []; let faceAcc = []; const vertMap = new Map(); let vertexOffset = 1;
             const worldMat = worldGroup.matrixWorld; const dirLen = dirs.length;
 
-            const chunkArray = Array.from(chunks.values());
-            let yieldCounter = 0;
-
             for (let matIdx = 0; matIdx < 3; matIdx++) {
                 faceAcc.push(`\ng ${matNames[matIdx]}\nusemtl ${matNames[matIdx]}\n`);
-                
-                for (let cIdx = 0; cIdx < chunkArray.length; cIdx++) {
-                    const chunk = chunkArray[cIdx];
-                    
-                    // Yield control to the browser periodically to prevent UI lockup for massive models
-                    if (++yieldCounter % 20 === 0) {
-                        await new Promise(r => setTimeout(r, 0));
-                    }
-
+                for (const chunk of chunks.values()) {
                     const layer = chunk.layers[matIdx];
                     if (!layer || layer.count === 0) continue;
                     for (let i = 0; i < layer.count; i++) {
@@ -1345,7 +1233,6 @@
                     }
                 }
             }
-            
             if (vertAcc.length > 0) { vertBlobParts.push(vertAcc.join("")); vertAcc = []; }
             if (faceAcc.length > 0) { faceBlobParts.push(faceAcc.join("")); faceAcc = []; }
 
@@ -1353,16 +1240,12 @@
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.style.display = 'none'; 
             a.href = url; a.download = isMesh ? 'voxtrotbravo_optimized_mesh.obj' : 'voxtrotbravo_optimized_boxes.obj'; 
             document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-
-            document.getElementById('export-loading').style.display = 'none';
-            isExporting = false;
         }
 
-        // Attach Export listeners
-        document.getElementById('btn-export-boxes').addEventListener('click', () => { exportMode = 'boxes'; exportToOBJ(); });
-        document.getElementById('btn-export-mesh').addEventListener('click', () => { exportMode = 'mesh'; exportToOBJ(); });
-
-        // --- Core Tool Algorithms & Color Handlers ---
+        // ============================================================================
+        // [SECTION 8] CORE TOOL ALGORITHMS & HELPERS
+        // ============================================================================
+        
         function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slotIndex) {
             const mode = colorModes[slotIndex];
             const cA = slotColors[slotIndex][0]; const cB = slotColors[slotIndex][1];
@@ -1399,7 +1282,7 @@
                         const instIdx = layer.voxelToIndex[localIdx];
                         layer.mesh.getColorAt(instIdx, tempColor);
                         if (Math.abs(tempColor.r - color.r) < 0.01 && Math.abs(tempColor.g - color.g) < 0.01 && Math.abs(tempColor.b - color.b) < 0.01) {
-                            return; // Optimization: Skip if exact same mat and color
+                            return; 
                         }
                     }
                 } else {
@@ -1422,8 +1305,8 @@
             }
         }
 
-        // Apply all active symmetries (Mirrors + Polar) without redundant hashing allocations
-        function applySymmetry(gx, gy, gz, actionFn) {
+        // Optimized Symmetry Applicator - ZERO Closures inside loop
+        function applySymmetry(gx, gy, gz, action, isPainting, color, matOverride) {
             const mirrors = [[1, 1]];
             if (mirrorX) mirrors.push([-1, 1]);
             if (mirrorZ) mirrors.push([1, -1]);
@@ -1439,18 +1322,18 @@
                         px = Math.round(mx * polarCos[p] + mz * polarSin[p]);
                         pz = Math.round(-mx * polarSin[p] + mz * polarCos[p]);
                     }
-                    actionFn(px, gy, pz);
+                    if (action === 0) setVoxelCore(px, gy, pz, isPainting, color, matOverride); 
+                    else if (action === 1) recolorVoxel(px, gy, pz, color, matOverride); 
                 }
             }
         }
 
         function setVoxel(gx, gy, gz, isPainting, color, matOverride = -1) {
-            applySymmetry(gx, gy, gz, (x, y, z) => { setVoxelCore(x, y, z, isPainting, color, matOverride); });
+            applySymmetry(gx, gy, gz, 0, isPainting, color, matOverride);
         }
 
         function recolorVoxelSet(gx, gy, gz, color) {
-            const drawMatType = matTypes[0]; 
-            applySymmetry(gx, gy, gz, (x, y, z) => { recolorVoxel(x, y, z, color, drawMatType); });
+            applySymmetry(gx, gy, gz, 1, true, color, matTypes[0]);
         }
 
         // --- Select Tool Functions ---
@@ -1946,7 +1829,10 @@
             leftMenuNeedsUpdate = true;
         }
 
-        // --- Interactions & Handlers ---
+        // ============================================================================
+        // [SECTION 9] XR INTERACTION & INPUT LOOP
+        // ============================================================================
+        
         let isDrawing = false; let isErasing = false; let isColorPicking = false;
         let rightMenuHovered = false; let globalMenuHovered = false; let leftMenuHovered = false; let colorMenuHovered = false;
         let rightMenuUV = { x: 0, y: 0 }; let globalMenuUV = { x: 0, y: 0 }; let leftMenuUV = { x: 0, y: 0 }; let colorMenuUV = { x: 0, y: 0 };
@@ -2099,7 +1985,6 @@
                         lastLeftBtnX = btnX; lastLeftBtnY = btnY;
                     }
 
-                    // --- Dynamic Joystick Colors ---
                     if (joystickColorEnabled) {
                         const axes = source.gamepad.axes;
                         let stickX = 0, stickY = 0;
@@ -2129,7 +2014,11 @@
             }
         }
 
-        // --- Main Animation Loop ---
+
+        // ============================================================================
+        // [SECTION 10] MAIN RENDER LOOP
+        // ============================================================================
+        
         renderer.setAnimationLoop(() => {
 
             if (renderer.xr.isPresenting) {
@@ -2440,7 +2329,10 @@
                 syncMirrorProxies(bucketPreviewMesh, bucketPreviewMirrors, showToolMirrors);
                 syncMirrorProxies(linePreviewMesh, linePreviewMirrors, showToolMirrors);
 
-                chunks.forEach(chunk => chunk.updateBuffers());
+                // ITERATOR OPTIMIZATION: Avoid closure per chunk update loop
+                for (const chunk of chunks.values()) {
+                    chunk.updateBuffers();
+                }
             }
             renderer.render(scene, camera);
         });
