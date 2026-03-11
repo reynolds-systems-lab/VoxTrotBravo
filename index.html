@@ -162,6 +162,8 @@
             [new THREE.Color(0x00ffcc), new THREE.Color(0xffff00)]  
         ];
         
+        const joystickTracker = [ {h: 0.55, s: 1.0}, {h: 0.95, s: 1.0} ]; // Persistent HSL tracker for joysticks
+        
         let shiftProgress = 0;
         let shiftDir = 1;
         const tempColorForDraw = [new THREE.Color(), new THREE.Color()]; 
@@ -2034,21 +2036,40 @@
                         const y = axes.length >= 4 ? axes[3] : axes[1];
                         const deadzone = 0.15;
 
-                        if (Math.abs(x) > deadzone || Math.abs(y) > deadzone) {
+                        const isXActive = Math.abs(x) > deadzone;
+                        const isYActive = Math.abs(y) > deadzone;
+
+                        if (isXActive || isYActive) {
                             const colorIndex = source.handedness === 'right' ? 0 : 1; 
                             const targetColor = slotColors[0][colorIndex]; // Force Slot 1 (Index 0)
                             targetColor.getHSL(tempHSL);
                             
+                            // Sync tracker with actual color if not pure white/black (prevents data loss)
+                            if (tempHSL.l > 0.01 && tempHSL.l < 0.99) {
+                                joystickTracker[colorIndex].h = tempHSL.h;
+                                joystickTracker[colorIndex].s = tempHSL.s;
+                            }
+                            
                             // X-axis: Shift Hue
-                            let newH = tempHSL.h + (x * 0.005);
-                            if (newH > 1) newH -= 1;
-                            if (newH < 0) newH += 1;
+                            if (isXActive) {
+                                joystickTracker[colorIndex].h += (x * 0.005);
+                                if (joystickTracker[colorIndex].h > 1) joystickTracker[colorIndex].h -= 1;
+                                if (joystickTracker[colorIndex].h < 0) joystickTracker[colorIndex].h += 1;
+                                
+                                // Auto-recover saturation/lightness to make hue adjustments visible
+                                if (joystickTracker[colorIndex].s < 0.1) joystickTracker[colorIndex].s = 0.8;
+                                if (tempHSL.l > 0.95) tempHSL.l = 0.5;
+                                if (tempHSL.l < 0.05) tempHSL.l = 0.5;
+                            }
                             
                             // Y-axis: Shift Lightness
-                            let newL = tempHSL.l - (y * 0.005);
-                            newL = Math.max(0, Math.min(1, newL));
+                            let newL = tempHSL.l;
+                            if (isYActive) {
+                                newL -= (y * 0.005);
+                                newL = Math.max(0, Math.min(1, newL));
+                            }
                             
-                            targetColor.setHSL(newH, tempHSL.s, newL);
+                            targetColor.setHSL(joystickTracker[colorIndex].h, joystickTracker[colorIndex].s, newL);
                             joystickColorChanged = true;
                         }
                     }
