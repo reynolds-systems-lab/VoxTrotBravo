@@ -114,6 +114,8 @@
         let triangleDivThick = 1;
         let triangleCap = true;
         let pyramidLegs = 4;
+
+        let icosahedronMode = 'solid';
         
         let wireWidth = 1; 
         let wireFill = false; 
@@ -223,6 +225,7 @@
         let isPreviewingCylinder = false;
         let isPreviewingPlane = false;
         let isPreviewingTriangle = false;
+        let isPreviewingIcosahedron = false;
         let isPreviewingLineLeft = false;
         let isPreviewingLineRight = false;
 
@@ -667,11 +670,11 @@
 
         function updateCursors() {
             let effSize = brushSize;
-            if (activeTool === 'box' || activeTool === 'quadsphere' || activeTool === 'cylinder' || activeTool === 'select' || activeTool === 'plane' || activeTool === 'triangle' || (activeTool === 'paint' && paintMode === 'bucket')) {
+            if (activeTool === 'box' || activeTool === 'quadsphere' || activeTool === 'cylinder' || activeTool === 'select' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket')) {
                 effSize = 1;
             }
             const width = ((effSize - 1) * 2 + 1) * VOXEL_SIZE;
-            const isBoxShape = (brushShape === 'cube' || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || (activeTool === 'paint' && paintMode === 'bucket'));
+            const isBoxShape = (brushShape === 'cube' || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket'));
             
             const shapeKey = (isBoxShape ? 'box_' : 'sph_') + width;
             if (!cursorGeos[shapeKey]) cursorGeos[shapeKey] = isBoxShape ? new THREE.BoxGeometry(width, width, width) : new THREE.SphereGeometry(width / 2, 16, 16);
@@ -693,7 +696,7 @@
             const sizeZ = Math.abs(end.z - start.z) + VOXEL_SIZE;
             boxPreviewMesh.scale.set(sizeX, sizeY, sizeZ);
             boxPreviewMesh.updateMatrix();
-            boxPreviewMat.wireframe = (boxMode === 'wireframe' && activeTool === 'box') || (cylinderMode === 'wireframe' && activeTool === 'cylinder');
+            boxPreviewMat.wireframe = (boxMode === 'wireframe' && activeTool === 'box') || (cylinderMode === 'wireframe' && activeTool === 'cylinder') || (icosahedronMode === 'wireframe' && activeTool === 'icosahedron');
             if (isPainting) boxPreviewMat.color.copy(activeTool === 'select' ? new THREE.Color(0x00ffcc) : slotColors[0][0]); 
             else boxPreviewMat.color.setHex(0xff0055);
         }
@@ -909,6 +912,17 @@
                 drawButton(leftMenuCtx, 20, 360, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 360, 120, 50, `Divs: ${triangleDivs}`, false); drawButton(leftMenuCtx, 210, 360, 50, 50, '+', false);
                 drawButton(leftMenuCtx, 270, 360, 50, 50, '-', false); drawButton(leftMenuCtx, 330, 360, 100, 50, `DThk: ${triangleDivThick}`, false); drawButton(leftMenuCtx, 440, 360, 50, 50, '+', false);
                 drawButton(leftMenuCtx, 20, 420, 220, 50, `Divs: ${triangleGridMode.toUpperCase()}`, false);
+            } else if (activeTool === 'icosahedron') {
+                drawButton(leftMenuCtx, 20, 60, 140, 50, 'SOLID', icosahedronMode === 'solid');
+                drawButton(leftMenuCtx, 170, 60, 150, 50, 'SHELL', icosahedronMode === 'shell');
+                drawButton(leftMenuCtx, 330, 60, 160, 50, 'WIRE', icosahedronMode === 'wireframe');
+
+                if (icosahedronMode === 'wireframe') {
+                    drawButton(leftMenuCtx, 20, 140, 50, 50, '-', false);
+                    drawButton(leftMenuCtx, 80, 140, 160, 50, `Thick: ${wireWidth}`, false);
+                    drawButton(leftMenuCtx, 250, 140, 50, 50, '+', false);
+                    drawButton(leftMenuCtx, 330, 140, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill);
+                }
             } else if (activeTool === 'plane') {
                 drawButton(leftMenuCtx, 30, 70, 150, 50, `OUTLINE: ${planeOutline?'ON':'OFF'}`, planeOutline); drawButton(leftMenuCtx, 190, 70, 50, 50, '-', false); drawButton(leftMenuCtx, 250, 70, 160, 50, `O-Thick: ${planeOutlineThick}`, false); drawButton(leftMenuCtx, 420, 70, 50, 50, '+', false);
                 drawButton(leftMenuCtx, 30, 140, 100, 50, `FILL: ${planeFill?'ON':'OFF'}`, planeFill); drawButton(leftMenuCtx, 140, 140, 100, 50, `GRID: ${planeGrid?'ON':'OFF'}`, planeGrid); drawButton(leftMenuCtx, 250, 140, 40, 50, '-', false); drawButton(leftMenuCtx, 300, 140, 120, 50, `G-Thick: ${planeGridThick}`, false); drawButton(leftMenuCtx, 430, 140, 40, 50, '+', false);
@@ -1025,6 +1039,16 @@
                         if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1);
                         if (cx >= 330 && cx <= 490) wireFill = !wireFill;
                     }
+                }
+            } else if (activeTool === 'icosahedron') {
+                if (cy >= 60 && cy <= 110) {
+                    if (cx >= 20 && cx <= 160) icosahedronMode = 'solid';
+                    if (cx >= 170 && cx <= 320) icosahedronMode = 'shell';
+                    if (cx >= 330 && cx <= 490) icosahedronMode = 'wireframe';
+                } else if (cy >= 140 && cy <= 190 && icosahedronMode === 'wireframe') {
+                    if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1);
+                    if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1);
+                    if (cx >= 330 && cx <= 490) wireFill = !wireFill;
                 }
             } else if (cy >= 70 && cy <= 120) {
                 if (activeTool === 'brush') { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; } 
@@ -1239,24 +1263,25 @@
                 { id: 'quadsphere', label: 'Quad Sphere (Shell)' },
                 { id: 'cylinder', label: 'Cylinder / Prism' },
                 { id: 'triangle', label: 'Cone / Pyramid' },
+                { id: 'icosahedron', label: 'Icosahedron (Platonic)' },
                 { id: 'select', label: 'Select & Transform' }
             ];
-            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 40 + i * 45, 412, 38, tools[i].label, activeTool === tools[i].id);
+            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 40 + i * 42, 412, 36, tools[i].label, activeTool === tools[i].id);
             rightMenuTexture.needsUpdate = true;
         }
 
         function handleRightMenuClick(cx, cy) {
-            if (cx >= 50 && cx <= 462 && cy >= 40 && cy <= 40 + 10 * 45) {
-                const idx = Math.floor((cy - 40) / 45);
-                if (idx >= 0 && idx < 10) {
+            if (cx >= 50 && cx <= 462 && cy >= 40 && cy <= 40 + 11 * 42) {
+                const idx = Math.floor((cy - 40) / 42);
+                if (idx >= 0 && idx < 11) {
                     if (hasSelection) applySelection();
-                    isPreviewingBox = false; isPreviewingSphere = false; isPreviewingPlane = false; isPreviewingTriangle = false; isPreviewingCylinder = false;
+                    isPreviewingBox = false; isPreviewingSphere = false; isPreviewingPlane = false; isPreviewingTriangle = false; isPreviewingCylinder = false; isPreviewingIcosahedron = false;
                     boxPreviewMesh.visible = false; spherePreviewMesh.visible = false; bucketPreviewMesh.visible = false;
                     isPreviewingLineLeft = false; isPreviewingLineRight = false; lineStartLeft.set(Infinity, Infinity, Infinity); lineStartRight.set(Infinity, Infinity, Infinity); linePreviewMesh.visible = false;
                     lastHoveredVoxel.set(Infinity, Infinity, Infinity); hoveredFillCoords.length = 0; lastPaintedPos.set(Infinity, Infinity, Infinity); lastErasedPos.set(Infinity, Infinity, Infinity);
                     lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity);
 
-                    const toolsList = ['brush', 'stroke', 'sheet', 'paint', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'select'];
+                    const toolsList = ['brush', 'stroke', 'sheet', 'paint', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select'];
                     activeTool = toolsList[idx];
                     updateCursors(); rightMenuNeedsUpdate = true; leftMenuNeedsUpdate = true; 
                     lastLinePreviewGridHash = "";
@@ -1869,6 +1894,69 @@
             }
             leftMenuNeedsUpdate = true;
         }
+        
+        function executeIcosahedronTool(startPos, endPos, isPainting) {
+            const minX = Math.min(Math.round(startPos.x / VOXEL_SIZE), Math.round(endPos.x / VOXEL_SIZE)); const maxX = Math.max(Math.round(startPos.x / VOXEL_SIZE), Math.round(endPos.x / VOXEL_SIZE));
+            const minY = Math.min(Math.round(startPos.y / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE)); const maxY = Math.max(Math.round(startPos.y / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE));
+            const minZ = Math.min(Math.round(startPos.z / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE)); const maxZ = Math.max(Math.round(startPos.z / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE));
+            if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
+
+            const rX = (maxX - minX) / 2 + 0.5; const rY = (maxY - minY) / 2 + 0.5; const rZ = (maxZ - minZ) / 2 + 0.5;
+            const cX = (minX + maxX) / 2; const cY = (minY + maxY) / 2; const cZ = (minZ + maxZ) / 2;
+            const invRx = 1 / rX; const invRy = 1 / rY; const invRz = 1 / rZ;
+
+            const PHI = 1.618033988749895;
+            const invPHI = 0.618033988749895;
+            const invPHI2 = 0.381966011250105;
+
+            const getDistances = (gx, gy, gz) => {
+                const nx = (gx - cX) * invRx; const ny = (gy - cY) * invRy; const nz = (gz - cZ) * invRz;
+                const ax = Math.abs(nx); const ay = Math.abs(ny); const az = Math.abs(nz);
+                return [
+                    (ax + ay + az) * invPHI,
+                    ax + ay * invPHI2,
+                    ay + az * invPHI2,
+                    az + ax * invPHI2
+                ];
+            };
+
+            const isInside = (gx, gy, gz) => {
+                const d = getDistances(gx, gy, gz);
+                return Math.max(d[0], d[1], d[2], d[3]) <= 1.0;
+            };
+
+            const maxR = Math.max(rX, rY, rZ);
+
+            for (let gx = minX; gx <= maxX; gx++) for (let gy = minY; gy <= maxY; gy++) for (let gz = minZ; gz <= maxZ; gz++) {
+                if (isInside(gx, gy, gz)) {
+                    const isSurface = (!isInside(gx+1, gy, gz) || !isInside(gx-1, gy, gz) || !isInside(gx, gy+1, gz) || !isInside(gx, gy-1, gz) || !isInside(gx, gy, gz+1) || !isInside(gx, gy, gz-1));
+                    
+                    const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0); 
+                    const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
+                    
+                    if (icosahedronMode === 'solid') {
+                        setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    } else if (icosahedronMode === 'shell') {
+                        if (isSurface) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                        else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
+                    } else if (icosahedronMode === 'wireframe') {
+                        if (isSurface) {
+                            const d = getDistances(gx, gy, gz).sort((a, b) => b - a);
+                            const edgeDist = d[0] - d[1];
+                            
+                            if (edgeDist * maxR <= (wireWidth * 0.9)) {
+                                setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                            } else if (wireFill) {
+                                setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                            }
+                        } else if (clearInterior && isPainting) {
+                            setVoxel(gx, gy, gz, false, null);
+                        }
+                    }
+                }
+            }
+            leftMenuNeedsUpdate = true;
+        }
 
         function executeCylinderTool(startPos, endPos, isPainting) {
             const rawMinX = Math.round(startPos.x / VOXEL_SIZE); const rawMaxX = Math.round(endPos.x / VOXEL_SIZE);
@@ -2212,6 +2300,7 @@
                         if (activeTool === 'plane') isPreviewingPlane = true;
                         if (activeTool === 'cylinder') isPreviewingCylinder = true;
                         if (activeTool === 'triangle') isPreviewingTriangle = true;
+                        if (activeTool === 'icosahedron') isPreviewingIcosahedron = true;
                     }
                 }
             } else if (this === xrLeft) { 
@@ -2230,6 +2319,7 @@
                         if (activeTool === 'plane') isPreviewingPlane = true;
                         if (activeTool === 'cylinder') isPreviewingCylinder = true;
                         if (activeTool === 'triangle') isPreviewingTriangle = true;
+                        if (activeTool === 'icosahedron') isPreviewingIcosahedron = true;
                     }
                 }
             }
@@ -2247,6 +2337,7 @@
                     if (activeTool === 'cylinder' && isPreviewingCylinder) { executeCylinderTool(drawStartPos, rightTargetLocal, true); isPreviewingCylinder = false; boxPreviewMesh.visible = false; }
                     if (activeTool === 'plane' && isPreviewingPlane) { executePlaneTool(drawStartPos, rightTargetLocal, true); isPreviewingPlane = false; boxPreviewMesh.visible = false; }
                     if (activeTool === 'triangle' && isPreviewingTriangle) { executeTriangleTool(drawStartPos, rightTargetLocal, true); isPreviewingTriangle = false; boxPreviewMesh.visible = false; }
+                    if (activeTool === 'icosahedron' && isPreviewingIcosahedron) { executeIcosahedronTool(drawStartPos, rightTargetLocal, true); isPreviewingIcosahedron = false; boxPreviewMesh.visible = false; }
                     lastPaintedPos.set(Infinity, Infinity, Infinity); 
                     if (activeTool === 'sheet') { lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity); }
                 }
@@ -2257,6 +2348,7 @@
                 if (activeTool === 'cylinder' && isPreviewingCylinder) { executeCylinderTool(drawStartPos, leftTargetLocal, false); isPreviewingCylinder = false; boxPreviewMesh.visible = false; }
                 if (activeTool === 'plane' && isPreviewingPlane) { executePlaneTool(drawStartPos, leftTargetLocal, false); isPreviewingPlane = false; boxPreviewMesh.visible = false; }
                 if (activeTool === 'triangle' && isPreviewingTriangle) { executeTriangleTool(drawStartPos, leftTargetLocal, false); isPreviewingTriangle = false; boxPreviewMesh.visible = false; }
+                if (activeTool === 'icosahedron' && isPreviewingIcosahedron) { executeIcosahedronTool(drawStartPos, leftTargetLocal, false); isPreviewingIcosahedron = false; boxPreviewMesh.visible = false; }
                 lastErasedPos.set(Infinity, Infinity, Infinity); 
                 if (activeTool === 'sheet') { lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity); }
             }
@@ -2522,6 +2614,7 @@
                     else if (activeTool === 'cylinder' && isPreviewingCylinder) updateBoxPreview(drawStartPos, rightTargetLocal, true);
                     else if (activeTool === 'plane' && isPreviewingPlane) updatePlanePreview(drawStartPos, rightTargetLocal, true);
                     else if (activeTool === 'triangle' && isPreviewingTriangle) updateBoxPreview(drawStartPos, rightTargetLocal, true);
+                    else if (activeTool === 'icosahedron' && isPreviewingIcosahedron) updateBoxPreview(drawStartPos, rightTargetLocal, true);
                 }
 
                 if (xrLeft && isErasing && !isColorPicking) {
@@ -2548,6 +2641,7 @@
                     else if (activeTool === 'cylinder' && isPreviewingCylinder) updateBoxPreview(drawStartPos, leftTargetLocal, false);
                     else if (activeTool === 'plane' && isPreviewingPlane) updatePlanePreview(drawStartPos, leftTargetLocal, false);
                     else if (activeTool === 'triangle' && isPreviewingTriangle) updateBoxPreview(drawStartPos, leftTargetLocal, false);
+                    else if (activeTool === 'icosahedron' && isPreviewingIcosahedron) updateBoxPreview(drawStartPos, leftTargetLocal, false);
                 }
 
                 let previewLineStart = null; let previewLineEnd = null; let previewLinePainting = false;
