@@ -253,6 +253,8 @@
         const tempMatrix = new THREE.Matrix4();
         const tempColor = new THREE.Color();
         const tempPos = new THREE.Vector3();
+        const tempPXZ = new THREE.Vector3();
+        const tempCXZ = new THREE.Vector3();
         const tempQuat = new THREE.Quaternion(); 
         const midPos = new THREE.Vector3();
         const currentHandVec = new THREE.Vector3(); 
@@ -366,7 +368,7 @@
                         this.needsUpdate = true;
                     }
                 } else {
-                    if (this.count >= this.capacity) this.resizeCapacity(Math.min(CHUNK_VOL, this.capacity * 2));
+                    if (this.count >= this.capacity) this.resizeCapacity(CHUNK_VOL);
                     const instIdx = this.count;
                     this.voxelToIndex[localIdx] = instIdx;
                     this.indexToLocal[instIdx] = localIdx;
@@ -573,24 +575,16 @@
                 const by = pCY + offY * step;
                 const bz = pCZ + offZ * step;
 
-                const mirrors = [
-                    {sx: 1, sz: 1},
-                    ...(mirrorX ? [{sx: -1, sz: 1}] : []),
-                    ...(mirrorZ ? [{sx: 1, sz: -1}] : []),
-                    ...(mirrorX && mirrorZ ? [{sx: -1, sz: -1}] : [])
-                ];
-
-                for (let m of mirrors) {
-                    for (let p = 0; p < polarSymmetry; p++) {
-                        let fx = bx * m.sx, fz = bz * m.sz;
-                        let rot = 0;
-                        if (p > 0) {
-                            rot = p * 2 * Math.PI / polarSymmetry;
-                            fx = (bx * m.sx) * polarCos[p] + (bz * m.sz) * polarSin[p];
-                            fz = -(bx * m.sx) * polarSin[p] + (bz * m.sz) * polarCos[p];
-                        }
-                        getPreviewGroup(fx, by, fz, m.sx, m.sz, step, rot);
+                for (let i = 0; i < activeSymmetries.length; i++) {
+                    const sym = activeSymmetries[i];
+                    let fx = bx * sym.sx, fz = bz * sym.sz;
+                    let rot = 0;
+                    if (sym.p > 0) {
+                        rot = sym.p * 2 * Math.PI / polarSymmetry;
+                        fx = (bx * sym.sx) * sym.cos + (bz * sym.sz) * sym.sin;
+                        fz = -(bx * sym.sx) * sym.sin + (bz * sym.sz) * sym.cos;
                     }
+                    getPreviewGroup(fx, by, fz, sym.sx, sym.sz, step, rot);
                 }
             }
         }
@@ -621,53 +615,42 @@
         const linePreviewMirrors = createMirrorProxies(linePreviewMesh);
 
         function syncMirrorProxies(baseMesh, proxies, showMirrors) {
-            if (!baseMesh.visible || !showMirrors || (polarSymmetry === 1 && !mirrorX && !mirrorZ)) {
+            if (!baseMesh.visible || !showMirrors || activeSymmetries.length <= 1) {
                 for(let i=0; i < proxies.length; i++) proxies[i].visible = false;
                 return;
             }
 
             let pIdx = 0;
-            const mirrors = [[1, 1]];
-            if (mirrorX) mirrors.push([-1, 1]);
-            if (mirrorZ) mirrors.push([1, -1]);
-            if (mirrorX && mirrorZ) mirrors.push([-1, -1]);
+            for (let i = 1; i < activeSymmetries.length; i++) {
+                if (pIdx >= proxies.length) break;
+                const sym = activeSymmetries[i];
+                const proxy = proxies[pIdx++];
+                proxy.visible = true;
 
-            for (let m = 0; m < mirrors.length; m++) {
-                const sx = mirrors[m][0];
-                const sz = mirrors[m][1];
-
-                for (let p = 0; p < polarSymmetry; p++) {
-                    if (m === 0 && p === 0) continue; 
-                    if (pIdx >= proxies.length) break;
-
-                    const proxy = proxies[pIdx++];
-                    proxy.visible = true;
-
-                    const mx = baseMesh.position.x * sx;
-                    const mz = baseMesh.position.z * sz;
-                    let fx = mx, fz = mz, rotAngle = 0;
-                    
-                    if (p > 0) {
-                        fx = mx * polarCos[p] + mz * polarSin[p];
-                        fz = -mx * polarSin[p] + mz * polarCos[p];
-                        rotAngle = p * 2 * Math.PI / polarSymmetry;
-                    }
-
-                    proxy.position.set(fx, baseMesh.position.y, fz);
-                    
-                    proxy.scale.copy(baseMesh.scale);
-                    proxy.scale.x *= sx;
-                    proxy.scale.z *= sz;
-
-                    proxy.quaternion.copy(baseMesh.quaternion);
-                    if (rotAngle !== 0) {
-                        tempQuat.setFromAxisAngle(tempPos.set(0, 1, 0), rotAngle);
-                        proxy.quaternion.premultiply(tempQuat);
-                    }
-
-                    proxy.updateMatrix();
-                    if (baseMesh.isInstancedMesh) proxy.count = baseMesh.count;
+                const mx = baseMesh.position.x * sym.sx;
+                const mz = baseMesh.position.z * sym.sz;
+                let fx = mx, fz = mz, rotAngle = 0;
+                
+                if (sym.p > 0) {
+                    fx = mx * sym.cos + mz * sym.sin;
+                    fz = -mx * sym.sin + mz * sym.cos;
+                    rotAngle = sym.p * 2 * Math.PI / polarSymmetry;
                 }
+
+                proxy.position.set(fx, baseMesh.position.y, fz);
+                
+                proxy.scale.copy(baseMesh.scale);
+                proxy.scale.x *= sym.sx;
+                proxy.scale.z *= sym.sz;
+
+                proxy.quaternion.copy(baseMesh.quaternion);
+                if (rotAngle !== 0) {
+                    tempQuat.setFromAxisAngle(tempPos.set(0, 1, 0), rotAngle);
+                    proxy.quaternion.premultiply(tempQuat);
+                }
+
+                proxy.updateMatrix();
+                if (baseMesh.isInstancedMesh) proxy.count = baseMesh.count;
             }
 
             for (; pIdx < proxies.length; pIdx++) proxies[pIdx].visible = false;
@@ -792,7 +775,9 @@
                     lastGx = cx; lastGy = cy; lastGz = cz;
                 }
             }
-            linePreviewMesh.count = instCount; linePreviewMesh.instanceMatrix.needsUpdate = true;
+            linePreviewMesh.count = instCount; 
+            linePreviewMesh.instanceMatrix.updateRange.count = instCount * 16;
+            linePreviewMesh.instanceMatrix.needsUpdate = true;
             if (isPainting) linePreviewMat.color.copy(slotColors[activeMatSlot][activeColorSubSlot]); 
             else linePreviewMat.color.setHex(0xff0055);
         }
@@ -1523,9 +1508,10 @@
             let iSolid = 0, iGlass = 0, iEmission = 0; let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
             for(let v of selectedVoxels) {
                 tempMatrix.makeTranslation(v.x * VOXEL_SIZE, v.y * VOXEL_SIZE, v.z * VOXEL_SIZE);
-                if (v.mat === 0) { selMeshSolid.setMatrixAt(iSolid, tempMatrix); selMeshSolid.setColorAt(iSolid, v.color); iSolid++; }
-                else if (v.mat === 1) { selMeshGlass.setMatrixAt(iGlass, tempMatrix); selMeshGlass.setColorAt(iGlass, v.color); iGlass++; }
-                else if (v.mat === 2) { selMeshEmission.setMatrixAt(iEmission, tempMatrix); selMeshEmission.setColorAt(iEmission, v.color); iEmission++; }
+                tempColor.setRGB(v.r, v.g, v.b);
+                if (v.mat === 0) { selMeshSolid.setMatrixAt(iSolid, tempMatrix); selMeshSolid.setColorAt(iSolid, tempColor); iSolid++; }
+                else if (v.mat === 1) { selMeshGlass.setMatrixAt(iGlass, tempMatrix); selMeshGlass.setColorAt(iGlass, tempColor); iGlass++; }
+                else if (v.mat === 2) { selMeshEmission.setMatrixAt(iEmission, tempMatrix); selMeshEmission.setColorAt(iEmission, tempColor); iEmission++; }
                 minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x); minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y); minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
             }
             selMeshSolid.instanceMatrix.needsUpdate = true; selMeshSolid.instanceColor.needsUpdate = true;
@@ -1569,7 +1555,7 @@
                         const dz = z - cz;
                         const srcX = Math.round(cx + dx * inv0 + dy * inv4 + dz * inv8); const srcY = Math.round(cy + dx * inv1 + dy * inv5 + dz * inv9); const srcZ = Math.round(cz + dx * inv2 + dy * inv6 + dz * inv10);
                         const origVoxel = origMap.get((srcX + 32768) + (srcY + 32768) * 65536 + (srcZ + 32768) * 4294967296);
-                        if (origVoxel) selectedVoxels.push({ x: x, y: y, z: z, color: origVoxel.color, mat: origVoxel.mat });
+                        if (origVoxel) selectedVoxels.push({ x: x, y: y, z: z, r: origVoxel.r, g: origVoxel.g, b: origVoxel.b, mat: origVoxel.mat });
                     }
                 }
             }
@@ -1612,7 +1598,7 @@
                     if (selectFilter === 'all') shouldAdd = true;
                     else if (selectFilter === 'color' && targetMat !== -1 && Math.abs(tempColor.r - targetQueryColor.r) < 0.05 && Math.abs(tempColor.g - targetQueryColor.g) < 0.05 && Math.abs(tempColor.b - targetQueryColor.b) < 0.05) shouldAdd = true;
                     else if (selectFilter === 'material' && targetMat !== -1 && matType === targetMat) shouldAdd = true;
-                    if (shouldAdd) { baseSelection.push({ x: gx, y: gy, z: gz, color: tempColor.clone(), mat: matType }); if (baseSelection.length >= SEL_LIMIT) break; }
+                    if (shouldAdd) { baseSelection.push({ x: gx, y: gy, z: gz, r: tempColor.r, g: tempColor.g, b: tempColor.b, mat: matType }); if (baseSelection.length >= SEL_LIMIT) break; }
                 }
             }
             if (baseSelection.length > 0) finalizeSelection();
@@ -1628,7 +1614,7 @@
                 const x = selQueue[qHead++]; const y = selQueue[qHead++]; const z = selQueue[qHead++];
                 const matType = getVoxelMatAndColor(x, y, z, tempColor);
                 if (matType !== -1) {
-                    baseSelection.push({ x: x, y: y, z: z, color: tempColor.clone(), mat: matType });
+                    baseSelection.push({ x: x, y: y, z: z, r: tempColor.r, g: tempColor.g, b: tempColor.b, mat: matType });
                     for(let i=0; i < SEL_DIRS.length; i+=3) {
                         const nx = x + SEL_DIRS[i]; const ny = y + SEL_DIRS[i+1]; const nz = z + SEL_DIRS[i+2];
                         const key = (nx + 32768) + (ny + 32768) * 65536 + (nz + 32768) * 4294967296;
@@ -1682,17 +1668,17 @@
                                 const dz = z - tgtCZ;
                                 const srcX = Math.round(pCX + dx * inv0 + dy * inv4 + dz * inv8); const srcY = Math.round(pCY + dx * inv1 + dy * inv5 + dz * inv9); const srcZ = Math.round(pCZ + dx * inv2 + dy * inv6 + dz * inv10);
                                 const origVoxel = origMap.get((srcX + 32768) + (srcY + 32768) * 65536 + (srcZ + 32768) * 4294967296);
-                                if (origVoxel) setVoxel(x, y, z, true, origVoxel.color, origVoxel.mat);
+                                if (origVoxel) { tempColor.setRGB(origVoxel.r, origVoxel.g, origVoxel.b); setVoxel(x, y, z, true, tempColor, origVoxel.mat); }
                             }
                         }
                     }
                 }
             } 
-            else { for(let v of selectedVoxels) setVoxel(v.x + offX, v.y + offY, v.z + offZ, true, v.color, v.mat); }
+            else { for(let v of selectedVoxels) { tempColor.setRGB(v.r, v.g, v.b); setVoxel(v.x + offX, v.y + offY, v.z + offZ, true, tempColor, v.mat); } }
             baseSelection.length = 0; selectedVoxels.length = 0; hasSelection = false; selectionGroup.visible = false; selectionGroup.position.set(0,0,0); selectionOffset.set(0,0,0); pivotIndicator.visible = false; isSettingPivot = false; leftMenuNeedsUpdate = true;
         }
 
-        function cancelSelection() { if (transformMode === 'move') for(let v of baseSelection) setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat); deleteSelection(); }
+        function cancelSelection() { if (transformMode === 'move') for(let v of baseSelection) { tempColor.setRGB(v.r, v.g, v.b); setVoxelCore(v.x, v.y, v.z, true, tempColor, v.mat); } deleteSelection(); }
         function deleteSelection() { baseSelection.length = 0; selectedVoxels.length = 0; hasSelection = false; selectionGroup.visible = false; selectionGroup.position.set(0,0,0); selectionOffset.set(0,0,0); pivotIndicator.visible = false; isSettingPivot = false; leftMenuNeedsUpdate = true; }
 
         // --- Brushes & Shapes ---
@@ -2596,8 +2582,8 @@
                     if (prevGripDist > 0 && prevHandVec.lengthSq() > 0) {
                         const scaleDelta = dist / prevGripDist; panDelta.copy(midPos).sub(prevMid);
                         if (isVerticalLock) {
-                            const pXZ = new THREE.Vector3(prevHandVec.x, 0, prevHandVec.z); const cXZ = new THREE.Vector3(currentHandVec.x, 0, currentHandVec.z);
-                            if (pXZ.lengthSq() > 0.001 && cXZ.lengthSq() > 0.001) tempQuat.setFromUnitVectors(pXZ.normalize(), cXZ.normalize()); else tempQuat.identity();
+                            tempPXZ.set(prevHandVec.x, 0, prevHandVec.z); tempCXZ.set(currentHandVec.x, 0, currentHandVec.z);
+                            if (tempPXZ.lengthSq() > 0.001 && tempCXZ.lengthSq() > 0.001) tempQuat.setFromUnitVectors(tempPXZ.normalize(), tempCXZ.normalize()); else tempQuat.identity();
                         } else tempQuat.setFromUnitVectors(prevHandVec, currentHandVec);
                         worldGroup.position.add(panDelta); worldGroup.position.sub(midPos); worldGroup.position.multiplyScalar(scaleDelta);
                         worldGroup.scale.multiplyScalar(scaleDelta); worldGroup.position.applyQuaternion(tempQuat); worldGroup.quaternion.premultiply(tempQuat); worldGroup.position.add(midPos);
@@ -2628,6 +2614,7 @@
                             lastHoveredVoxel.set(gx, gy, gz); calculateFloodFill(gx, gy, gz); const pointsFound = hoveredFillCoords.length / 3;
                             if (pointsFound > 0) {
                                 bucketPreviewMesh.count = pointsFound;
+                                bucketPreviewMesh.instanceMatrix.updateRange.count = pointsFound * 16;
                                 for (let i = 0; i < pointsFound; i++) { tempMatrix.makeTranslation(hoveredFillCoords[i*3] * VOXEL_SIZE, hoveredFillCoords[i*3+1] * VOXEL_SIZE, hoveredFillCoords[i*3+2] * VOXEL_SIZE); bucketPreviewMesh.setMatrixAt(i, tempMatrix); }
                                 bucketPreviewMesh.instanceMatrix.needsUpdate = true; bucketPreviewMesh.visible = true;
                             } else bucketPreviewMesh.visible = false;
