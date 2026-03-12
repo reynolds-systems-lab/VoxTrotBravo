@@ -99,6 +99,7 @@
         let boxDivZ = 1;
         let boxDivThick = 1;
 
+        let sphereShape = 'quadsphere';
         let sphereMode = 'shell';
         
         let triangleType = 'cone'; 
@@ -447,6 +448,12 @@
         spherePreviewMesh.matrixAutoUpdate = false; spherePreviewMesh.visible = false;
         worldGroup.add(spherePreviewMesh);
 
+        // Icosahedron specific preview (Radius mapped to exactly hit bounding box 1x1x1 limits)
+        const icoPreviewMat = new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: true });
+        const icoPreviewMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.587785, 0), icoPreviewMat);
+        icoPreviewMesh.matrixAutoUpdate = false; icoPreviewMesh.visible = false;
+        worldGroup.add(icoPreviewMesh);
+
         const bucketPreviewMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false });
         const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, bucketPreviewMat, 30000);
         bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); bucketPreviewMesh.matrixAutoUpdate = false; bucketPreviewMesh.visible = false;
@@ -606,6 +613,7 @@
         const cursorRightMirrors = createMirrorProxies(cursorRight);
         const boxPreviewMirrors = createMirrorProxies(boxPreviewMesh);
         const spherePreviewMirrors = createMirrorProxies(spherePreviewMesh);
+        const icoPreviewMirrors = createMirrorProxies(icoPreviewMesh);
         const bucketPreviewMirrors = createMirrorProxies(bucketPreviewMesh);
         const linePreviewMirrors = createMirrorProxies(linePreviewMesh);
 
@@ -723,15 +731,22 @@
         }
 
         function updateSpherePreview(start, end, isPainting) {
-            spherePreviewMesh.visible = true;
-            spherePreviewMesh.position.copy(start).add(end).multiplyScalar(0.5);
-            const sizeX = Math.abs(end.x - start.x) + VOXEL_SIZE; const sizeY = Math.abs(end.y - start.y) + VOXEL_SIZE; const sizeZ = Math.abs(end.z - start.z) + VOXEL_SIZE;
-            spherePreviewMesh.scale.set(sizeX, sizeY, sizeZ);
-            spherePreviewMesh.updateMatrix();
-            spherePreviewMat.wireframe = (sphereMode === 'shell');
+            const mesh = sphereShape === 'icosahedron' ? icoPreviewMesh : spherePreviewMesh;
+            const otherMesh = sphereShape === 'icosahedron' ? spherePreviewMesh : icoPreviewMesh;
+            otherMesh.visible = false;
             
-            if (isPainting) spherePreviewMat.color.copy(slotColors[0][0]);
-            else spherePreviewMat.color.setHex(0xff0055);
+            mesh.visible = true;
+            mesh.position.copy(start).add(end).multiplyScalar(0.5);
+            const sizeX = Math.abs(end.x - start.x) + VOXEL_SIZE; 
+            const sizeY = Math.abs(end.y - start.y) + VOXEL_SIZE; 
+            const sizeZ = Math.abs(end.z - start.z) + VOXEL_SIZE;
+            
+            mesh.scale.set(sizeX, sizeY, sizeZ);
+            mesh.updateMatrix();
+            mesh.material.wireframe = (sphereMode === 'shell' || sphereMode === 'wireframe');
+            
+            if (isPainting) mesh.material.color.copy(slotColors[0][0]);
+            else mesh.material.color.setHex(0xff0055);
         }
         
         function updateLinePreviewMesh(startPos, endPos, isPainting) {
@@ -862,7 +877,19 @@
                 drawButton(leftMenuCtx, 250, 280, 40, 50, '-', false); drawButton(leftMenuCtx, 300, 280, 100, 50, `DivY: ${boxDivY}`, false); drawButton(leftMenuCtx, 410, 280, 40, 50, '+', false);
                 drawButton(leftMenuCtx, 20, 350, 40, 50, '-', false); drawButton(leftMenuCtx, 70, 350, 100, 50, `DivZ: ${boxDivZ}`, false); drawButton(leftMenuCtx, 180, 350, 40, 50, '+', false);
             } else if (activeTool === 'quadsphere') {
-                drawButton(leftMenuCtx, 50, 70, 200, 50, 'SOLID', sphereMode === 'solid'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'SHELL', sphereMode === 'shell');
+                drawButton(leftMenuCtx, 50, 70, 200, 50, 'QUAD SPHERE', sphereShape === 'quadsphere'); 
+                drawButton(leftMenuCtx, 262, 70, 200, 50, 'ICOSAHEDRON', sphereShape === 'icosahedron');
+                
+                drawButton(leftMenuCtx, 20, 140, 140, 50, 'SOLID', sphereMode === 'solid'); 
+                drawButton(leftMenuCtx, 170, 140, 150, 50, 'SHELL', sphereMode === 'shell'); 
+                drawButton(leftMenuCtx, 330, 140, 160, 50, 'WIRE', sphereMode === 'wireframe');
+                
+                if (sphereMode === 'wireframe') {
+                    drawButton(leftMenuCtx, 20, 210, 50, 50, '-', false); 
+                    drawButton(leftMenuCtx, 80, 210, 160, 50, `Thick: ${wireWidth}`, false); 
+                    drawButton(leftMenuCtx, 250, 210, 50, 50, '+', false);
+                    drawButton(leftMenuCtx, 330, 210, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill);
+                }
             } else if (activeTool === 'triangle') {
                 drawButton(leftMenuCtx, 20, 60, 140, 50, 'CONE', triangleType === 'cone'); drawButton(leftMenuCtx, 170, 60, 150, 50, 'TETRA', triangleType === 'tetra'); drawButton(leftMenuCtx, 330, 60, 160, 50, 'PYRAMID', triangleType === 'pyramid');
                 drawButton(leftMenuCtx, 20, 120, 140, 50, 'SOLID', triangleMode === 'solid'); drawButton(leftMenuCtx, 170, 120, 150, 50, 'SHELL', triangleMode === 'shell'); drawButton(leftMenuCtx, 330, 120, 160, 50, 'WIRE', triangleMode === 'wireframe');
@@ -978,7 +1005,7 @@
                 else if (activeTool === 'stroke') { if (cx >= 50 && cx <= 250) strokeMode = 'continuous'; if (cx >= 262 && cx <= 462) strokeMode = 'line'; isPreviewingLineLeft = false; isPreviewingLineRight = false; lineStartLeft.set(Infinity, Infinity, Infinity); lineStartRight.set(Infinity, Infinity, Infinity); } 
                 else if (activeTool === 'paint') { if (cx >= 50 && cx <= 250) paintMode = 'brush'; if (cx >= 262 && cx <= 462) paintMode = 'bucket'; } 
                 else if (activeTool === 'box') { if (cx >= 20 && cx <= 160) boxMode = 'solid'; if (cx >= 170 && cx <= 320) boxMode = 'shell'; if (cx >= 330 && cx <= 490) boxMode = 'wireframe'; } 
-                else if (activeTool === 'quadsphere') { if (cx >= 50 && cx <= 250) sphereMode = 'solid'; if (cx >= 262 && cx <= 462) sphereMode = 'shell'; } 
+                else if (activeTool === 'quadsphere') { if (cx >= 50 && cx <= 250) sphereShape = 'quadsphere'; if (cx >= 262 && cx <= 462) sphereShape = 'icosahedron'; } 
                 else if (activeTool === 'plane') { if (cx >= 30 && cx <= 180) planeOutline = !planeOutline; if (planeOutline) { if (cx >= 190 && cx <= 240) planeOutlineThick = Math.max(1, planeOutlineThick - 1); if (cx >= 420 && cx <= 470) planeOutlineThick = Math.min(10, planeOutlineThick + 1); } }
             } else if (activeTool === 'plane') {
                 if (cy >= 140 && cy <= 190) { if (cx >= 30 && cx <= 130) planeFill = !planeFill; if (cx >= 140 && cx <= 240) planeGrid = !planeGrid; if (cx >= 250 && cx <= 290) planeGridThick = Math.max(1, planeGridThick - 1); if (cx >= 430 && cx <= 470) planeGridThick = Math.min(10, planeGridThick + 1); } 
@@ -1007,6 +1034,14 @@
                     if (cx >= 250 && cx <= 290) boxDivY = Math.max(1, boxDivY - 1); if (cx >= 410 && cx <= 450) boxDivY = Math.min(20, boxDivY + 1);
                 } else if (cy >= 350 && cy <= 400) {
                     if (cx >= 20 && cx <= 60) boxDivZ = Math.max(1, boxDivZ - 1); if (cx >= 180 && cx <= 220) boxDivZ = Math.min(20, boxDivZ + 1);
+                }
+            } else if (activeTool === 'quadsphere') {
+                if (cy >= 140 && cy <= 190) {
+                    if (cx >= 20 && cx <= 160) sphereMode = 'solid'; if (cx >= 170 && cx <= 320) sphereMode = 'shell'; if (cx >= 330 && cx <= 490) sphereMode = 'wireframe';
+                }
+                else if (cy >= 210 && cy <= 260 && sphereMode === 'wireframe') {
+                    if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1);
+                    if (cx >= 330 && cx <= 490) wireFill = !wireFill;
                 }
             }
             updateCursors(); leftMenuNeedsUpdate = true;
@@ -1188,7 +1223,7 @@
                 { id: 'paint', label: 'Paint (Recolor)' },
                 { id: 'plane', label: 'Plane (2D Grid/Shape)' },
                 { id: 'box', label: 'Box / Volumes' },
-                { id: 'quadsphere', label: 'Quad Sphere (Shell)' },
+                { id: 'quadsphere', label: 'Sphere / Ico' },
                 { id: 'triangle', label: 'Cone / Pyramid' },
                 { id: 'select', label: 'Select & Transform' }
             ];
@@ -1202,7 +1237,7 @@
                 if (idx >= 0 && idx < 9) {
                     if (hasSelection) applySelection();
                     isPreviewingBox = false; isPreviewingSphere = false; isPreviewingPlane = false; isPreviewingTriangle = false;
-                    boxPreviewMesh.visible = false; spherePreviewMesh.visible = false; bucketPreviewMesh.visible = false;
+                    boxPreviewMesh.visible = false; spherePreviewMesh.visible = false; icoPreviewMesh.visible = false; bucketPreviewMesh.visible = false;
                     isPreviewingLineLeft = false; isPreviewingLineRight = false; lineStartLeft.set(Infinity, Infinity, Infinity); lineStartRight.set(Infinity, Infinity, Infinity); linePreviewMesh.visible = false;
                     lastHoveredVoxel.set(Infinity, Infinity, Infinity); hoveredFillCoords.length = 0; lastPaintedPos.set(Infinity, Infinity, Infinity); lastErasedPos.set(Infinity, Infinity, Infinity);
                     lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity);
@@ -1810,14 +1845,108 @@
             const cx = (minX + maxX) / 2; const cy = (minY + maxY) / 2; const cz = (minZ + maxZ) / 2; 
             const invRx = 1 / rx; const invRy = 1 / ry; const invRz = 1 / rz;
 
-            const isInside = (gx, gy, gz) => { const nx = (gx - cx) * invRx; const ny = (gy - cy) * invRy; const nz = (gz - cz) * invRz; return (nx * nx + ny * ny + nz * nz) <= 1.0; };
+            let isInside;
+            const wireEdges = [];
+            
+            if (sphereShape === 'icosahedron') {
+                const phi = 1.61803398875;
+                const invPhi = 0.61803398875;
+                isInside = (gx, gy, gz) => { 
+                    const nx = Math.abs((gx - cx) * invRx); 
+                    const ny = Math.abs((gy - cy) * invRy); 
+                    const nz = Math.abs((gz - cz) * invRz); 
+                    return (nx + ny + nz <= phi) && (phi * nx + invPhi * ny <= phi) && (phi * ny + invPhi * nz <= phi) && (phi * nz + invPhi * nx <= phi);
+                };
+                
+                if (sphereMode === 'wireframe') {
+                    const verts = [
+                        [0, invPhi, 1], [0, invPhi, -1], [0, -invPhi, 1], [0, -invPhi, -1],
+                        [1, 0, invPhi], [1, 0, -invPhi], [-1, 0, invPhi], [-1, 0, -invPhi],
+                        [invPhi, 1, 0], [invPhi, -1, 0], [-invPhi, 1, 0], [-invPhi, -1, 0]
+                    ];
+                    const scaledVerts = verts.map(v => new THREE.Vector3(v[0]*rx, v[1]*ry, v[2]*rz));
+                    for(let i=0; i<12; i++) {
+                        for(let j=i+1; j<12; j++) {
+                            const dx = verts[i][0] - verts[j][0];
+                            const dy = verts[i][1] - verts[j][1];
+                            const dz = verts[i][2] - verts[j][2];
+                            const distSq = dx*dx + dy*dy + dz*dz;
+                            if (Math.abs(distSq - 1.52786) < 0.1) {
+                                const a = scaledVerts[i]; const b = scaledVerts[j];
+                                wireEdges.push({
+                                    a: a, b: b,
+                                    minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x),
+                                    minY: Math.min(a.y, b.y), maxY: Math.max(a.y, b.y),
+                                    minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z)
+                                });
+                            }
+                        }
+                    }
+                }
+            } else {
+                isInside = (gx, gy, gz) => { const nx = (gx - cx) * invRx; const ny = (gy - cy) * invRy; const nz = (gz - cz) * invRz; return (nx * nx + ny * ny + nz * nz) <= 1.0; };
+            }
+
+            const distSqToSegment = (px, py, pz, A, B) => {
+                const l2 = A.distanceToSquared(B);
+                if (l2 === 0) return 0;
+                const t = Math.max(0, Math.min(1, ((px - A.x) * (B.x - A.x) + (py - A.y) * (B.y - A.y) + (pz - A.z) * (B.z - A.z)) / l2));
+                const projX = A.x + t * (B.x - A.x);
+                const projY = A.y + t * (B.y - A.y);
+                const projZ = A.z + t * (B.z - A.z);
+                return (px - projX)*(px - projX) + (py - projY)*(py - projY) + (pz - projZ)*(pz - projZ);
+            };
+
+            const checkWireframeEdge = (gx, gy, gz) => {
+                if (sphereShape === 'quadsphere') {
+                    const u = Math.atan2(gx - cx, gz - cz);
+                    const v = Math.asin(Math.max(-1, Math.min(1, (gy - cy) * invRy)));
+                    const numU = 12; const numV = 6;
+                    const stepU = (Math.PI * 2) / numU; const stepV = Math.PI / numV;
+                    const uMod = Math.abs(u % stepU); const vMod = Math.abs((v + Math.PI/2) % stepV);
+                    const wwU = wireWidth / (Math.max(rx, rz) * 0.5); 
+                    const wwV = wireWidth / (ry * 0.5);
+                    return (uMod < wwU || Math.abs(uMod - stepU) < wwU) || (vMod < wwV || Math.abs(vMod - stepV) < wwV);
+                }
+                const px = gx - cx; const py = gy - cy; const pz = gz - cz;
+                const wwSq = wireWidth * wireWidth; 
+                for(let i=0; i<wireEdges.length; i++) {
+                    const e = wireEdges[i];
+                    if (px < e.minX - wireWidth || px > e.maxX + wireWidth ||
+                        py < e.minY - wireWidth || py > e.maxY + wireWidth ||
+                        pz < e.minZ - wireWidth || pz > e.maxZ + wireWidth) continue;
+                    if (distSqToSegment(px, py, pz, e.a, e.b) <= wwSq) return true;
+                }
+                return false;
+            };
             
             for(let gx = minX; gx <= maxX; gx++) for(let gy = minY; gy <= maxY; gy++) for(let gz = minZ; gz <= maxZ; gz++) {
                 if (isInside(gx, gy, gz)) {
                     const isSurface = (!isInside(gx+1, gy, gz) || !isInside(gx-1, gy, gz) || !isInside(gx, gy+1, gz) || !isInside(gx, gy-1, gz) || !isInside(gx, gy, gz+1) || !isInside(gx, gy, gz-1));
-                    if (clearInterior && isPainting && sphereMode === 'shell' && !isSurface) { setVoxel(gx, gy, gz, false, null); continue; }
                     const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
-                    if (sphereMode === 'shell') { if (isSurface) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]); } else setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
+                    
+                    if (sphereMode === 'wireframe') {
+                        let isEdge = false;
+                        if (isSurface) isEdge = checkWireframeEdge(gx, gy, gz);
+                        
+                        if (isEdge) {
+                            setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                        } else if (isSurface && wireFill) {
+                            setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                        } else if (clearInterior && isPainting) {
+                            setVoxel(gx, gy, gz, false, null);
+                        }
+                    } else if (sphereMode === 'shell') {
+                        if (clearInterior && isPainting && !isSurface) { 
+                            setVoxel(gx, gy, gz, false, null); 
+                        } else if (isSurface) {
+                            setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                        }
+                    } else { 
+                        if (clearInterior && isPainting && !isSurface) setVoxel(gx, gy, gz, false, null); 
+                        else setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    }
                 }
             }
             leftMenuNeedsUpdate = true;
@@ -1924,9 +2053,13 @@
                     if (triangleMode === 'wireframe') {
                         if (isSurface) { if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]); else if (wireFill) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]); } 
                         else { if (isDivVoxel && triangleGridMode === 'internal') { setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]); } else if (clearInterior && isPainting) { setVoxel(gx, gy, gz, false, null); } }
+                    } else if (triangleMode === 'shell') {
+                        if (clearInterior && isPainting && !isSurface && !(isDivVoxel && triangleGridMode === 'internal')) { setVoxel(gx, gy, gz, false, null); }
+                        else if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                        else if (isSurface) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
                     } else {
-                        if (clearInterior && isPainting && !isSurface && triangleMode === 'shell') { if (!(isDivVoxel && triangleGridMode === 'internal')) { setVoxel(gx, gy, gz, false, null); continue; } }
-                        if ((isEdge && isSurface) || isDivVoxel) { setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]); } else if (triangleMode === 'solid' || isSurface) { setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]); }
+                        if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                        else setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
                     }
                 }
             }
@@ -1934,459 +2067,456 @@
         }
 
         function executePlaneTool(startPos, endPos, isPainting) {
-            let minX = Math.min(Math.round(startPos.x / VOXEL_SIZE), Math.round(endPos.x / VOXEL_SIZE)); let maxX = Math.max(Math.round(startPos.x / VOXEL_SIZE), Math.round(endPos.x / VOXEL_SIZE));
-            let minY = Math.min(Math.round(startPos.y / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE)); let maxY = Math.max(Math.round(startPos.y / VOXEL_SIZE), Math.round(endPos.y / VOXEL_SIZE));
-            let minZ = Math.min(Math.round(startPos.z / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE)); let maxZ = Math.max(Math.round(startPos.z / VOXEL_SIZE), Math.round(endPos.z / VOXEL_SIZE));
-            const dx = maxX - minX; const dy = maxY - minY; const dz = maxZ - minZ;
-            let flatAxis = 'y'; if (dx <= dy && dx <= dz) flatAxis = 'x'; else if (dz <= dx && dz <= dy) flatAxis = 'z';
-            const depthSize = planeThick - 1;
-            
-            if (flatAxis === 'x') { maxX = minX + depthSize; } if (flatAxis === 'y') { maxY = minY + depthSize; } if (flatAxis === 'z') { maxZ = minZ + depthSize; }
-            if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
-            
-            let minU, maxU, minV, maxV;
-            if (flatAxis === 'x') { minU = minY; maxU = maxY; minV = minZ; maxV = maxZ; } else if (flatAxis === 'y') { minU = minX; maxU = maxX; minV = minZ; maxV = maxZ; } else { minU = minX; maxU = maxX; minV = minY; maxV = maxY; }
-            
-            const gSizeU = (maxU - planeOutlineThick) - (minU + planeOutlineThick) + 1; const gSizeV = (maxV - planeOutlineThick) - (minV + planeOutlineThick) + 1;
-            const gridU = new Uint8Array(Math.max(0, gSizeU)); const gridV = new Uint8Array(Math.max(0, gSizeV));
+            const rawStartX = Math.round(startPos.x / VOXEL_SIZE); const rawStartY = Math.round(startPos.y / VOXEL_SIZE); const rawStartZ = Math.round(startPos.z / VOXEL_SIZE);
+            const rawEndX = Math.round(endPos.x / VOXEL_SIZE); const rawEndY = Math.round(endPos.y / VOXEL_SIZE); const rawEndZ = Math.round(endPos.z / VOXEL_SIZE);
 
-            if (planeDivU > 1 && gSizeU > 0) { const step = gSizeU / planeDivU; const half = planeGridThick / 2; for (let i = 1; i < planeDivU; i++) { const center = Math.round(i * step); for (let rel = Math.ceil(center - half); rel <= Math.floor(center + half - 0.001); rel++) if (rel >= 0 && rel < gridU.length) gridU[rel] = 1; } }
-            if (planeDivV > 1 && gSizeV > 0) { const step = gSizeV / planeDivV; const half = planeGridThick / 2; for (let i = 1; i < planeDivV; i++) { const center = Math.round(i * step); for (let rel = Math.ceil(center - half); rel <= Math.floor(center + half - 0.001); rel++) if (rel >= 0 && rel < gridV.length) gridV[rel] = 1; } }
+            let minX = Math.min(rawStartX, rawEndX); let maxX = Math.max(rawStartX, rawEndX);
+            let minY = Math.min(rawStartY, rawEndY); let maxY = Math.max(rawStartY, rawEndY);
+            let minZ = Math.min(rawStartZ, rawEndZ); let maxZ = Math.max(rawStartZ, rawEndZ);
+
+            const dx = maxX - minX; const dy = maxY - minY; const dz = maxZ - minZ;
+            let flatAxis = 'y';
+            if (dx <= dy && dx <= dz) flatAxis = 'x'; else if (dz <= dx && dz <= dy) flatAxis = 'z';
+
+            const depthSize = (planeThick - 1);
+            if (flatAxis === 'x') { minX = Math.min(rawStartX, rawEndX); maxX = minX + depthSize; }
+            if (flatAxis === 'y') { minY = Math.min(rawStartY, rawEndY); maxY = minY + depthSize; }
+            if (flatAxis === 'z') { minZ = Math.min(rawStartZ, rawEndZ); maxZ = minZ + depthSize; }
+
+            if ((maxX - minX) > 400 || (maxY - minY) > 400 || (maxZ - minZ) > 400) return;
+
+            const lenU = flatAxis === 'x' ? (maxY - minY) : (maxX - minX);
+            const lenV = flatAxis === 'x' ? (maxZ - minZ) : (flatAxis === 'y' ? (maxZ - minZ) : (maxY - minY));
+
+            const divUStep = lenU / planeDivU;
+            const divVStep = lenV / planeDivV;
+
+            const gridHalf = (planeGridThick - 1) / 2;
+            const outHalf = (planeOutlineThick - 1) / 2;
 
             for(let gx = minX; gx <= maxX; gx++) for(let gy = minY; gy <= maxY; gy++) for(let gz = minZ; gz <= maxZ; gz++) {
-                let u, v; if (flatAxis === 'x') { u = gy; v = gz; } else if (flatAxis === 'y') { u = gx; v = gz; } else { u = gx; v = gy; }
-                const distU = Math.min(u - minU, maxU - u); const distV = Math.min(v - minV, maxV - v); const minDist = Math.min(distU, distV);
+                const u = flatAxis === 'x' ? (gy - minY) : (gx - minX);
+                const v = flatAxis === 'x' ? (gz - minZ) : (flatAxis === 'y' ? (gz - minZ) : (gy - minY));
                 
-                let shouldDraw = false; let drawColor = null; let drawMat = 0;
-                const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0); const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
-                
-                if (minDist < planeOutlineThick) { 
-                    if (planeOutline) { shouldDraw = true; drawColor = cSec; drawMat = matTypes[1]; } 
-                } else if (gSizeU > 0 && gSizeV > 0) {
-                    const relU = u - (minU + planeOutlineThick); const relV = v - (minV + planeOutlineThick);
-                    if ((relU >= 0 && relU < gridU.length && gridU[relU] === 1) || (relV >= 0 && relV < gridV.length && gridV[relV] === 1)) {
-                        if (planeGrid) { shouldDraw = true; drawColor = cSec; drawMat = matTypes[1]; }
-                    } else if (planeFill) { shouldDraw = true; drawColor = cMain; drawMat = matTypes[0]; }
+                let isOutline = false;
+                if (planeOutline) {
+                    if (u <= Math.floor(outHalf) || u >= lenU - Math.ceil(outHalf) || v <= Math.floor(outHalf) || v >= lenV - Math.ceil(outHalf)) isOutline = true;
                 }
-                if (shouldDraw) setVoxel(gx, gy, gz, isPainting, drawColor, drawMat);
+
+                let isGrid = false;
+                if (planeGrid && !isOutline) {
+                    for (let i = 1; i < planeDivU; i++) {
+                        const gridPos = Math.round(i * divUStep);
+                        if (u >= Math.ceil(gridPos - gridHalf) && u <= Math.floor(gridPos + gridHalf + 0.001)) { isGrid = true; break; }
+                    }
+                    if (!isGrid) {
+                        for (let i = 1; i < planeDivV; i++) {
+                            const gridPos = Math.round(i * divVStep);
+                            if (v >= Math.ceil(gridPos - gridHalf) && v <= Math.floor(gridPos + gridHalf + 0.001)) { isGrid = true; break; }
+                        }
+                    }
+                }
+
+                const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
+                const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
+
+                if (isOutline || isGrid) {
+                    setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                } else if (planeFill) {
+                    setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                }
             }
             leftMenuNeedsUpdate = true;
         }
 
-        // --- Interactions & Handlers ---
-        let isDrawing = false; let isErasing = false; let isColorPicking = false;
-        let rightMenuHovered = false; let globalMenuHovered = false; let leftMenuHovered = false; let colorMenuHovered = false;
-        let rightMenuUV = { x: 0, y: 0 }; let globalMenuUV = { x: 0, y: 0 }; let leftMenuUV = { x: 0, y: 0 }; let colorMenuUV = { x: 0, y: 0 };
+        // --- Main Controller Logic ---
+        let rightTriggerDown = false; let leftTriggerDown = false;
+        let rightGripDown = false; let leftGripDown = false;
+        let isDrawingLine = false; let isDrawingBox = false; let isDrawingSphere = false; let isDrawingPlane = false; let isDrawingTriangle = false;
+        const lastPaintedPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+        const lastErasedPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+
+        controller0.addEventListener('selectstart', () => { rightTriggerDown = true; });
+        controller0.addEventListener('selectend', () => {
+            rightTriggerDown = false;
+            if (isDrawingLine) { isDrawingLine = false; isPreviewingLineRight = false; if (drawStartPos.distanceTo(rightPointerPos) > 0.001) drawLineVoxels(drawStartPos, rightPointerPos, true); else placeBrushVoxels(drawStartPos, true); }
+            if (isDrawingBox) { isDrawingBox = false; isPreviewingBox = false; executeBoxTool(drawStartPos, rightPointerPos, true); }
+            if (isDrawingPlane) { isDrawingPlane = false; isPreviewingPlane = false; executePlaneTool(drawStartPos, rightPointerPos, true); }
+            if (isDrawingSphere) { isDrawingSphere = false; isPreviewingSphere = false; executeQuadSphereTool(drawStartPos, rightPointerPos, true); }
+            if (isDrawingTriangle) { isDrawingTriangle = false; isPreviewingTriangle = false; executeTriangleTool(drawStartPos, rightPointerPos, true); }
+            lastLinePreviewGridHash = "";
+        });
         
-        let isRightGripping = false; let isLeftGripping = false;
-        const prevRightPos = new THREE.Vector3(); const prevLeftPos = new THREE.Vector3(); const prevMid = new THREE.Vector3(); const prevHandVec = new THREE.Vector3();
-        let prevGripDist = 0;
-        const rightPos = new THREE.Vector3(); const leftPos = new THREE.Vector3(); const rightDir = new THREE.Vector3(); const leftDir = new THREE.Vector3();
-        const rightTargetLocal = new THREE.Vector3(); const leftTargetLocal = new THREE.Vector3();
-        const lastPaintedPos = new THREE.Vector3(Infinity, Infinity, Infinity); const lastErasedPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+        controller1.addEventListener('selectstart', () => { leftTriggerDown = true; });
+        controller1.addEventListener('selectend', () => {
+            leftTriggerDown = false;
+            if (isDrawingLine) { isDrawingLine = false; isPreviewingLineLeft = false; if (drawStartPos.distanceTo(leftPointerPos) > 0.001) drawLineVoxels(drawStartPos, leftPointerPos, false); else placeBrushVoxels(drawStartPos, false); }
+            if (isDrawingBox) { isDrawingBox = false; isPreviewingBox = false; executeBoxTool(drawStartPos, leftPointerPos, false); }
+            if (isDrawingPlane) { isDrawingPlane = false; isPreviewingPlane = false; executePlaneTool(drawStartPos, leftPointerPos, false); }
+            if (isDrawingSphere) { isDrawingSphere = false; isPreviewingSphere = false; executeQuadSphereTool(drawStartPos, leftPointerPos, false); }
+            if (isDrawingTriangle) { isDrawingTriangle = false; isPreviewingTriangle = false; executeTriangleTool(drawStartPos, leftPointerPos, false); }
+            if (activeTool === 'select' && hasSelection) finalizeSelection(); 
+            lastLinePreviewGridHash = "";
+        });
 
-        function onSelectStart() {
-            if (this === xrRight) { 
-                if (leftMenuHovered && leftMenuMesh.visible) {
-                    const cx = Math.floor(leftMenuUV.x * 512); const cy = Math.floor((1 - leftMenuUV.y) * 512);
-                    if (activeTool === 'select' && hasSelection) { 
-                        if (cy >= 100 && cy <= 130) activeSliderDrag = 'rotX'; 
-                        else if (cy >= 140 && cy <= 170) activeSliderDrag = 'rotY'; 
-                        else if (cy >= 180 && cy <= 210) activeSliderDrag = 'rotZ'; 
-                        else if (cy >= 220 && cy <= 250) activeSliderDrag = 'scale'; 
-                        else if (transformMode === 'copy') {
-                            if (cy >= 300 && cy <= 330) activeSliderDrag = 'stepRotX';
-                            else if (cy >= 335 && cy <= 365) activeSliderDrag = 'stepRotY';
-                            else if (cy >= 370 && cy <= 400) activeSliderDrag = 'stepRotZ';
-                            else if (cy >= 405 && cy <= 435) activeSliderDrag = 'stepScale';
-                            else handleLeftMenuClick(cx, cy);
-                        } else handleLeftMenuClick(cx, cy); 
-                    } else handleLeftMenuClick(cx, cy);
-                } else if (colorMenuHovered && colorMenuMesh.visible) {
-                    const cx = Math.floor(colorMenuUV.x * 512); const cy = Math.floor((1 - colorMenuUV.y) * 512);
-                    if (cy >= 155 && cy <= 335 && cx >= 20 && cx <= 492) { isColorPicking = true; isPaletteMagnified = true; updateColorMenuTexture(); } else handleColorMenuClick(cx, cy);
-                } else {
-                    if (activeTool === 'select') {
-                        if (hasSelection) { 
-                            if (isSettingPivot) {
-                                pivotPoint.set(Math.round(rightTargetLocal.x / VOXEL_SIZE), Math.round(rightTargetLocal.y / VOXEL_SIZE), Math.round(rightTargetLocal.z / VOXEL_SIZE));
-                                pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
-                                pivotIndicator.updateMatrix(); isSettingPivot = false; updateRotatedSelection(); updatePreviews(); leftMenuNeedsUpdate = true;
-                            } else { isDrawing = true; dragStartCtrlPos.copy(rightTargetLocal); dragStartOffset.copy(selectionGroup.position); }
-                        } else { if (selectMode === 'box') { isDrawing = true; drawStartPos.copy(rightTargetLocal); isPreviewingBox = true; } else if (selectMode === 'connected') executeSelectConnected(rightTargetLocal); }
-                    } else if (activeTool === 'stroke' && strokeMode === 'line') {
-                        if (isPreviewingLineLeft) { drawLineVoxels(lineStartLeft, rightTargetLocal, false); isPreviewingLineLeft = false; lineStartLeft.set(Infinity, Infinity, Infinity); lastLinePreviewGridHash = ""; } 
-                        else if (!isPreviewingLineRight) { lineStartRight.copy(rightTargetLocal); isPreviewingLineRight = true; } 
-                        else { drawLineVoxels(lineStartRight, rightTargetLocal, true); lineStartRight.copy(rightTargetLocal); lastLinePreviewGridHash = ""; }
-                    } else {
-                        isDrawing = true; drawStartPos.copy(rightTargetLocal); 
-                        if (activeTool === 'paint' && paintMode === 'bucket' && hoveredFillCoords.length > 0) {
-                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                            for (let i = 0; i < hoveredFillCoords.length; i+=3) { const px = hoveredFillCoords[i]; const py = hoveredFillCoords[i+1]; if (px < minX) minX = px; if (px > maxX) maxX = px; if (py < minY) minY = py; if (py > maxY) maxY = py; }
-                            for (let i = 0; i < hoveredFillCoords.length; i+=3) recolorVoxelSet(hoveredFillCoords[i], hoveredFillCoords[i+1], hoveredFillCoords[i+2], getDrawColor(hoveredFillCoords[i], hoveredFillCoords[i+1], hoveredFillCoords[i+2], minX, maxX, minY, maxY, 0));
-                            leftMenuNeedsUpdate = true; lastHoveredVoxel.set(Infinity, Infinity, Infinity); hoveredFillCoords.length = 0; bucketPreviewMesh.visible = false;
-                        }
-                        if (activeTool === 'box') isPreviewingBox = true; if (activeTool === 'quadsphere') isPreviewingSphere = true; if (activeTool === 'plane') isPreviewingPlane = true;
-                        if (activeTool === 'triangle') isPreviewingTriangle = true;
-                    }
-                }
-            } else if (this === xrLeft) { 
-                if (rightMenuHovered && rightMenuMesh.visible) handleRightMenuClick(Math.floor(rightMenuUV.x * 512), Math.floor((1 - rightMenuUV.y) * 512));
-                else if (globalMenuHovered && globalMenuMesh.visible) handleGlobalMenuClick(Math.floor(globalMenuUV.x * 512), Math.floor((1 - globalMenuUV.y) * 512));
-                else {
-                    if (activeTool === 'select' && hasSelection) applySelection();
-                    else if (activeTool === 'stroke' && strokeMode === 'line') {
-                        if (isPreviewingLineRight) { drawLineVoxels(lineStartRight, leftTargetLocal, true); isPreviewingLineRight = false; lineStartRight.set(Infinity, Infinity, Infinity); lastLinePreviewGridHash = ""; } 
-                        else if (!isPreviewingLineLeft) { lineStartLeft.copy(leftTargetLocal); isPreviewingLineLeft = true; } 
-                        else { drawLineVoxels(lineStartLeft, leftTargetLocal, false); lineStartLeft.copy(leftTargetLocal); lastLinePreviewGridHash = ""; }
-                    } else {
-                        isErasing = true; drawStartPos.copy(leftTargetLocal);
-                        if (activeTool === 'box') isPreviewingBox = true; if (activeTool === 'quadsphere') isPreviewingSphere = true; if (activeTool === 'plane') isPreviewingPlane = true;
-                        if (activeTool === 'triangle') isPreviewingTriangle = true;
-                    }
-                }
-            }
-        }
+        grip0.addEventListener('squeezestart', () => { rightGripDown = true; }); grip0.addEventListener('squeezeend', () => { rightGripDown = false; });
+        grip1.addEventListener('squeezestart', () => { leftGripDown = true; }); grip1.addEventListener('squeezeend', () => { leftGripDown = false; });
 
-        function onSelectEnd() {
-            if (this === xrRight) {
-                if (activeSliderDrag) activeSliderDrag = null;
-                else if (isColorPicking) { isColorPicking = false; isPaletteMagnified = false; updateColorMenuTexture(); } 
-                else {
-                    isDrawing = false; 
-                    if (activeTool === 'select' && selectMode === 'box' && isPreviewingBox) { executeSelectBox(drawStartPos, rightTargetLocal); isPreviewingBox = false; boxPreviewMesh.visible = false; }
-                    if (activeTool === 'box' && isPreviewingBox) { executeBoxTool(drawStartPos, rightTargetLocal, true); isPreviewingBox = false; boxPreviewMesh.visible = false; }
-                    if (activeTool === 'quadsphere' && isPreviewingSphere) { executeQuadSphereTool(drawStartPos, rightTargetLocal, true); isPreviewingSphere = false; spherePreviewMesh.visible = false; }
-                    if (activeTool === 'plane' && isPreviewingPlane) { executePlaneTool(drawStartPos, rightTargetLocal, true); isPreviewingPlane = false; boxPreviewMesh.visible = false; }
-                    if (activeTool === 'triangle' && isPreviewingTriangle) { executeTriangleTool(drawStartPos, rightTargetLocal, true); isPreviewingTriangle = false; boxPreviewMesh.visible = false; }
-                    lastPaintedPos.set(Infinity, Infinity, Infinity); 
-                    if (activeTool === 'sheet') { lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity); }
-                }
-            } else if (this === xrLeft) {
-                isErasing = false; 
-                if (activeTool === 'box' && isPreviewingBox) { executeBoxTool(drawStartPos, leftTargetLocal, false); isPreviewingBox = false; boxPreviewMesh.visible = false; }
-                if (activeTool === 'quadsphere' && isPreviewingSphere) { executeQuadSphereTool(drawStartPos, leftTargetLocal, false); isPreviewingSphere = false; spherePreviewMesh.visible = false; }
-                if (activeTool === 'plane' && isPreviewingPlane) { executePlaneTool(drawStartPos, leftTargetLocal, false); isPreviewingPlane = false; boxPreviewMesh.visible = false; }
-                if (activeTool === 'triangle' && isPreviewingTriangle) { executeTriangleTool(drawStartPos, leftTargetLocal, false); isPreviewingTriangle = false; boxPreviewMesh.visible = false; }
-                lastErasedPos.set(Infinity, Infinity, Infinity); 
-                if (activeTool === 'sheet') { lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity); }
-            }
-        }
-
-        controller0.addEventListener('selectstart', onSelectStart); controller1.addEventListener('selectstart', onSelectStart);
-        controller0.addEventListener('selectend', onSelectEnd); controller1.addEventListener('selectend', onSelectEnd);
-
-        function onSqueezeStart() {
-            if (this === xrRight) {
-                isRightGripping = true; if (gripRight) gripRight.getWorldPosition(prevRightPos);
-                if (isLeftGripping && gripLeft) { gripLeft.getWorldPosition(prevLeftPos); prevGripDist = prevRightPos.distanceTo(prevLeftPos); prevMid.copy(prevRightPos).lerp(prevLeftPos, 0.5); prevHandVec.subVectors(prevRightPos, prevLeftPos).normalize(); }
-            } else if (this === xrLeft) {
-                isLeftGripping = true; if (gripLeft) gripLeft.getWorldPosition(prevLeftPos);
-                if (isRightGripping && gripRight) { gripRight.getWorldPosition(prevRightPos); prevGripDist = prevLeftPos.distanceTo(prevRightPos); prevMid.copy(prevLeftPos).lerp(prevRightPos, 0.5); prevHandVec.subVectors(prevRightPos, prevLeftPos).normalize(); }
-            }
-        }
-        function onSqueezeEnd() {
-            if (this === xrRight) { isRightGripping = false; if (isLeftGripping && gripLeft) gripLeft.getWorldPosition(prevLeftPos); } 
-            else if (this === xrLeft) { isLeftGripping = false; if (isRightGripping && gripRight) gripRight.getWorldPosition(prevRightPos); }
-        }
-        controller0.addEventListener('squeezestart', onSqueezeStart); controller1.addEventListener('squeezestart', onSqueezeStart);
-        controller0.addEventListener('squeezeend', onSqueezeEnd); controller1.addEventListener('squeezeend', onSqueezeEnd);
-
-        let lastRightBtnA = false; let lastRightBtnB = false; let lastLeftBtnX = false; let lastLeftBtnY = false;
-        
-        function pollGamepads() {
-            const session = renderer.xr.getSession(); if (!session) return;
-            let joystickColorChanged = false;
-
-            for (let i = 0; i < session.inputSources.length; i++) {
-                const source = session.inputSources[i];
-                if (source && source.gamepad) {
-                    // Button Checking
-                    if (source.handedness === 'right') {
-                        const btnA = source.gamepad.buttons[4]?.pressed || false; const btnB = source.gamepad.buttons[5]?.pressed || false; 
-                        if (btnA && !lastRightBtnA) { if(rightMenuMesh) rightMenuMesh.visible = !rightMenuMesh.visible; if (rightMenuMesh && rightMenuMesh.visible) { if(globalMenuMesh) globalMenuMesh.visible = false; rightMenuNeedsUpdate = true; } }
-                        if (btnB && !lastRightBtnB) { if(globalMenuMesh) globalMenuMesh.visible = !globalMenuMesh.visible; if (globalMenuMesh && globalMenuMesh.visible) { if(rightMenuMesh) rightMenuMesh.visible = false; globalMenuNeedsUpdate = true; } }
-                        lastRightBtnA = btnA; lastRightBtnB = btnB;
-                    }
-                    if (source.handedness === 'left') {
-                        const btnX = source.gamepad.buttons[4]?.pressed || false; const btnY = source.gamepad.buttons[5]?.pressed || false; 
-                        if (btnX && !lastLeftBtnX) { if(leftMenuMesh) leftMenuMesh.visible = !leftMenuMesh.visible; if (leftMenuMesh && leftMenuMesh.visible) { if(colorMenuMesh) colorMenuMesh.visible = false; leftMenuNeedsUpdate = true; } }
-                        if (btnY && !lastLeftBtnY) { if(colorMenuMesh) colorMenuMesh.visible = !colorMenuMesh.visible; if (colorMenuMesh && colorMenuMesh.visible) { if(leftMenuMesh) leftMenuMesh.visible = false; colorMenuNeedsUpdate = true; } }
-                        lastLeftBtnX = btnX; lastLeftBtnY = btnY;
-                    }
-
-                    // Joystick Color Control (Slot 1)
-                    const axes = source.gamepad.axes;
-                    if (axes && axes.length >= 2) {
-                        const x = axes.length >= 4 ? axes[2] : axes[0];
-                        const y = axes.length >= 4 ? axes[3] : axes[1];
-                        const deadzone = 0.15;
-
-                        const isXActive = Math.abs(x) > deadzone;
-                        const isYActive = Math.abs(y) > deadzone;
-
-                        if (isXActive || isYActive) {
-                            const colorIndex = source.handedness === 'right' ? 0 : 1; 
-                            const targetColor = slotColors[0][colorIndex]; // Force Slot 1 (Index 0)
-                            targetColor.getHSL(tempHSL);
-                            
-                            // Sync tracker with actual color if not pure white/black (prevents data loss)
-                            if (tempHSL.l > 0.01 && tempHSL.l < 0.99) {
-                                joystickTracker[colorIndex].h = tempHSL.h;
-                                joystickTracker[colorIndex].s = tempHSL.s;
-                            }
-                            
-                            // X-axis: Shift Hue
-                            if (isXActive) {
-                                joystickTracker[colorIndex].h += (x * 0.005);
-                                if (joystickTracker[colorIndex].h > 1) joystickTracker[colorIndex].h -= 1;
-                                if (joystickTracker[colorIndex].h < 0) joystickTracker[colorIndex].h += 1;
-                                
-                                // Auto-recover saturation/lightness to make hue adjustments visible
-                                if (joystickTracker[colorIndex].s < 0.1) joystickTracker[colorIndex].s = 0.8;
-                                if (tempHSL.l > 0.95) tempHSL.l = 0.5;
-                                if (tempHSL.l < 0.05) tempHSL.l = 0.5;
-                            }
-                            
-                            // Y-axis: Shift Lightness
-                            let newL = tempHSL.l;
-                            if (isYActive) {
-                                newL -= (y * 0.005);
-                                newL = Math.max(0, Math.min(1, newL));
-                            }
-                            
-                            targetColor.setHSL(joystickTracker[colorIndex].h, joystickTracker[colorIndex].s, newL);
-                            joystickColorChanged = true;
-                        }
-                    }
-                }
-            }
-
-            if (joystickColorChanged) {
-                updateCursors();
-                // Throttle texture UI updates to prevent lag while sliding continuously
-                if (Date.now() - lastColorJoystickUpdateTime > 50) {
-                    colorMenuNeedsUpdate = true;
-                    lastColorJoystickUpdateTime = Date.now();
-                }
-            }
-        }
-
-        // --- Main Animation Loop ---
+        // --- Main Render Loop ---
         renderer.setAnimationLoop(() => {
-            shiftProgress += 0.005 * shiftDir;
-            if (shiftProgress >= 1) { shiftProgress = 1; shiftDir = -1; }
-            if (shiftProgress <= 0) { shiftProgress = 0; shiftDir = 1; }
+            const currentMatType = matTypes[activeMatSlot];
+
+            if (leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; }
+            if (rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; }
+            if (colorMenuNeedsUpdate) { updateColorMenuTexture(); colorMenuNeedsUpdate = false; }
+            if (globalMenuNeedsUpdate) { updateGlobalMenuTexture(); globalMenuNeedsUpdate = false; }
 
             if (renderer.xr.isPresenting) {
-                const session = renderer.xr.getSession();
-                if (session) {
-                    for (let i = 0; i < session.inputSources.length; i++) {
-                        const source = session.inputSources[i];
-                        if (source) {
-                            const ctrl = i === 0 ? controller0 : controller1;
-                            const grip = i === 0 ? grip0 : grip1;
-                            if (source.handedness === 'right' && xrRight !== ctrl) {
-                                xrRight = ctrl; gripRight = grip;
-                                xrRight.add(rightLaserLine); xrRight.add(rightMenuMesh); xrRight.add(globalMenuMesh);
-                            } else if (source.handedness === 'left' && xrLeft !== ctrl) {
-                                xrLeft = ctrl; gripLeft = grip;
-                                xrLeft.add(leftLaserLine); xrLeft.add(leftMenuMesh); xrLeft.add(colorMenuMesh);
-                            }
+                const worldInv = worldGroup.matrixWorld.clone().invert();
+                
+                tempMatrix.identity().extractRotation(controller0.matrixWorld); currentHandVec.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+                rightPointerPos.copy(controller0.position).addScaledVector(currentHandVec, 0.05).applyMatrix4(worldInv);
+                
+                tempMatrix.identity().extractRotation(controller1.matrixWorld); currentHandVec.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+                leftPointerPos.copy(controller1.position).addScaledVector(currentHandVec, 0.05).applyMatrix4(worldInv);
+
+                cursorLeft.position.copy(leftPointerPos); cursorLeft.updateMatrix(); cursorRight.position.copy(rightPointerPos); cursorRight.updateMatrix();
+
+                // UI Intersections
+                let uiHitRight = false; let uiHitLeft = false; let isColorPicking = false;
+                leftLaserLine.visible = false; rightLaserLine.visible = false;
+                
+                const leftRay = new THREE.Raycaster(); tempMatrix.identity().extractRotation(controller1.matrixWorld); currentHandVec.set(0, 0, -1).applyMatrix4(tempMatrix).normalize(); leftRay.set(controller1.position, currentHandVec);
+                const rightRay = new THREE.Raycaster(); tempMatrix.identity().extractRotation(controller0.matrixWorld); currentHandVec.set(0, 0, -1).applyMatrix4(tempMatrix).normalize(); rightRay.set(controller0.position, currentHandVec);
+
+                const rIntersectsLMenu = rightRay.intersectObject(leftMenuMesh);
+                const rIntersectsRMenu = rightRay.intersectObject(rightMenuMesh);
+                const rIntersectsGMenu = rightRay.intersectObject(globalMenuMesh);
+                const rIntersectsCMenu = rightRay.intersectObject(colorMenuMesh);
+                const lIntersectsCMenu = leftRay.intersectObject(colorMenuMesh);
+
+                if (rIntersectsCMenu.length > 0) {
+                    rightLaserLine.visible = true; rightLaserLine.scale.z = rIntersectsCMenu[0].distance; uiHitRight = true; isColorPicking = true;
+                    if (rightTriggerDown) {
+                        const uv = rIntersectsCMenu[0].uv;
+                        const now = performance.now();
+                        if (now - lastColorJoystickUpdateTime > 16) { pickColorFromCanvas(uv.x * 512, (1 - uv.y) * 512); lastColorJoystickUpdateTime = now; }
+                        if (!isPaletteMagnified) { isPaletteMagnified = true; colorMenuNeedsUpdate = true; }
+                    } else if (isPaletteMagnified) { isPaletteMagnified = false; colorMenuNeedsUpdate = true; }
+                } else if (lIntersectsCMenu.length > 0) {
+                    leftLaserLine.visible = true; leftLaserLine.scale.z = lIntersectsCMenu[0].distance; uiHitLeft = true; isColorPicking = true;
+                    if (leftTriggerDown) {
+                        const uv = lIntersectsCMenu[0].uv;
+                        const now = performance.now();
+                        if (now - lastColorJoystickUpdateTime > 16) { pickColorFromCanvas(uv.x * 512, (1 - uv.y) * 512); lastColorJoystickUpdateTime = now; }
+                        if (!isPaletteMagnified) { isPaletteMagnified = true; colorMenuNeedsUpdate = true; }
+                    } else if (isPaletteMagnified) { isPaletteMagnified = false; colorMenuNeedsUpdate = true; }
+                } else if (isPaletteMagnified) { isPaletteMagnified = false; colorMenuNeedsUpdate = true; }
+
+                if (!uiHitRight && rIntersectsLMenu.length > 0) {
+                    rightLaserLine.visible = true; rightLaserLine.scale.z = rIntersectsLMenu[0].distance; uiHitRight = true;
+                    if (rightTriggerDown) {
+                        const now = performance.now();
+                        if (now - lastMenuUpdateTime > 250) {
+                            const uv = rIntersectsLMenu[0].uv; handleLeftMenuClick(uv.x * 512, (1 - uv.y) * 512);
+                            lastMenuUpdateTime = now;
+                        }
+                    }
+                }
+                if (!uiHitRight && rIntersectsRMenu.length > 0) {
+                    rightLaserLine.visible = true; rightLaserLine.scale.z = rIntersectsRMenu[0].distance; uiHitRight = true;
+                    if (rightTriggerDown) {
+                        const now = performance.now();
+                        if (now - lastMenuUpdateTime > 250) {
+                            const uv = rIntersectsRMenu[0].uv; handleRightMenuClick(uv.x * 512, (1 - uv.y) * 512);
+                            lastMenuUpdateTime = now;
+                        }
+                    }
+                }
+                if (!uiHitRight && rIntersectsGMenu.length > 0) {
+                    rightLaserLine.visible = true; rightLaserLine.scale.z = rIntersectsGMenu[0].distance; uiHitRight = true;
+                    if (rightTriggerDown) {
+                        const now = performance.now();
+                        if (now - lastMenuUpdateTime > 250) {
+                            const uv = rIntersectsGMenu[0].uv; handleGlobalMenuClick(uv.x * 512, (1 - uv.y) * 512);
+                            lastMenuUpdateTime = now;
                         }
                     }
                 }
 
-                pollGamepads();
+                // Menus LookAt Camera
+                leftMenuMesh.lookAt(camera.position); rightMenuMesh.lookAt(camera.position); colorMenuMesh.lookAt(camera.position); globalMenuMesh.lookAt(camera.position);
+                const lookEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                const camPitch = THREE.MathUtils.radToDeg(lookEuler.x);
 
-                if (Date.now() - lastMenuUpdateTime > 100) { 
-                    if (leftMenuMesh.visible && leftMenuNeedsUpdate) { updateLeftMenuTexture(); leftMenuNeedsUpdate = false; }
-                    if (rightMenuMesh.visible && rightMenuNeedsUpdate) { updateRightMenuTexture(); rightMenuNeedsUpdate = false; }
-                    if (colorMenuMesh.visible && colorMenuNeedsUpdate) { updateColorMenuTexture(); colorMenuNeedsUpdate = false; }
-                    if (globalMenuMesh.visible && globalMenuNeedsUpdate) { updateGlobalMenuTexture(); globalMenuNeedsUpdate = false; }
-                    lastMenuUpdateTime = Date.now();
-                }
+                leftMenuMesh.visible = (camPitch > 25 && !rightGripDown && !leftGripDown && activeTool !== 'select');
+                rightMenuMesh.visible = (camPitch > 25 && !rightGripDown && !leftGripDown && activeTool !== 'select');
+                colorMenuMesh.visible = (camPitch > 25 && !rightGripDown && !leftGripDown && activeTool === 'paint');
+                globalMenuMesh.visible = (camPitch > 25 && !rightGripDown && !leftGripDown && activeTool === 'select');
 
-                if ((rightMenuMesh.visible || globalMenuMesh.visible) && xrLeft) {
-                    tempMatrix.identity().extractRotation(xrLeft.matrixWorld); raycaster.ray.origin.setFromMatrixPosition(xrLeft.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-                    if (rightMenuMesh.visible) {
-                        const intersects = raycaster.intersectObject(rightMenuMesh);
-                        if (intersects.length > 0) { rightMenuHovered = true; rightMenuUV.x = intersects[0].uv.x; rightMenuUV.y = intersects[0].uv.y; leftLaserLine.scale.z = intersects[0].distance; } else { rightMenuHovered = false; leftLaserLine.scale.z = 5; }
-                    } else if (globalMenuMesh.visible) {
-                        const intersects = raycaster.intersectObject(globalMenuMesh);
-                        if (intersects.length > 0) { globalMenuHovered = true; globalMenuUV.x = intersects[0].uv.x; globalMenuUV.y = intersects[0].uv.y; leftLaserLine.scale.z = intersects[0].distance; } else { globalMenuHovered = false; leftLaserLine.scale.z = 5; }
-                    }
-                    leftLaserLine.visible = true;
-                } else { rightMenuHovered = false; globalMenuHovered = false; if(leftLaserLine) leftLaserLine.visible = false; }
-
-                if ((leftMenuMesh.visible || colorMenuMesh.visible) && xrRight) {
-                    tempMatrix.identity().extractRotation(xrRight.matrixWorld); raycaster.ray.origin.setFromMatrixPosition(xrRight.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-                    if (leftMenuMesh.visible) {
-                        const intersects = raycaster.intersectObject(leftMenuMesh);
-                        if (intersects.length > 0) { leftMenuHovered = true; leftMenuUV.x = intersects[0].uv.x; leftMenuUV.y = intersects[0].uv.y; rightLaserLine.scale.z = intersects[0].distance; } else { leftMenuHovered = false; rightLaserLine.scale.z = 5; }
-                    } else if (colorMenuMesh.visible) {
-                        const intersects = raycaster.intersectObject(colorMenuMesh);
-                        if (intersects.length > 0) { colorMenuHovered = true; colorMenuUV.x = intersects[0].uv.x; colorMenuUV.y = intersects[0].uv.y; rightLaserLine.scale.z = intersects[0].distance; } else { colorMenuHovered = false; rightLaserLine.scale.z = 5; }
-                    }
-                    rightLaserLine.visible = true;
-                } else { leftMenuHovered = false; colorMenuHovered = false; if(rightLaserLine) rightLaserLine.visible = false; }
-
-                if (activeSliderDrag && leftMenuHovered) {
-                    const cx = Math.floor(leftMenuUV.x * 512); 
-                    const pct = Math.max(0, Math.min(1, (cx - 50) / 412)); 
-                    let changed = false;
-
-                    if (activeSliderDrag === 'scale' || activeSliderDrag === 'stepScale') {
-                        const s = Math.round((0.1 + pct * 4.9) * 10) / 10;
-                        if (activeSliderDrag === 'scale' && selectionScale !== s) { selectionScale = s; changed = true; }
-                        if (activeSliderDrag === 'stepScale' && copyStepScale !== s) { copyStepScale = s; changed = true; }
+                // World Movement
+                if (rightGripDown && leftGripDown) {
+                    const currentMid = new THREE.Vector3().addVectors(controller0.position, controller1.position).multiplyScalar(0.5);
+                    const currentDist = controller0.position.distanceTo(controller1.position);
+                    if (!worldGroup.userData.isScaling) {
+                        worldGroup.userData.isScaling = true; worldGroup.userData.startDist = currentDist; worldGroup.userData.startScale = worldGroup.scale.x;
+                        worldGroup.userData.startMid = currentMid.clone(); worldGroup.userData.startPos = worldGroup.position.clone();
+                        
+                        const dirRight = new THREE.Vector3().subVectors(controller0.position, controller1.position).setY(0).normalize();
+                        worldGroup.userData.startAngle = Math.atan2(dirRight.z, dirRight.x);
+                        worldGroup.userData.startRotY = worldGroup.rotation.y;
                     } else {
-                        const snappedVal = Math.round((-180 + pct * 360) / 15) * 15;
-                        if (activeSliderDrag === 'rotX' && selectionRotX !== snappedVal) { selectionRotX = snappedVal; changed = true; }
-                        if (activeSliderDrag === 'rotY' && selectionRotY !== snappedVal) { selectionRotY = snappedVal; changed = true; }
-                        if (activeSliderDrag === 'rotZ' && selectionRotZ !== snappedVal) { selectionRotZ = snappedVal; changed = true; }
-                        if (activeSliderDrag === 'stepRotX' && copyStepRotX !== snappedVal) { copyStepRotX = snappedVal; changed = true; }
-                        if (activeSliderDrag === 'stepRotY' && copyStepRotY !== snappedVal) { copyStepRotY = snappedVal; changed = true; }
-                        if (activeSliderDrag === 'stepRotZ' && copyStepRotZ !== snappedVal) { copyStepRotZ = snappedVal; changed = true; }
-                    }
-
-                    if (changed) { if (!activeSliderDrag.startsWith('step')) updateRotatedSelection(); leftMenuNeedsUpdate = true; }
-                } else if (isColorPicking && colorMenuHovered) {
-                    const cx = Math.floor(colorMenuUV.x * 512); const cy = Math.floor((1 - colorMenuUV.y) * 512);
-                    let clampX, clampY;
-                    if (isPaletteMagnified) { clampX = Math.max(20, Math.min(492, cx)); clampY = Math.max(50, Math.min(450, cy)); } else { clampX = Math.max(20, Math.min(492, cx)); clampY = Math.max(155, Math.min(335, cy)); }
-                    pickColorFromCanvas(clampX, clampY);
-                }
-
-                if (gripRight) gripRight.getWorldPosition(rightPos); 
-                if (gripLeft) gripLeft.getWorldPosition(leftPos);
-
-                if (isRightGripping && isLeftGripping && gripRight && gripLeft) {
-                    const dist = rightPos.distanceTo(leftPos); midPos.copy(rightPos).lerp(leftPos, 0.5); currentHandVec.subVectors(rightPos, leftPos).normalize();
-                    if (prevGripDist > 0 && prevHandVec.lengthSq() > 0) {
-                        const scaleDelta = dist / prevGripDist; panDelta.copy(midPos).sub(prevMid);
-                        if (isVerticalLock) {
-                            const pXZ = new THREE.Vector3(prevHandVec.x, 0, prevHandVec.z); const cXZ = new THREE.Vector3(currentHandVec.x, 0, currentHandVec.z);
-                            if (pXZ.lengthSq() > 0.001 && cXZ.lengthSq() > 0.001) tempQuat.setFromUnitVectors(pXZ.normalize(), cXZ.normalize()); else tempQuat.identity();
-                        } else tempQuat.setFromUnitVectors(prevHandVec, currentHandVec);
-                        worldGroup.position.add(panDelta); worldGroup.position.sub(midPos); worldGroup.position.multiplyScalar(scaleDelta);
-                        worldGroup.scale.multiplyScalar(scaleDelta); worldGroup.position.applyQuaternion(tempQuat); worldGroup.quaternion.premultiply(tempQuat); worldGroup.position.add(midPos);
-                    }
-                    prevGripDist = dist; prevMid.copy(midPos); prevHandVec.copy(currentHandVec); prevRightPos.copy(rightPos); prevLeftPos.copy(leftPos);
-                } else if (isRightGripping && gripRight) { worldGroup.position.add(tempPos.copy(rightPos).sub(prevRightPos)); prevRightPos.copy(rightPos); prevGripDist = 0;
-                } else if (isLeftGripping && gripLeft) { worldGroup.position.add(tempPos.copy(leftPos).sub(prevLeftPos)); prevLeftPos.copy(leftPos); prevGripDist = 0; 
-                } else prevGripDist = 0;
-
-                if (xrLeft) {
-                    xrLeft.getWorldDirection(leftDir); xrLeft.getWorldPosition(leftPointerPos); leftTargetLocal.copy(leftPointerPos).addScaledVector(leftDir, -0.05); worldGroup.worldToLocal(leftTargetLocal);
-                    leftTargetLocal.set(Math.round(leftTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(leftTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(leftTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE);
-                    cursorLeft.position.copy(leftTargetLocal); cursorLeft.updateMatrix(); cursorLeft.visible = true;
-                } else cursorLeft.visible = false;
-
-                if (xrRight) {
-                    xrRight.getWorldDirection(rightDir); xrRight.getWorldPosition(rightPointerPos); rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir, -0.05); worldGroup.worldToLocal(rightTargetLocal);
-                    rightTargetLocal.set(Math.round(rightTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(rightTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(rightTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE);
-                    cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible = true;
-                } else cursorRight.visible = false;
-
-                if (xrRight && activeTool === 'paint' && paintMode === 'bucket' && !isDrawing) {
-                    const gx = Math.round(rightTargetLocal.x / VOXEL_SIZE); const gy = Math.round(rightTargetLocal.y / VOXEL_SIZE); const gz = Math.round(rightTargetLocal.z / VOXEL_SIZE);
-                    if (gx !== lastHoveredVoxel.x || gy !== lastHoveredVoxel.y || gz !== lastHoveredVoxel.z) {
-                        let alreadyInRegion = false;
-                        for (let i = 0; i < hoveredFillCoords.length; i+=3) { if (hoveredFillCoords[i] === gx && hoveredFillCoords[i+1] === gy && hoveredFillCoords[i+2] === gz) { alreadyInRegion = true; break; } }
-                        if (!alreadyInRegion) {
-                            lastHoveredVoxel.set(gx, gy, gz); calculateFloodFill(gx, gy, gz); const pointsFound = hoveredFillCoords.length / 3;
-                            if (pointsFound > 0) {
-                                bucketPreviewMesh.count = pointsFound;
-                                for (let i = 0; i < pointsFound; i++) { tempMatrix.makeTranslation(hoveredFillCoords[i*3] * VOXEL_SIZE, hoveredFillCoords[i*3+1] * VOXEL_SIZE, hoveredFillCoords[i*3+2] * VOXEL_SIZE); bucketPreviewMesh.setMatrixAt(i, tempMatrix); }
-                                bucketPreviewMesh.instanceMatrix.needsUpdate = true; bucketPreviewMesh.visible = true;
-                            } else bucketPreviewMesh.visible = false;
+                        const scaleDelta = currentDist / worldGroup.userData.startDist;
+                        const newScale = Math.max(0.01, Math.min(20, worldGroup.userData.startScale * scaleDelta));
+                        worldGroup.scale.set(newScale, newScale, newScale);
+                        
+                        if (!isVerticalLock) {
+                            const dirRight = new THREE.Vector3().subVectors(controller0.position, controller1.position).setY(0).normalize();
+                            const currentAngle = Math.atan2(dirRight.z, dirRight.x);
+                            const angleDelta = currentAngle - worldGroup.userData.startAngle;
+                            worldGroup.rotation.y = worldGroup.userData.startRotY + angleDelta;
                         }
-                        lastHoveredVoxel.set(gx, gy, gz);
+                        
+                        panDelta.subVectors(currentMid, worldGroup.userData.startMid);
+                        worldGroup.position.copy(worldGroup.userData.startPos).add(panDelta);
+                        worldGroup.updateMatrixWorld(true);
                     }
-                } else { bucketPreviewMesh.visible = false; if (activeTool !== 'paint' || paintMode !== 'bucket') { lastHoveredVoxel.set(Infinity, Infinity, Infinity); hoveredFillCoords.length = 0; } }
-
-                if (xrRight && isDrawing) {
-                    if (activeTool === 'select' && hasSelection && !isSettingPivot) {
-                        selectionOffset.copy(rightTargetLocal).sub(dragStartCtrlPos);
-                        selectionOffset.set(Math.round(selectionOffset.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(selectionOffset.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(selectionOffset.z / VOXEL_SIZE) * VOXEL_SIZE);
-                        selectionGroup.position.copy(dragStartOffset).add(selectionOffset); selectionGroup.updateMatrix();
-                    } 
-                    else if (activeTool === 'select' && selectMode === 'box' && isPreviewingBox) updateBoxPreview(drawStartPos, rightTargetLocal, true);
-                    else if (activeTool === 'brush') { if (!rightTargetLocal.equals(lastPaintedPos)) { placeBrushVoxels(rightTargetLocal, true); lastPaintedPos.copy(rightTargetLocal); } }
-                    else if (activeTool === 'stroke' && strokeMode === 'continuous') {
-                        if (lastPaintedPos.x === Infinity) { placeBrushVoxels(rightTargetLocal, true); lastPaintedPos.copy(rightTargetLocal); }
-                        else if (!rightTargetLocal.equals(lastPaintedPos)) { drawLineVoxels(lastPaintedPos, rightTargetLocal, true); lastPaintedPos.copy(rightTargetLocal); }
-                    }
-                    else if (activeTool === 'sheet' && xrLeft) {
-                        if (lastSheetLeftPos.x === Infinity) {
-                            lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal);
-                            drawSheetQuad(lastSheetLeftPos, lastSheetRightPos, lastSheetLeftPos, lastSheetRightPos, true, brushSize);
+                } else if (rightGripDown || leftGripDown) {
+                    const activeCtrl = rightGripDown ? controller0 : controller1;
+                    if (!worldGroup.userData.isPanning) {
+                        worldGroup.userData.isPanning = true; worldGroup.userData.startCtrlPos = activeCtrl.position.clone();
+                        worldGroup.userData.startPos = worldGroup.position.clone();
+                        if (!isVerticalLock) {
+                            const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(activeCtrl.quaternion).setY(0).normalize();
+                            worldGroup.userData.startCtrlAngle = Math.atan2(fwd.z, fwd.x); worldGroup.userData.startRotY = worldGroup.rotation.y;
+                        }
+                    } else {
+                        panDelta.subVectors(activeCtrl.position, worldGroup.userData.startCtrlPos);
+                        
+                        if (!isVerticalLock) {
+                            const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(activeCtrl.quaternion).setY(0).normalize();
+                            const currentAngle = Math.atan2(fwd.z, fwd.x); const angleDelta = currentAngle - worldGroup.userData.startCtrlAngle;
+                            worldGroup.rotation.y = worldGroup.userData.startRotY + angleDelta;
+                            
+                            const pivot = activeCtrl.position.clone();
+                            const offset = worldGroup.userData.startPos.clone().sub(worldGroup.userData.startCtrlPos);
+                            offset.applyAxisAngle(new THREE.Vector3(0,1,0), angleDelta);
+                            worldGroup.position.copy(pivot).add(offset);
                         } else {
-                            if (sheetMode === 'surface') {
-                                drawSheetQuad(lastSheetLeftPos, lastSheetRightPos, leftTargetLocal, rightTargetLocal, true, brushSize);
-                            } else {
-                                drawSheetQuad(leftTargetLocal, rightTargetLocal, leftTargetLocal, rightTargetLocal, true, brushSize);
-                            }
-                            lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal);
+                            worldGroup.position.copy(worldGroup.userData.startPos).add(panDelta);
                         }
+                        worldGroup.updateMatrixWorld(true);
                     }
-                    else if (activeTool === 'paint' && paintMode === 'brush') { 
-                        if (lastPaintedPos.x === Infinity) { placePaintVoxels(rightTargetLocal); lastPaintedPos.copy(rightTargetLocal); } 
-                        else if (!rightTargetLocal.equals(lastPaintedPos)) { drawPaintLineVoxels(lastPaintedPos, rightTargetLocal); lastPaintedPos.copy(rightTargetLocal); } 
-                    }
-                    else if (activeTool === 'box' && isPreviewingBox) updateBoxPreview(drawStartPos, rightTargetLocal, true);
-                    else if (activeTool === 'quadsphere' && isPreviewingSphere) updateSpherePreview(drawStartPos, rightTargetLocal, true);
-                    else if (activeTool === 'plane' && isPreviewingPlane) updatePlanePreview(drawStartPos, rightTargetLocal, true);
-                    else if (activeTool === 'triangle' && isPreviewingTriangle) updateBoxPreview(drawStartPos, rightTargetLocal, true);
-                }
-
-                if (xrLeft && isErasing && !isColorPicking) {
-                    if (activeTool === 'brush') { if (!leftTargetLocal.equals(lastErasedPos)) { placeBrushVoxels(leftTargetLocal, false); lastErasedPos.copy(leftTargetLocal); } }
-                    else if (activeTool === 'stroke' && strokeMode === 'continuous') {
-                        if (lastErasedPos.x === Infinity) { placeBrushVoxels(leftTargetLocal, false); lastErasedPos.copy(leftTargetLocal); }
-                        else if (!leftTargetLocal.equals(lastErasedPos)) { drawLineVoxels(lastErasedPos, leftTargetLocal, false); lastErasedPos.copy(leftTargetLocal); }
-                    }
-                    else if (activeTool === 'sheet' && xrRight) {
-                        if (lastSheetLeftPos.x === Infinity) {
-                            lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal);
-                            drawSheetQuad(lastSheetLeftPos, lastSheetRightPos, lastSheetLeftPos, lastSheetRightPos, false, brushSize);
-                        } else {
-                            if (sheetMode === 'surface') {
-                                drawSheetQuad(lastSheetLeftPos, lastSheetRightPos, leftTargetLocal, rightTargetLocal, false, brushSize);
-                            } else {
-                                drawSheetQuad(leftTargetLocal, rightTargetLocal, leftTargetLocal, rightTargetLocal, false, brushSize);
-                            }
-                            lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal);
-                        }
-                    }
-                    else if (activeTool === 'box' && isPreviewingBox) updateBoxPreview(drawStartPos, leftTargetLocal, false);
-                    else if (activeTool === 'quadsphere' && isPreviewingSphere) updateSpherePreview(drawStartPos, leftTargetLocal, false);
-                    else if (activeTool === 'plane' && isPreviewingPlane) updatePlanePreview(drawStartPos, leftTargetLocal, false);
-                    else if (activeTool === 'triangle' && isPreviewingTriangle) updateBoxPreview(drawStartPos, leftTargetLocal, false);
-                }
-
-                // Caching optimization for line preview computation to prevent frame drops
-                let previewLineStart = null; let previewLineEnd = null; let previewLinePainting = false;
-                if (activeTool === 'stroke' && strokeMode === 'line') {
-                    if (isPreviewingLineRight) { previewLineStart = lineStartRight; previewLineEnd = rightTargetLocal; previewLinePainting = true; }
-                    else if (isPreviewingLineLeft) { previewLineStart = lineStartLeft; previewLineEnd = leftTargetLocal; previewLinePainting = false; }
-                } else if (activeTool === 'sheet' && xrLeft && xrRight) {
-                    previewLineStart = leftTargetLocal; previewLineEnd = rightTargetLocal; 
-                    previewLinePainting = !isErasing; 
-                }
-
-                if (previewLineStart && previewLineEnd) {
-                    const startX = Math.round(previewLineStart.x / VOXEL_SIZE); const startY = Math.round(previewLineStart.y / VOXEL_SIZE); const startZ = Math.round(previewLineStart.z / VOXEL_SIZE);
-                    const endX = Math.round(previewLineEnd.x / VOXEL_SIZE); const endY = Math.round(previewLineEnd.y / VOXEL_SIZE); const endZ = Math.round(previewLineEnd.z / VOXEL_SIZE);
-                    const gridHash = `${startX}_${startY}_${startZ}_${endX}_${endY}_${endZ}`;
-                    
-                    if (gridHash !== lastLinePreviewGridHash) {
-                        updateLinePreviewMesh(previewLineStart, previewLineEnd, previewLinePainting);
-                        lastLinePreviewGridHash = gridHash;
-                    }
-                    linePreviewMesh.visible = true;
                 } else {
+                    worldGroup.userData.isScaling = false; worldGroup.userData.isPanning = false;
+                }
+
+                // Joystick Color Shifting
+                const ds0 = renderer.xr.getSession().inputSources;
+                if (ds0 && ds0.length > 0 && colorModes[activeMatSlot] === 'shift') {
+                    let shiftDelta = 0;
+                    for(let s of ds0) {
+                        if (s.gamepad && s.gamepad.axes.length >= 4) {
+                            if (s.handedness === 'right' && Math.abs(s.gamepad.axes[2]) > 0.2) shiftDelta += s.gamepad.axes[2] * 0.02;
+                            if (s.handedness === 'left' && Math.abs(s.gamepad.axes[2]) > 0.2) shiftDelta += s.gamepad.axes[2] * 0.02;
+                        }
+                    }
+                    if (shiftDelta !== 0) {
+                        shiftProgress = Math.max(0, Math.min(1, shiftProgress + shiftDelta));
+                        updateCursors();
+                    }
+                }
+
+                // --- Tools Execution ---
+                if (!uiHitRight && !uiHitLeft && !rightGripDown && !leftGripDown) {
+                    
+                    if (activeTool === 'select') {
+                        if (hasSelection) {
+                            if (isSettingPivot) {
+                                if (rightTriggerDown) {
+                                    pivotPoint.copy(rightPointerPos).divideScalar(VOXEL_SIZE).round();
+                                    pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
+                                    pivotIndicator.updateMatrix(); pivotIndicator.visible = true; leftMenuNeedsUpdate = true;
+                                }
+                            } else if (transformMode === 'move') {
+                                if (rightTriggerDown) {
+                                    if (!activeSliderDrag) {
+                                        const gPosX = Math.round(rightPointerPos.x / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosY = Math.round(rightPointerPos.y / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosZ = Math.round(rightPointerPos.z / VOXEL_SIZE) * VOXEL_SIZE;
+                                        
+                                        dragStartCtrlPos.set(gPosX, gPosY, gPosZ);
+                                        dragStartOffset.copy(selectionOffset);
+                                        activeSliderDrag = 'move';
+                                    } else if (activeSliderDrag === 'move') {
+                                        const gPosX = Math.round(rightPointerPos.x / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosY = Math.round(rightPointerPos.y / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosZ = Math.round(rightPointerPos.z / VOXEL_SIZE) * VOXEL_SIZE;
+                                        
+                                        const dx = gPosX - dragStartCtrlPos.x;
+                                        const dy = gPosY - dragStartCtrlPos.y;
+                                        const dz = gPosZ - dragStartCtrlPos.z;
+                                        
+                                        selectionOffset.copy(dragStartOffset).add(new THREE.Vector3(dx, dy, dz));
+                                        selectionGroup.position.copy(selectionOffset);
+                                        selectionGroup.updateMatrix();
+                                    }
+                                } else { activeSliderDrag = null; }
+
+                                const ls = renderer.xr.getSession().inputSources;
+                                if (ls) {
+                                    for (let s of ls) {
+                                        if (s.handedness === 'right' && s.gamepad && s.gamepad.axes.length >= 4) {
+                                            if (Math.abs(s.gamepad.axes[2]) > 0.5) { selectionRotY += (s.gamepad.axes[2] > 0 ? 1 : -1); updateRotatedSelection(); leftMenuNeedsUpdate = true; }
+                                            if (Math.abs(s.gamepad.axes[3]) > 0.5) { selectionRotX += (s.gamepad.axes[3] > 0 ? 1 : -1); updateRotatedSelection(); leftMenuNeedsUpdate = true; }
+                                        }
+                                        if (s.handedness === 'left' && s.gamepad && s.gamepad.axes.length >= 4) {
+                                            if (Math.abs(s.gamepad.axes[2]) > 0.5) { selectionRotZ += (s.gamepad.axes[2] > 0 ? 1 : -1); updateRotatedSelection(); leftMenuNeedsUpdate = true; }
+                                            if (Math.abs(s.gamepad.axes[3]) > 0.5) { selectionScale += (s.gamepad.axes[3] < 0 ? 0.05 : -0.05); selectionScale = Math.max(0.1, Math.min(5.0, selectionScale)); updateRotatedSelection(); leftMenuNeedsUpdate = true; }
+                                        }
+                                    }
+                                }
+                            } else if (transformMode === 'copy') {
+                                const ls = renderer.xr.getSession().inputSources;
+                                if (ls) {
+                                    for (let s of ls) {
+                                        if (s.handedness === 'right' && s.gamepad && s.gamepad.axes.length >= 4) {
+                                            if (Math.abs(s.gamepad.axes[2]) > 0.5) { copyStepRotY += (s.gamepad.axes[2] > 0 ? 1 : -1); leftMenuNeedsUpdate = true; }
+                                            if (Math.abs(s.gamepad.axes[3]) > 0.5) { copyStepRotX += (s.gamepad.axes[3] > 0 ? 1 : -1); leftMenuNeedsUpdate = true; }
+                                        }
+                                        if (s.handedness === 'left' && s.gamepad && s.gamepad.axes.length >= 4) {
+                                            if (Math.abs(s.gamepad.axes[2]) > 0.5) { copyStepRotZ += (s.gamepad.axes[2] > 0 ? 1 : -1); leftMenuNeedsUpdate = true; }
+                                            if (Math.abs(s.gamepad.axes[3]) > 0.5) { copyStepScale += (s.gamepad.axes[3] < 0 ? 0.02 : -0.02); copyStepScale = Math.max(0.1, Math.min(5.0, copyStepScale)); leftMenuNeedsUpdate = true; }
+                                        }
+                                    }
+                                }
+                                if (rightTriggerDown) {
+                                    if (!activeSliderDrag) {
+                                        const gPosX = Math.round(rightPointerPos.x / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosY = Math.round(rightPointerPos.y / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosZ = Math.round(rightPointerPos.z / VOXEL_SIZE) * VOXEL_SIZE;
+                                        dragStartCtrlPos.set(gPosX, gPosY, gPosZ);
+                                        dragStartOffset.copy(selectionOffset);
+                                        activeSliderDrag = 'move';
+                                    } else {
+                                        const gPosX = Math.round(rightPointerPos.x / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosY = Math.round(rightPointerPos.y / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const gPosZ = Math.round(rightPointerPos.z / VOXEL_SIZE) * VOXEL_SIZE;
+                                        const dx = gPosX - dragStartCtrlPos.x;
+                                        const dy = gPosY - dragStartCtrlPos.y;
+                                        const dz = gPosZ - dragStartCtrlPos.z;
+                                        selectionOffset.copy(dragStartOffset).add(new THREE.Vector3(dx, dy, dz));
+                                        selectionGroup.position.copy(selectionOffset);
+                                        selectionGroup.updateMatrix();
+                                    }
+                                } else { activeSliderDrag = null; }
+                            }
+                        } else {
+                            if (rightTriggerDown) {
+                                if (selectMode === 'box') {
+                                    if (!isDrawingBox) { isDrawingBox = true; drawStartPos.copy(rightPointerPos); getVoxelMatAndColor(Math.round(drawStartPos.x / VOXEL_SIZE), Math.round(drawStartPos.y / VOXEL_SIZE), Math.round(drawStartPos.z / VOXEL_SIZE), targetQueryColor); }
+                                    updateBoxPreview(drawStartPos, rightPointerPos, true);
+                                } else if (selectMode === 'connected') {
+                                    if (!isDrawingBox) { isDrawingBox = true; executeSelectConnected(rightPointerPos); }
+                                }
+                            } else { if (isDrawingBox) { isDrawingBox = false; boxPreviewMesh.visible = false; if (selectMode === 'box') executeSelectBox(drawStartPos, rightPointerPos); } }
+                        }
+                    } else if (activeTool === 'brush') {
+                        if (rightTriggerDown) { if (lastPaintedPos.distanceTo(rightPointerPos) > VOXEL_SIZE * 0.5) { placeBrushVoxels(rightPointerPos, true); lastPaintedPos.copy(rightPointerPos); } } 
+                        else { lastPaintedPos.set(Infinity, Infinity, Infinity); }
+                        
+                        if (leftTriggerDown) { if (lastErasedPos.distanceTo(leftPointerPos) > VOXEL_SIZE * 0.5) { placeBrushVoxels(leftPointerPos, false); lastErasedPos.copy(leftPointerPos); } } 
+                        else { lastErasedPos.set(Infinity, Infinity, Infinity); }
+                    } else if (activeTool === 'stroke') {
+                        if (strokeMode === 'continuous') {
+                            if (rightTriggerDown) { if (lastPaintedPos.distanceTo(rightPointerPos) > VOXEL_SIZE * 0.5) { if (lastPaintedPos.x === Infinity) { placeBrushVoxels(rightPointerPos, true); } else { drawLineVoxels(lastPaintedPos, rightPointerPos, true); } lastPaintedPos.copy(rightPointerPos); } } 
+                            else { lastPaintedPos.set(Infinity, Infinity, Infinity); }
+                            
+                            if (leftTriggerDown) { if (lastErasedPos.distanceTo(leftPointerPos) > VOXEL_SIZE * 0.5) { if (lastErasedPos.x === Infinity) { placeBrushVoxels(leftPointerPos, false); } else { drawLineVoxels(lastErasedPos, leftPointerPos, false); } lastErasedPos.copy(leftPointerPos); } } 
+                            else { lastErasedPos.set(Infinity, Infinity, Infinity); }
+                        } else if (strokeMode === 'line') {
+                            if (rightTriggerDown) {
+                                if (!isDrawingLine) { isDrawingLine = true; isPreviewingLineRight = true; drawStartPos.copy(rightPointerPos); }
+                                const gStartX = Math.round(drawStartPos.x / VOXEL_SIZE); const gStartY = Math.round(drawStartPos.y / VOXEL_SIZE); const gStartZ = Math.round(drawStartPos.z / VOXEL_SIZE);
+                                const gEndX = Math.round(rightPointerPos.x / VOXEL_SIZE); const gEndY = Math.round(rightPointerPos.y / VOXEL_SIZE); const gEndZ = Math.round(rightPointerPos.z / VOXEL_SIZE);
+                                const hash = `${gStartX}_${gStartY}_${gStartZ}_${gEndX}_${gEndY}_${gEndZ}`;
+                                if (hash !== lastLinePreviewGridHash) { linePreviewMesh.visible = true; updateLinePreviewMesh(drawStartPos, rightPointerPos, true); lastLinePreviewGridHash = hash; }
+                            } else { if (isPreviewingLineRight) { isPreviewingLineRight = false; isDrawingLine = false; linePreviewMesh.visible = false; } }
+                            
+                            if (leftTriggerDown) {
+                                if (!isDrawingLine) { isDrawingLine = true; isPreviewingLineLeft = true; drawStartPos.copy(leftPointerPos); }
+                                const gStartX = Math.round(drawStartPos.x / VOXEL_SIZE); const gStartY = Math.round(drawStartPos.y / VOXEL_SIZE); const gStartZ = Math.round(drawStartPos.z / VOXEL_SIZE);
+                                const gEndX = Math.round(leftPointerPos.x / VOXEL_SIZE); const gEndY = Math.round(leftPointerPos.y / VOXEL_SIZE); const gEndZ = Math.round(leftPointerPos.z / VOXEL_SIZE);
+                                const hash = `${gStartX}_${gStartY}_${gStartZ}_${gEndX}_${gEndY}_${gEndZ}`;
+                                if (hash !== lastLinePreviewGridHash) { linePreviewMesh.visible = true; updateLinePreviewMesh(drawStartPos, leftPointerPos, false); lastLinePreviewGridHash = hash; }
+                            } else { if (isPreviewingLineLeft) { isPreviewingLineLeft = false; isDrawingLine = false; linePreviewMesh.visible = false; } }
+                        }
+                    } else if (activeTool === 'sheet') {
+                        if (rightTriggerDown && leftTriggerDown) {
+                            if (lastSheetLeftPos.distanceTo(leftPointerPos) > VOXEL_SIZE * 0.5 || lastSheetRightPos.distanceTo(rightPointerPos) > VOXEL_SIZE * 0.5) {
+                                if (lastSheetLeftPos.x !== Infinity) {
+                                    if (sheetMode === 'surface') drawSheetQuad(lastSheetLeftPos, lastSheetRightPos, leftPointerPos, rightPointerPos, true, brushSize);
+                                    else { drawLineVoxels(lastSheetLeftPos, leftPointerPos, true); drawLineVoxels(lastSheetRightPos, rightPointerPos, true); drawLineVoxels(leftPointerPos, rightPointerPos, true); }
+                                } else { drawLineVoxels(leftPointerPos, rightPointerPos, true); }
+                                lastSheetLeftPos.copy(leftPointerPos); lastSheetRightPos.copy(rightPointerPos);
+                            }
+                        } else { lastSheetLeftPos.set(Infinity, Infinity, Infinity); lastSheetRightPos.set(Infinity, Infinity, Infinity); }
+                    } else if (activeTool === 'paint') {
+                        if (paintMode === 'brush') {
+                            if (rightTriggerDown) { if (lastPaintedPos.distanceTo(rightPointerPos) > VOXEL_SIZE * 0.5) { if (lastPaintedPos.x === Infinity) { placePaintVoxels(rightPointerPos); } else { drawPaintLineVoxels(lastPaintedPos, rightPointerPos); } lastPaintedPos.copy(rightPointerPos); } } 
+                            else { lastPaintedPos.set(Infinity, Infinity, Infinity); }
+                        } else if (paintMode === 'bucket') {
+                            if (rightTriggerDown) {
+                                const gx = Math.round(rightPointerPos.x / VOXEL_SIZE); const gy = Math.round(rightPointerPos.y / VOXEL_SIZE); const gz = Math.round(rightPointerPos.z / VOXEL_SIZE);
+                                if (lastHoveredVoxel.x !== gx || lastHoveredVoxel.y !== gy || lastHoveredVoxel.z !== gz) {
+                                    lastHoveredVoxel.set(gx, gy, gz); calculateFloodFill(gx, gy, gz); bucketPreviewMesh.visible = hoveredFillCoords.length > 0;
+                                    let instCount = 0; const cMain = slotColors[activeMatSlot][activeColorSubSlot];
+                                    for(let i=0; i < hoveredFillCoords.length; i+=3) {
+                                        if (instCount < 30000) {
+                                            tempMatrix.makeTranslation(hoveredFillCoords[i] * VOXEL_SIZE, hoveredFillCoords[i+1] * VOXEL_SIZE, hoveredFillCoords[i+2] * VOXEL_SIZE);
+                                            bucketPreviewMesh.setMatrixAt(instCount, tempMatrix);
+                                            bucketPreviewMesh.setColorAt(instCount, cMain); instCount++;
+                                        }
+                                    }
+                                    bucketPreviewMesh.count = instCount; bucketPreviewMesh.instanceMatrix.needsUpdate = true; bucketPreviewMesh.instanceColor.needsUpdate = true;
+                                }
+                            } else {
+                                if (hoveredFillCoords.length > 0) {
+                                    const cMain = slotColors[activeMatSlot][activeColorSubSlot];
+                                    for(let i=0; i < hoveredFillCoords.length; i+=3) recolorVoxelSet(hoveredFillCoords[i], hoveredFillCoords[i+1], hoveredFillCoords[i+2], cMain);
+                                    hoveredFillCoords.length = 0; bucketPreviewMesh.visible = false; leftMenuNeedsUpdate = true;
+                                }
+                                lastHoveredVoxel.set(Infinity, Infinity, Infinity);
+                            }
+                        }
+                    } else if (activeTool === 'box') {
+                        if (rightTriggerDown) { if (!isDrawingBox) { isDrawingBox = true; drawStartPos.copy(rightPointerPos); } updateBoxPreview(drawStartPos, rightPointerPos, true); } 
+                        else if (isDrawingBox && !leftTriggerDown) { isDrawingBox = false; boxPreviewMesh.visible = false; executeBoxTool(drawStartPos, rightPointerPos, true); }
+                        
+                        if (leftTriggerDown && !rightTriggerDown) { if (!isDrawingBox) { isDrawingBox = true; drawStartPos.copy(leftPointerPos); } updateBoxPreview(drawStartPos, leftPointerPos, false); } 
+                        else if (isDrawingBox && !rightTriggerDown && !leftTriggerDown) { isDrawingBox = false; boxPreviewMesh.visible = false; executeBoxTool(drawStartPos, leftPointerPos, false); }
+                    } else if (activeTool === 'quadsphere') {
+                        if (rightTriggerDown) { if (!isDrawingSphere) { isDrawingSphere = true; drawStartPos.copy(rightPointerPos); } updateSpherePreview(drawStartPos, rightPointerPos, true); } 
+                        else if (isDrawingSphere && !leftTriggerDown) { isDrawingSphere = false; spherePreviewMesh.visible = false; icoPreviewMesh.visible = false; executeQuadSphereTool(drawStartPos, rightPointerPos, true); }
+                        
+                        if (leftTriggerDown && !rightTriggerDown) { if (!isDrawingSphere) { isDrawingSphere = true; drawStartPos.copy(leftPointerPos); } updateSpherePreview(drawStartPos, leftPointerPos, false); } 
+                        else if (isDrawingSphere && !rightTriggerDown && !leftTriggerDown) { isDrawingSphere = false; spherePreviewMesh.visible = false; icoPreviewMesh.visible = false; executeQuadSphereTool(drawStartPos, leftPointerPos, false); }
+                    } else if (activeTool === 'plane') {
+                        if (rightTriggerDown) { if (!isDrawingPlane) { isDrawingPlane = true; drawStartPos.copy(rightPointerPos); } updatePlanePreview(drawStartPos, rightPointerPos, true); } 
+                        else if (isDrawingPlane && !leftTriggerDown) { isDrawingPlane = false; boxPreviewMesh.visible = false; executePlaneTool(drawStartPos, rightPointerPos, true); }
+                        
+                        if (leftTriggerDown && !rightTriggerDown) { if (!isDrawingPlane) { isDrawingPlane = true; drawStartPos.copy(leftPointerPos); } updatePlanePreview(drawStartPos, leftPointerPos, false); } 
+                        else if (isDrawingPlane && !rightTriggerDown && !leftTriggerDown) { isDrawingPlane = false; boxPreviewMesh.visible = false; executePlaneTool(drawStartPos, leftPointerPos, false); }
+                    } else if (activeTool === 'triangle') {
+                        if (rightTriggerDown) { if (!isDrawingTriangle) { isDrawingTriangle = true; drawStartPos.copy(rightPointerPos); } updateBoxPreview(drawStartPos, rightPointerPos, true); } 
+                        else if (isDrawingTriangle && !leftTriggerDown) { isDrawingTriangle = false; boxPreviewMesh.visible = false; executeTriangleTool(drawStartPos, rightPointerPos, true); }
+                        
+                        if (leftTriggerDown && !rightTriggerDown) { if (!isDrawingTriangle) { isDrawingTriangle = true; drawStartPos.copy(leftPointerPos); } updateBoxPreview(drawStartPos, leftPointerPos, false); } 
+                        else if (isDrawingTriangle && !rightTriggerDown && !leftTriggerDown) { isDrawingTriangle = false; boxPreviewMesh.visible = false; executeTriangleTool(drawStartPos, leftPointerPos, false); }
+                    }
+                }
+
+                if (activeTool !== 'stroke' || strokeMode !== 'line') {
                     linePreviewMesh.visible = false;
                     lastLinePreviewGridHash = "";
                 }
@@ -2399,6 +2529,7 @@
                 syncMirrorProxies(cursorRight, cursorRightMirrors, showToolMirrors && !isColorPicking);
                 syncMirrorProxies(boxPreviewMesh, boxPreviewMirrors, showToolMirrors);
                 syncMirrorProxies(spherePreviewMesh, spherePreviewMirrors, showToolMirrors);
+                syncMirrorProxies(icoPreviewMesh, icoPreviewMirrors, showToolMirrors);
                 syncMirrorProxies(bucketPreviewMesh, bucketPreviewMirrors, showToolMirrors);
                 syncMirrorProxies(linePreviewMesh, linePreviewMirrors, showToolMirrors);
 
@@ -2412,7 +2543,7 @@
         const loadOverlay = document.getElementById('loading-overlay');
         if (loadOverlay) { loadOverlay.style.opacity = '0'; setTimeout(() => { loadOverlay.style.display = 'none'; }, 500); }
 
-        }); 
-    </script>
+    }); 
+</script>
 </body>
 </html>
