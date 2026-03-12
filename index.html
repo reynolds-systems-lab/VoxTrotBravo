@@ -188,6 +188,7 @@
         let polarCos = new Float32Array([1]);
         let polarSin = new Float32Array([0]);
         let activeSymmetries = []; 
+        let symmetryVersion = 0;
         
         function updatePolarArrays() {
             polarCos = new Float32Array(polarSymmetry);
@@ -218,6 +219,7 @@
                     });
                 }
             }
+            symmetryVersion++;
         }
         
         updatePolarArrays();
@@ -636,6 +638,16 @@
         const spherePreviewMirrors = createMirrorProxies(spherePreviewMesh);
         const bucketPreviewMirrors = createMirrorProxies(bucketPreviewMesh);
         const linePreviewMirrors = createMirrorProxies(linePreviewMesh);
+
+        const syncCache = new Map();
+        function needsSync(baseMesh, showMirrors) {
+            let cache = syncCache.get(baseMesh);
+            if (!cache) { cache = { p: new THREE.Vector3(), s: new THREE.Vector3(), q: new THREE.Quaternion(), c: -1, v: null, sym: -1, sm: null }; syncCache.set(baseMesh, cache); }
+            if (cache.p.equals(baseMesh.position) && cache.s.equals(baseMesh.scale) && cache.q.equals(baseMesh.quaternion) && cache.c === (baseMesh.count || 0) && cache.v === baseMesh.visible && cache.sym === symmetryVersion && cache.sm === showMirrors) return false;
+            
+            cache.p.copy(baseMesh.position); cache.s.copy(baseMesh.scale); cache.q.copy(baseMesh.quaternion); cache.c = baseMesh.count || 0; cache.v = baseMesh.visible; cache.sym = symmetryVersion; cache.sm = showMirrors;
+            return true;
+        }
 
         function syncMirrorProxies(baseMesh, proxies, showMirrors) {
             if (!baseMesh.visible || !showMirrors || (polarSymmetry === 1 && !mirrorX && !mirrorZ)) {
@@ -2626,6 +2638,16 @@
                     }
                 }
 
+                // Update controller transforms efficiently once per frame
+                if (xrLeft) {
+                    leftPointerPos.setFromMatrixPosition(xrLeft.matrixWorld);
+                    leftDir.set(0, 0, -1).transformDirection(xrLeft.matrixWorld);
+                }
+                if (xrRight) {
+                    rightPointerPos.setFromMatrixPosition(xrRight.matrixWorld);
+                    rightDir.set(0, 0, -1).transformDirection(xrRight.matrixWorld);
+                }
+
                 pollGamepads();
 
                 if (Date.now() - lastMenuUpdateTime > 100) { 
@@ -2637,7 +2659,7 @@
                 }
 
                 if ((rightMenuMesh.visible || globalMenuMesh.visible) && xrLeft) {
-                    tempMatrix.identity().extractRotation(xrLeft.matrixWorld); raycaster.ray.origin.setFromMatrixPosition(xrLeft.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+                    raycaster.set(leftPointerPos, leftDir);
                     if (rightMenuMesh.visible) {
                         const intersects = raycaster.intersectObject(rightMenuMesh);
                         if (intersects.length > 0) { rightMenuHovered = true; rightMenuUV.x = intersects[0].uv.x; rightMenuUV.y = intersects[0].uv.y; leftLaserLine.scale.z = intersects[0].distance; } else { rightMenuHovered = false; leftLaserLine.scale.z = 5; }
@@ -2649,7 +2671,7 @@
                 } else { rightMenuHovered = false; globalMenuHovered = false; if(leftLaserLine) leftLaserLine.visible = false; }
 
                 if ((leftMenuMesh.visible || colorMenuMesh.visible) && xrRight) {
-                    tempMatrix.identity().extractRotation(xrRight.matrixWorld); raycaster.ray.origin.setFromMatrixPosition(xrRight.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+                    raycaster.set(rightPointerPos, rightDir);
                     if (leftMenuMesh.visible) {
                         const intersects = raycaster.intersectObject(leftMenuMesh);
                         if (intersects.length > 0) { leftMenuHovered = true; leftMenuUV.x = intersects[0].uv.x; leftMenuUV.y = intersects[0].uv.y; rightLaserLine.scale.z = intersects[0].distance; } else { leftMenuHovered = false; rightLaserLine.scale.z = 5; }
@@ -2707,13 +2729,13 @@
                 } else prevGripDist = 0;
 
                 if (xrLeft) {
-                    xrLeft.getWorldDirection(leftDir); xrLeft.getWorldPosition(leftPointerPos); leftTargetLocal.copy(leftPointerPos).addScaledVector(leftDir, -0.05); worldGroup.worldToLocal(leftTargetLocal);
+                    leftTargetLocal.copy(leftPointerPos).addScaledVector(leftDir, 0.05); worldGroup.worldToLocal(leftTargetLocal);
                     leftTargetLocal.set(Math.round(leftTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(leftTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(leftTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE);
                     cursorLeft.position.copy(leftTargetLocal); cursorLeft.updateMatrix(); cursorLeft.visible = true;
                 } else cursorLeft.visible = false;
 
                 if (xrRight) {
-                    xrRight.getWorldDirection(rightDir); xrRight.getWorldPosition(rightPointerPos); rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir, -0.05); worldGroup.worldToLocal(rightTargetLocal);
+                    rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir, 0.05); worldGroup.worldToLocal(rightTargetLocal);
                     rightTargetLocal.set(Math.round(rightTargetLocal.x / VOXEL_SIZE) * VOXEL_SIZE, Math.round(rightTargetLocal.y / VOXEL_SIZE) * VOXEL_SIZE, Math.round(rightTargetLocal.z / VOXEL_SIZE) * VOXEL_SIZE);
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible = true;
                 } else cursorRight.visible = false;
@@ -2827,12 +2849,13 @@
                 else if (previewGroups.length > 0 && previewGroups[0].visible) for (let i = 0; i < previewGroups.length; i++) previewGroups[i].visible = false;
 
                 const showToolMirrors = activeTool !== 'select';
-                syncMirrorProxies(cursorLeft, cursorLeftMirrors, showToolMirrors);
-                syncMirrorProxies(cursorRight, cursorRightMirrors, showToolMirrors && !isColorPicking);
-                syncMirrorProxies(boxPreviewMesh, boxPreviewMirrors, showToolMirrors);
-                syncMirrorProxies(spherePreviewMesh, spherePreviewMirrors, showToolMirrors);
-                syncMirrorProxies(bucketPreviewMesh, bucketPreviewMirrors, showToolMirrors);
-                syncMirrorProxies(linePreviewMesh, linePreviewMirrors, showToolMirrors);
+                const showRightMirrors = showToolMirrors && !isColorPicking;
+                if (needsSync(cursorLeft, showToolMirrors)) syncMirrorProxies(cursorLeft, cursorLeftMirrors, showToolMirrors);
+                if (needsSync(cursorRight, showRightMirrors)) syncMirrorProxies(cursorRight, cursorRightMirrors, showRightMirrors);
+                if (needsSync(boxPreviewMesh, showToolMirrors)) syncMirrorProxies(boxPreviewMesh, boxPreviewMirrors, showToolMirrors);
+                if (needsSync(spherePreviewMesh, showToolMirrors)) syncMirrorProxies(spherePreviewMesh, spherePreviewMirrors, showToolMirrors);
+                if (needsSync(bucketPreviewMesh, showToolMirrors)) syncMirrorProxies(bucketPreviewMesh, bucketPreviewMirrors, showToolMirrors);
+                if (needsSync(linePreviewMesh, showToolMirrors)) syncMirrorProxies(linePreviewMesh, linePreviewMirrors, showToolMirrors);
 
                 chunks.forEach(chunk => chunk.updateBuffers());
             }
