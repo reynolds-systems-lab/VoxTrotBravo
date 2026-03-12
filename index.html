@@ -320,10 +320,18 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
+        // OPTIMIZATION: Maximize Fixed Foveated Rendering (FFR). 
+        // Drops peripheral pixel count drastically. Pure GPU fill-rate savings.
+        renderer.xr.setFoveation(1.0);
+
         document.body.appendChild(VRButton.createButton(renderer));
 
-        // OPTIMIZATION: Scene lights removed entirely to save GPU cycles. 
-        // Shading is now baked directly into the geometry vertex colors below.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight.position.set(5, 10, 7);
+        scene.add(directionalLight);
 
         const worldGroup = new THREE.Group();
         scene.add(worldGroup);
@@ -336,26 +344,10 @@
         // --- Chunk System ---
         const voxelGeometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
         
-        // PERFORMANCE UPGRADE: Fake Lighting via Vertex Colors
-        // Gives blocks a 3D look without requiring expensive MeshLambertMaterials or scene lights
-        const posAttr = voxelGeometry.getAttribute('position');
-        const normAttr = voxelGeometry.getAttribute('normal');
-        const vColors = new Float32Array(posAttr.count * 3);
-        for (let i = 0; i < posAttr.count; i++) {
-            const ny = normAttr.getY(i); const nz = normAttr.getZ(i); const nx = normAttr.getX(i);
-            let shade = 1.0; // Top
-            if (ny < -0.5) shade = 0.4;      // Bottom
-            else if (nz > 0.5) shade = 0.8;  // Front
-            else if (nz < -0.5) shade = 0.6; // Back
-            else if (nx > 0.5) shade = 0.7;  // Right
-            else if (nx < -0.5) shade = 0.5; // Left
-            vColors[i*3] = shade; vColors[i*3+1] = shade; vColors[i*3+2] = shade;
-        }
-        voxelGeometry.setAttribute('color', new THREE.BufferAttribute(vColors, 3));
-
-        // Swapped Solid to MeshBasicMaterial. Zero lighting calculations per frame!
-        const matSolid = new THREE.MeshBasicMaterial({ vertexColors: true }); 
-        const matGlass = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.35, depthWrite: false }); 
+        // RESTORED: Standard lighting is faster than vertex colors.
+        // The Quest 3 ALU handles Lambert math easily; we avoid vertex memory bottlenecks.
+        const matSolid = new THREE.MeshLambertMaterial(); 
+        const matGlass = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false }); 
         const matEmission = new THREE.MeshBasicMaterial(); 
         const voxelMaterials = [matSolid, matGlass, matEmission];
         const chunks = new Map(); 
@@ -1451,7 +1443,8 @@
             if (vertAcc.length > 0) { vertBlobParts.push(vertAcc.join("")); vertAcc = []; }
             if (faceAcc.length > 0) { faceBlobParts.push(faceAcc.join("")); faceAcc = []; }
 
-            const blob = new Blob([...vertBlobParts, ...faceBlobParts], { type: 'text/plain' }); 
+            // FIX: Swap 'text/plain' to 'application/octet-stream' to prevent Windows/Chrome from appending .txt
+            const blob = new Blob([...vertBlobParts, ...faceBlobParts], { type: 'application/octet-stream' }); 
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.style.display = 'none'; 
             a.href = url; a.download = isMesh ? 'voxtrotbravo_optimized_mesh.obj' : 'voxtrotbravo_optimized_boxes.obj'; 
             document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
