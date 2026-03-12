@@ -353,7 +353,6 @@
         const matEmission = new THREE.MeshBasicMaterial(); 
         const voxelMaterials = [matSolid, matGlass, matEmission];
         const chunks = new Map(); 
-        const dirtyLayers = new Set(); // OPTIMIZATION: Track modified layers for targeted buffer updates
 
         class ChunkLayer {
             constructor(cx, cy, cz, material) {
@@ -403,7 +402,7 @@
                     this.mesh.getColorAt(instIdx, tempColor);
                     if (Math.abs(tempColor.r - color.r) > 0.01 || Math.abs(tempColor.g - color.g) > 0.01 || Math.abs(tempColor.b - color.b) > 0.01) {
                         this.mesh.setColorAt(instIdx, color);
-                        this.needsUpdate = true; dirtyLayers.add(this);
+                        this.needsUpdate = true;
                     }
                 } else {
                     if (this.count >= this.capacity) this.resizeCapacity(Math.min(CHUNK_VOL, this.capacity * 2));
@@ -414,7 +413,7 @@
                     this.mesh.setMatrixAt(instIdx, tempMatrix);
                     this.mesh.setColorAt(instIdx, color);
                     this.count++; this.mesh.count = this.count; totalActiveVoxels++;
-                    this.needsUpdate = true; dirtyLayers.add(this);
+                    this.needsUpdate = true;
                 }
             }
 
@@ -435,7 +434,7 @@
 
                     this.voxelToIndex[localIdx] = 65535;
                     this.count--; this.mesh.count = this.count; totalActiveVoxels--;
-                    this.needsUpdate = true; dirtyLayers.add(this);
+                    this.needsUpdate = true;
                 }
             }
 
@@ -1386,8 +1385,8 @@
             const btn = document.getElementById('btn-export-obj');
             if (btn) { btn.innerText = "EXPORTING... (PLEASE WAIT)"; btn.style.pointerEvents = "none"; btn.style.background = "#888"; }
             
-            // Yield thread for 50ms so UI can update the button state before freezing
-            await new Promise(resolve => setTimeout(resolve, 50)); 
+            // Yield thread heavily to ensure UI updates the button state before deep freezing
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); 
 
             const isMesh = exportMode === 'mesh';
             const vertBlobParts = ["# VoxTrotBravo Optimized Vertices\n"];
@@ -1419,18 +1418,10 @@
             for (let matIdx = 0; matIdx < 3; matIdx++) {
                 faceAcc.push(`\ng ${matNames[matIdx]}\nusemtl ${matNames[matIdx]}\n`);
                 
-                let exportYieldTime = performance.now();
                 for (const chunk of chunks.values()) {
                     const layer = chunk.layers[matIdx];
                     if (!layer || layer.count === 0) continue;
                     for (let i = 0; i < layer.count; i++) {
-                        // OPTIMIZATION: Deep inner-loop time slicing prevents long chunk freezes
-                        // Switched to setTimeout(0) to run uncoupled from the headset refresh rate, unlocking maximum CPU processing speed
-                        if (i % 500 === 0 && performance.now() - exportYieldTime > 15) {
-                            await new Promise(r => setTimeout(r, 0));
-                            exportYieldTime = performance.now();
-                        }
-
                         const localIdx = layer.indexToLocal[i]; if (localIdx === 65535) continue;
                         const lx = localIdx % CHUNK_SIZE; const ly = Math.floor(localIdx / CHUNK_SIZE) % CHUNK_SIZE; const lz = Math.floor(localIdx / (CHUNK_SIZE * CHUNK_SIZE));
                         const gx = (chunk.cx * CHUNK_SIZE) + lx; const gy = (chunk.cy * CHUNK_SIZE) + ly; const gz = (chunk.cz * CHUNK_SIZE) + lz;
@@ -2736,9 +2727,7 @@
                 syncMirrorProxies(bucketPreviewMesh, bucketPreviewMirrors, showToolMirrors);
                 syncMirrorProxies(linePreviewMesh, linePreviewMirrors, showToolMirrors);
 
-                // OPTIMIZATION: Targeted buffer updates eliminate global Map iteration overhead
-                dirtyLayers.forEach(layer => layer.updateBuffers());
-                dirtyLayers.clear();
+                chunks.forEach(chunk => chunk.updateBuffers());
             }
             renderer.render(scene, camera);
         });
