@@ -1260,22 +1260,16 @@
                 drawButton(colorMenuCtx, 260, 340, 105, 40, 'GRAD-V', cMode === 'grad_v'); 
                 drawButton(colorMenuCtx, 375, 340, 107, 40, 'SHIFT', cMode === 'shift');
                 
-                const cA = slotColors[activeMatSlot][0]; const cB = slotColors[activeMatSlot][1]; const showColor2 = (mType !== 2);
+                const cA = slotColors[activeMatSlot][0]; const cB = slotColors[activeMatSlot][1];
                 
-                if (!showColor2) {
-                    colorMenuCtx.fillStyle = '#' + cA.getHexString(); colorMenuCtx.fillRect(30, 390, 452, 55); 
-                    colorMenuCtx.strokeStyle = '#fff'; colorMenuCtx.lineWidth = 4; colorMenuCtx.strokeRect(30, 390, 452, 55);
-                    cA.getHSL(tempHSL); colorMenuCtx.fillStyle = tempHSL.l > 0.6 ? 'black' : 'white'; colorMenuCtx.font = '24px sans-serif'; colorMenuCtx.fillText('Color A', 256, 423);
-                } else {
-                    colorMenuCtx.fillStyle = '#' + cA.getHexString(); colorMenuCtx.fillRect(30, 390, 216, 55); 
-                    colorMenuCtx.strokeStyle = activeColorSubSlot === 0 ? '#fff' : '#444'; colorMenuCtx.lineWidth = activeColorSubSlot === 0 ? 4 : 2; colorMenuCtx.strokeRect(30, 390, 216, 55);
-                    
-                    colorMenuCtx.fillStyle = '#' + cB.getHexString(); colorMenuCtx.fillRect(266, 390, 216, 55); 
-                    colorMenuCtx.strokeStyle = activeColorSubSlot === 1 ? '#fff' : '#444'; colorMenuCtx.lineWidth = activeColorSubSlot === 1 ? 4 : 2; colorMenuCtx.strokeRect(266, 390, 216, 55);
-                    
-                    cA.getHSL(tempHSL); colorMenuCtx.fillStyle = tempHSL.l > 0.6 ? 'black' : 'white'; colorMenuCtx.font = '24px sans-serif'; colorMenuCtx.fillText('Color A', 138, 423);
-                    cB.getHSL(tempHSL); colorMenuCtx.fillStyle = tempHSL.l > 0.6 ? 'black' : 'white'; colorMenuCtx.fillText('Color B', 374, 423);
-                }
+                colorMenuCtx.fillStyle = '#' + cA.getHexString(); colorMenuCtx.fillRect(30, 390, 216, 55); 
+                colorMenuCtx.strokeStyle = activeColorSubSlot === 0 ? '#fff' : '#444'; colorMenuCtx.lineWidth = activeColorSubSlot === 0 ? 4 : 2; colorMenuCtx.strokeRect(30, 390, 216, 55);
+                
+                colorMenuCtx.fillStyle = '#' + cB.getHexString(); colorMenuCtx.fillRect(266, 390, 216, 55); 
+                colorMenuCtx.strokeStyle = activeColorSubSlot === 1 ? '#fff' : '#444'; colorMenuCtx.lineWidth = activeColorSubSlot === 1 ? 4 : 2; colorMenuCtx.strokeRect(266, 390, 216, 55);
+                
+                cA.getHSL(tempHSL); colorMenuCtx.fillStyle = tempHSL.l > 0.6 ? 'black' : 'white'; colorMenuCtx.font = '24px sans-serif'; colorMenuCtx.fillText('Color A', 138, 423);
+                cB.getHSL(tempHSL); colorMenuCtx.fillStyle = tempHSL.l > 0.6 ? 'black' : 'white'; colorMenuCtx.fillText('Color B', 374, 423);
             }
             colorMenuTexture.needsUpdate = true;
         }
@@ -1317,17 +1311,15 @@
             } else if (cy >= 100 && cy <= 145) {
                 if (cx >= 30 && cx <= 170) matTypes[activeMatSlot] = 0;
                 if (cx >= 186 && cx <= 326) matTypes[activeMatSlot] = 1;
-                if (cx >= 342 && cx <= 482) { matTypes[activeMatSlot] = 2; activeColorSubSlot = 0; colorModes[activeMatSlot] = 'solid'; slotColors[activeMatSlot][0].setHex(0x808080); }
+                if (cx >= 342 && cx <= 482) matTypes[activeMatSlot] = 2;
             } else if (cy >= 340 && cy <= 380) {
                 if (cx >= 30 && cx <= 135) { colorModes[activeMatSlot] = 'solid'; activeColorSubSlot = 0; }
                 if (cx >= 145 && cx <= 250) colorModes[activeMatSlot] = 'grad_h'; 
                 if (cx >= 260 && cx <= 365) colorModes[activeMatSlot] = 'grad_v'; 
                 if (cx >= 375 && cx <= 482) colorModes[activeMatSlot] = 'shift';
             } else if (cy >= 390 && cy <= 445) {
-                if (matTypes[activeMatSlot] !== 2) { 
-                    if (cx >= 30 && cx <= 246) activeColorSubSlot = 0; 
-                    if (cx >= 266 && cx <= 482) activeColorSubSlot = 1; 
-                }
+                if (cx >= 30 && cx <= 246) activeColorSubSlot = 0; 
+                if (cx >= 266 && cx <= 482) activeColorSubSlot = 1; 
             }
             updateCursors(); colorMenuNeedsUpdate = true;
             lastLinePreviewGridHash = ""; 
@@ -1447,7 +1439,7 @@
                 nx: [new THREE.Vector3(-hs, -hs, -hs), new THREE.Vector3(-hs, -hs,  hs), new THREE.Vector3(-hs,  hs,  hs), new THREE.Vector3(-hs,  hs, -hs)],
                 py: [new THREE.Vector3(-hs,  hs,  hs), new THREE.Vector3( hs,  hs,  hs), new THREE.Vector3( hs,  hs, -hs), new THREE.Vector3(-hs,  hs, -hs)],
                 ny: [new THREE.Vector3(-hs, -hs, -hs), new THREE.Vector3( hs, -hs, -hs), new THREE.Vector3( hs, -hs,  hs), new THREE.Vector3(-hs, -hs,  hs)],
-                pz: [new THREE.Vector3(-hs, -hs,  hs), new THREE.Vector3( hs, -hs,  hs), new THREE.Vector3( hs,  hs,  hs), new THREE.Vector3(-hs,  hs,  hs)],
+                pz: [new THREE.Vector3(-hs, -hs,  hs), new THREE.Vector3( hs,  hs,  hs), new THREE.Vector3( hs,  hs,  hs), new THREE.Vector3(-hs,  hs,  hs)],
                 nz: [new THREE.Vector3( hs, -hs, -hs), new THREE.Vector3(-hs, -hs, -hs), new THREE.Vector3(-hs,  hs, -hs), new THREE.Vector3( hs,  hs, -hs)]
             };
             const dirs = [{ d: [1, 0, 0], v: faceVerts.px }, { d: [-1, 0, 0], v: faceVerts.nx }, { d: [0, 1, 0], v: faceVerts.py }, { d: [0, -1, 0], v: faceVerts.ny }, { d: [0, 0, 1], v: faceVerts.pz }, { d: [0, 0, -1], v: faceVerts.nz }];
@@ -1757,7 +1749,7 @@
                             const dy = y - tgtCY;
                             for (let z = minZ; z <= maxZ; z++) {
                                 const dz = z - tgtCZ;
-                                const srcX = Math.round(pCX + dx * inv0 + dy * inv4 + dz * inv8); const srcY = Math.round(pCY + dx * inv1 + dy * inv5 + dz * inv9); const srcZ = Math.round(pCZ + dx * inv2 + dy * inv6 + dz * inv10);
+                                const srcX = Math.round(pCX + dx * inv0 + dy * inv4 + dz * inv8); const srcY = Math.round(pCY + dx * inv1 + dy * inv5 + dz * inv9); const srcZ = Math.round(cz + dx * inv2 + dy * inv6 + dz * inv10);
                                 const origVoxel = origMap.get((srcX + 32768) + (srcY + 32768) * 65536 + (srcZ + 32768) * 4294967296);
                                 if (origVoxel) setVoxel(x, y, z, true, origVoxel.color, origVoxel.mat);
                             }
@@ -2436,8 +2428,8 @@
                     if (triangleMode === 'shell' || triangleMode === 'wireframe') {
                         if (isSurface && !triangleCap && gw === baseW) {
                             let isEdge = false;
-                            if (triangleAxis === 'X' && (!isInside(gx, gy+1, gz) || !isInside(gx, gy-1, gz) || !isInside(gx, gy, gz+1) || !isInside(gx, gy, gz-1))) isEdge = true;
-                            if (triangleAxis === 'Y' && (!isInside(gx+1, gy, gz) || !isInside(gx-1, gy, gz) || !isInside(gx, gy, gz+1) || !isInside(gx, gy, gz-1))) isEdge = true;
+                            if (triangleAxis === 'X' && (!isInside(gx, gy+1, gz) || !isInside(gx, gy-1, gz) || !isInside(gx, gy, gz+1) || !isInside(gx, gy-1, gz))) isEdge = true;
+                            if (triangleAxis === 'Y' && (!isInside(gx+1, gy, gz) || !isInside(gx-1, gy, gz) || !isInside(gx, gy, gz+1) || !isInside(gx, gy-1, gz))) isEdge = true;
                             if (triangleAxis === 'Z' && (!isInside(gx+1, gy, gz) || !isInside(gx-1, gy, gz) || !isInside(gx, gy+1, gz) || !isInside(gx, gy-1, gz))) isEdge = true;
                             if (!isEdge) isSurface = false; 
                         }
