@@ -634,8 +634,14 @@
                     proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, baseMesh.instanceMatrix.count);
                     proxy.instanceMatrix = baseMesh.instanceMatrix;
                     if (baseMesh.instanceColor) proxy.instanceColor = baseMesh.instanceColor;
-                } else proxy = new THREE.Mesh(baseMesh.geometry, baseMesh.material);
-                proxy.matrixAutoUpdate = false; proxy.visible = false; worldGroup.add(proxy); proxies.push(proxy);
+                } else {
+                    // Use the constructor of the base mesh (supports Mesh or LineSegments)
+                    proxy = new baseMesh.constructor(baseMesh.geometry, baseMesh.material);
+                }
+                proxy.matrixAutoUpdate = false;
+                proxy.visible = false;
+                worldGroup.add(proxy);
+                proxies.push(proxy);
             }
             return proxies;
         }
@@ -645,9 +651,30 @@
         const syncCache = new Map();
         function needsSync(baseMesh, showMirrors) {
             let cache = syncCache.get(baseMesh);
-            if (!cache) { cache = { p: new THREE.Vector3(), s: new THREE.Vector3(), q: new THREE.Quaternion(), c: -1, v: null, sym: -1, sm: null }; syncCache.set(baseMesh, cache); }
-            if (cache.p.equals(baseMesh.position) && cache.s.equals(baseMesh.scale) && cache.q.equals(baseMesh.quaternion) && cache.c === (baseMesh.count || 0) && cache.v === baseMesh.visible && cache.sym === symmetryVersion && cache.sm === showMirrors) return false;
-            cache.p.copy(baseMesh.position); cache.s.copy(baseMesh.scale); cache.q.copy(baseMesh.quaternion); cache.c = baseMesh.count || 0; cache.v = baseMesh.visible; cache.sym = symmetryVersion; cache.sm = showMirrors;
+            if (!cache) { 
+                cache = { p: new THREE.Vector3(), s: new THREE.Vector3(), q: new THREE.Quaternion(), c: -1, v: null, sym: -1, sm: null, g: null }; 
+                syncCache.set(baseMesh, cache); 
+            }
+            
+            // Check if position, scale, rotation, visibility, symmetry state, or geometry version changed
+            const gVersion = (baseMesh.geometry.attributes.position) ? baseMesh.geometry.attributes.position.version : 0;
+            if (cache.p.equals(baseMesh.position) && 
+                cache.s.equals(baseMesh.scale) && 
+                cache.q.equals(baseMesh.quaternion) && 
+                cache.c === (baseMesh.count || 0) && 
+                cache.v === baseMesh.visible && 
+                cache.sym === symmetryVersion && 
+                cache.sm === showMirrors &&
+                cache.g === gVersion) return false;
+
+            cache.p.copy(baseMesh.position); 
+            cache.s.copy(baseMesh.scale); 
+            cache.q.copy(baseMesh.quaternion); 
+            cache.c = baseMesh.count || 0; 
+            cache.v = baseMesh.visible; 
+            cache.sym = symmetryVersion; 
+            cache.sm = showMirrors;
+            cache.g = gVersion;
             return true;
         }
 
@@ -773,10 +800,9 @@
                 const dx=Math.abs(rXX-rMX), dy=Math.abs(rXY-rMY), dz=Math.abs(rXZ-rMZ), max=Math.max(dx,dy,dz);
                 rXX=rMX+Math.sign(rXX-rMX||1)*max; rXY=rMY+Math.sign(rXY-rMY||1)*max; rXZ=rMZ+Math.sign(rXZ-rMZ||1)*max;
             }
-            const cX=(Math.min(rMX,rXX)+Math.max(rMX,rXX))/2*VOXEL_SIZE;
-            const cY=(Math.min(rMY,rXY)+Math.max(rMY,rXY))/2*VOXEL_SIZE;
-            const cZ=(Math.min(rMZ,rXZ)+Math.max(rMZ,rXZ))/2*VOXEL_SIZE;
-            const rX=(Math.abs(rXX-rMX))/2*VOXEL_SIZE, rY=(Math.abs(rXY-rMY))/2*VOXEL_SIZE, rZ=(Math.abs(rXZ-rMZ))/2*VOXEL_SIZE;
+            const minX=Math.min(rMX,rXX), maxX=Math.max(rMX,rXX), minY=Math.min(rMY,rXY), maxY=Math.max(rMY,rXY), minZ=Math.min(rMZ,rXZ), maxZ=Math.max(rMZ,rXZ);
+            const cX=(minX+maxX)/2*VOXEL_SIZE, cY=(minY+maxY)/2*VOXEL_SIZE, cZ=(minZ+maxZ)/2*VOXEL_SIZE;
+            const rX=(maxX-minX)/2*VOXEL_SIZE, rY=(maxY-minY)/2*VOXEL_SIZE, rZ=(maxZ-minZ)/2*VOXEL_SIZE;
             
             let verts=[], edges=[];
             if(platonicType==='tetrahedron') {
@@ -785,16 +811,22 @@
             } else if(platonicType==='octahedron') {
                 verts=[new THREE.Vector3(1,0,0),new THREE.Vector3(-1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,-1,0),new THREE.Vector3(0,0,1),new THREE.Vector3(0,0,-1)];
                 edges=[[0,2],[0,4],[0,3],[0,5],[1,2],[1,4],[1,3],[1,5],[2,4],[4,3],[3,5],[5,2]];
-            } else {
+            } else if(platonicType==='icosahedron') {
                 const t=(1+Math.sqrt(5))/2;
                 verts=[new THREE.Vector3(-1,t,0).normalize(),new THREE.Vector3(1,t,0).normalize(),new THREE.Vector3(-1,-t,0).normalize(),new THREE.Vector3(1,-t,0).normalize(),new THREE.Vector3(0,-1,t).normalize(),new THREE.Vector3(0,1,t).normalize(),new THREE.Vector3(0,-1,-t).normalize(),new THREE.Vector3(0,1,-t).normalize(),new THREE.Vector3(t,0,-1).normalize(),new THREE.Vector3(t,0,1).normalize(),new THREE.Vector3(-t,0,-1).normalize(),new THREE.Vector3(-t,0,1).normalize()];
-                edges=[[0,11],[0,5],[0,1],[0,7],[0,10],[11,5],[5,1],[1,7],[7,10],[10,11],[1,9],[5,9],[11,4],[5,4],[10,2],[11,2],[7,6],[10,6],[1,8],[7,8],[3,9],[3,4],[3,2],[3,6],[3,8],[9,8],[8,6],[6,2],[2,4],[4,9]]; 
+                edges=[[0,11],[0,5],[0,1],[0,7],[0,10],[11,5],[5,1],[1,7],[7,10],[10,11],[1,9],[5,9],[11,4],[5,4],[10,2],[11,2],[7,6],[10,6],[1,8],[7,8],[3,9],[3,4],[3,2],[3,6],[3,8],[9,8],[8,6],[6,2],[2,4],[4,9]];
+            } else { // Dodecahedron wireframe
+                const phi=(1+Math.sqrt(5))/2, inv=1/phi;
+                verts=[new THREE.Vector3(1,1,1).normalize(),new THREE.Vector3(1,1,-1).normalize(),new THREE.Vector3(1,-1,1).normalize(),new THREE.Vector3(1,-1,-1).normalize(),new THREE.Vector3(-1,1,1).normalize(),new THREE.Vector3(-1,1,-1).normalize(),new THREE.Vector3(-1,-1,1).normalize(),new THREE.Vector3(-1,-1,-1).normalize(),new THREE.Vector3(0,inv,phi).normalize(),new THREE.Vector3(0,inv,-phi).normalize(),new THREE.Vector3(0,-inv,phi).normalize(),new THREE.Vector3(0,-inv,-phi).normalize(),new THREE.Vector3(inv,phi,0).normalize(),new THREE.Vector3(inv,-phi,0).normalize(),new THREE.Vector3(-inv,phi,0).normalize(),new THREE.Vector3(-inv,-phi,0).normalize(),new THREE.Vector3(phi,0,inv).normalize(),new THREE.Vector3(phi,0,-inv).normalize(),new THREE.Vector3(-phi,0,inv).normalize(),new THREE.Vector3(-phi,0,-inv).normalize()];
+                edges=[[0,12],[12,14],[14,4],[4,8],[8,0],[0,8],[8,10],[10,2],[2,16],[16,0],[16,17],[17,1],[1,12],[12,16],[1,9],[9,11],[11,3],[3,17],[12,14],[14,5],[5,9],[9,12],[2,13],[13,15],[15,6],[6,10],[10,2],[16,17],[17,3],[3,13],[13,16],[3,11],[11,7],[7,15],[15,13],[4,14],[14,5],[5,19],[19,18],[18,4],[4,18],[18,6],[6,10],[10,8],[8,4],[5,19],[19,7],[7,11],[11,9],[9,5],[6,18],[18,19],[19,7],[7,15],[15,6]];
             }
             
             const points = [];
             for(let e of edges) { points.push(new THREE.Vector3(verts[e[0]].x*rX, verts[e[0]].y*rY, verts[e[0]].z*rZ), new THREE.Vector3(verts[e[1]].x*rX, verts[e[1]].y*rY, verts[e[1]].z*rZ)); }
             polyPreviewMesh.geometry.setFromPoints(points);
-            polyPreviewMesh.position.set(cX, cY, cZ); polyPreviewMesh.updateMatrix();
+            polyPreviewMesh.geometry.attributes.position.needsUpdate = true;
+            polyPreviewMesh.position.set(cX, cY, cZ); 
+            polyPreviewMesh.updateMatrix();
             polyPreviewMesh.material.color.setHex(isPainting ? 0x4facfe : 0xff0055);
         }
         
@@ -1428,7 +1460,7 @@
             const isInside = (gx,gy,gz) => { const nx=(gx-cx)/rx, ny=(gy-cy)/ry, nz=(gz-cz)/rz; return (nx*nx+ny*ny+nz*nz)<=1.0; };
             for(let gx=minX; gx<=maxX; gx++) for(let gy=minY; gy<=maxY; gy++) for(let gz=minZ; gz<=maxZ; gz++) {
                 if(isInside(gx,gy,gz)) {
-                    const isS = (!isInside(gx+1,gy,gz)||!isInside(gx-1,gy,gz)||!isInside(gx,gy+1,gz)||!isInside(gx,gy-1,gz)||!isInside(gx,gy,gz+1)||!isInside(gx,gy-1));
+                    const isS = (!isInside(gx+1,gy,gz)||!isInside(gx-1,gy,gz)||!isInside(gx,gy+1,gz)||!isInside(gx,gy-1)||!isInside(gx,gy,gz+1)||!isInside(gx,gy-1));
                     if(clearInterior && isP && sphereMode==='shell' && !isS) { setVoxel(gx,gy,gz,false,null); continue; }
                     if(sphereMode==='shell') { if(isS) setVoxel(gx,gy,gz,isP,getDrawColor(gx,gy,gz,minX,maxX,minY,maxY,0),matTypes[0]); } else setVoxel(gx,gy,gz,isP,getDrawColor(gx,gy,gz,minX,maxX,minY,maxY,0),matTypes[0]);
                 }
@@ -1569,11 +1601,12 @@
                 if((rightMenuMesh.visible||globalMenuMesh.visible)&&xrLeft){ raycaster.set(leftPointerPos, leftDir); if(rightMenuMesh.visible){ const inters=raycaster.intersectObject(rightMenuMesh); if(inters.length>0){ rightMenuHovered=true; rightMenuUV.x=inters[0].uv.x; rightMenuUV.y=inters[0].uv.y; leftLaserLine.scale.z=inters[0].distance; } else rightMenuHovered=false; } else if(globalMenuMesh.visible){ const inters=raycaster.intersectObject(globalMenuMesh); if(inters.length>0){ globalMenuHovered=true; globalMenuUV.x=inters[0].uv.x; globalMenuUV.y=inters[0].uv.y; leftLaserLine.scale.z=inters[0].distance; } else globalMenuHovered=false; } leftLaserLine.visible=true; } else { rightMenuHovered=globalMenuHovered=false; if(leftLaserLine)leftLaserLine.visible=false; }
                 if((leftMenuMesh.visible||colorMenuMesh.visible)&&xrRight){ raycaster.set(rightPointerPos, rightDir); if(leftMenuMesh.visible){ const inters=raycaster.intersectObject(leftMenuMesh); if(inters.length>0){ leftMenuHovered=true; leftMenuUV.x=inters[0].uv.x; leftMenuUV.y=inters[0].uv.y; rightLaserLine.scale.z=inters[0].distance; } else leftMenuHovered=false; } else if(colorMenuMesh.visible){ const inters=raycaster.intersectObject(colorMenuMesh); if(inters.length>0){ colorMenuHovered=true; colorMenuUV.x=inters[0].uv.x; colorMenuUV.y=inters[0].uv.y; rightLaserLine.scale.z=inters[0].distance; } else colorMenuHovered=false; } rightLaserLine.visible=true; } else { leftMenuHovered=colorMenuHovered=false; if(rightLaserLine)rightLaserLine.visible=false; }
                 if(activeSliderDrag&&leftMenuHovered){ const pct=Math.max(0,Math.min(1,(leftMenuUV.x*512-50)/412)); let ch=false; if(activeSliderDrag==='scale'||activeSliderDrag==='stepScale'){ const s=Math.round((0.1+pct*4.9)*10)/10; if(activeSliderDrag==='scale'&&selectionScale!==s){selectionScale=s; ch=true;} if(activeSliderDrag==='stepScale'&&copyStepScale!==s){copyStepScale=s; ch=true;} } else { const v=Math.round((-180+pct*360)/15)*15; if(activeSliderDrag==='rotX'&&selectionRotX!==v){selectionRotX=v; ch=true;} if(activeSliderDrag==='rotY'&&selectionRotY!==v){selectionRotY=v; ch=true;} if(activeSliderDrag==='rotZ'&&selectionRotZ!==v){selectionRotZ=v; ch=true;} if(activeSliderDrag==='stepRotX'&&copyStepRotX!==v){copyStepRotX=v; ch=true;} if(activeSliderDrag==='stepRotY'&&copyStepRotY!==v){copyStepRotY=v; ch=true;} if(activeSliderDrag==='stepRotZ'&&copyStepRotZ!==v){copyStepRotZ=v; ch=true;} } if(ch){ if(!activeSliderDrag.startsWith('step'))updateRotatedSelection(); leftMenuNeedsUpdate=true; } }
-                else if(isColorPicking&&colorMenuHovered) pickColorFromCanvas(Math.max(20,Math.min(492,colorMenuUV.x*512)), isPaletteMagnified?Math.max(50,Math.min(450,(1-colorMenuUV.y)*512)):Math.max(155,Math.min(335,(1-colorMenuUV.y)*512)));
+                else if(isColorPicking&&colorMenuHovered) pickColorFromCanvas(Math.max(20,Math.min(492,colorMenuUV.x*512)), isPaletteMagnified?Math.max(50,Math.min(450,(1-colorMenuUV.y)*512)):Math.max(155,Math.min(335,(1-colorMenuWV.y)*512)));
                 if(gripRight) gripRight.getWorldPosition(rightPos); if(gripLeft) gripLeft.getWorldPosition(leftPos);
                 if(isRightGripping&&isLeftGripping){ const dist=rightPos.distanceTo(leftPos); midPos.copy(rightPos).lerp(leftPos,0.5); currentHandVec.subVectors(rightPos,leftPos).normalize(); if(prevGripDist>0){ const sD=dist/prevGripDist; panDelta.copy(midPos).sub(prevMid); tempQuat.setFromUnitVectors(prevHandVec,currentHandVec); if(isVerticalLock){ tempPXZ.set(prevHandVec.x,0,prevHandVec.z).normalize(); tempCXZ.set(currentHandVec.x,0,currentHandVec.z).normalize(); if(tempPXZ.lengthSq()>0.001&&tempCXZ.lengthSq()>0.001)tempQuat.setFromUnitVectors(tempPXZ,tempCXZ); else tempQuat.identity(); } worldGroup.position.add(panDelta).sub(midPos).multiplyScalar(sD).applyQuaternion(tempQuat).add(midPos); worldGroup.scale.multiplyScalar(sD); worldGroup.quaternion.premultiply(tempQuat); } prevGripDist=dist; prevMid.copy(midPos); prevHandVec.copy(currentHandVec); prevRightPos.copy(rightPos); prevLeftPos.copy(leftPos); } else if(isRightGripping){ worldGroup.position.add(tempPos.copy(rightPos).sub(prevRightPos)); prevRightPos.copy(rightPos); } else if(isLeftGripping){ worldGroup.position.add(tempPos.copy(leftPos).sub(prevLeftPos)); prevLeftPos.copy(leftPos); } else prevGripDist=0;
                 if(xrLeft){ leftTargetLocal.copy(leftPointerPos).addScaledVector(leftDir,0.05); worldGroup.worldToLocal(leftTargetLocal); leftTargetLocal.set(Math.round(leftTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(leftTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(leftTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); cursorLeft.position.copy(leftTargetLocal); cursorLeft.updateMatrix(); cursorLeft.visible=true; } else cursorLeft.visible=false;
                 if(xrRight){ rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir,0.05); worldGroup.worldToLocal(rightTargetLocal); rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; if(activeTool==='select'&&hasSelection&&(transformMode==='draw'||transformMode==='paint')&&!isSettingPivot){ selectionGroup.position.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE-Math.round(selectionCenter.x)*VOXEL_SIZE, Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE-Math.round(selectionCenter.y)*VOXEL_SIZE, Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE-Math.round(selectionCenter.z)*VOXEL_SIZE); selectionGroup.updateMatrix(); } } else cursorRight.visible=false;
+                
                 if(xrRight&&isDrawing){ 
                     hideAllPreviews();
                     if(activeTool==='select'&&hasSelection&&!isSettingPivot){ 
@@ -1595,6 +1628,7 @@
                     else if(activeTool==='triangle'&&isPreviewingTriangle) updateTrianglePreview(drawStartPos,leftTargetLocal,false); 
                     else if(activeTool==='icosahedron'&&isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,leftTargetLocal,false); 
                 }
+
                 if(hasSelection) updatePreviews(); else if(previewGroups.length>0&&previewGroups[0].visible) for(let g of previewGroups) g.visible=false;
                 const showM=activeTool!=='select', showRM=showM&&!isColorPicking;
                 if(needsSync(cursorLeft,showM)) syncMirrorProxies(cursorLeft,getMirrorProxies(cursorLeft),showM); if(needsSync(cursorRight,showRM)) syncMirrorProxies(cursorRight,getMirrorProxies(cursorRight),showRM); if(needsSync(boxPreviewMesh,showM)) syncMirrorProxies(boxPreviewMesh,getMirrorProxies(boxPreviewMesh),showM); if(needsSync(spherePreviewMesh,showM)) syncMirrorProxies(spherePreviewMesh,getMirrorProxies(spherePreviewMesh),showM);
