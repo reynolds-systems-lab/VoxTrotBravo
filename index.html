@@ -128,7 +128,6 @@
         let wireFill = true; 
 
         let paintMode = 'brush'; 
-        let exportMode = 'boxes'; 
         let renderMode = 'standard'; 
         
         let planeOutline = true;
@@ -339,30 +338,6 @@
         renderer.xr.enabled = true;
 
         document.body.appendChild(VRButton.createButton(renderer));
-
-        // --- Quest 3 PCVR Specific Optimizations ---
-        renderer.xr.addEventListener('sessionstart', () => {
-            const session = renderer.xr.getSession();
-            if (session) {
-                if (session.renderState.baseLayer) {
-                    session.renderState.baseLayer.fixedFoveation = 1; 
-                }
-                if (session.supportedFrameRates) {
-                    if (session.supportedFrameRates.includes(120)) {
-                        session.updateTargetFrameRate(120).catch(console.warn);
-                    } else if (session.supportedFrameRates.includes(90)) {
-                        session.updateTargetFrameRate(90).catch(console.warn);
-                    }
-                }
-            }
-        });
-
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
-        
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        directionalLight.position.set(5, 10, 7);
-        scene.add(directionalLight);
 
         // --- Studio Room & Environment Map for Metal Reflections ---
         const pmremGenerator = new THREE.PMREMGenerator(renderer);
@@ -1355,7 +1330,7 @@
                 const sBase = activeMatSlot * 2;
                 if (cy >= 418) {
                     if (cx >= 35 && cx <= 135) { joyLTarget = joyLTarget === sBase ? -1 : sBase; if(joyRTarget === joyLTarget) joyRTarget = -1; }
-                    else if (cx >= 142 && cx <= 242) { joyRTarget = joyRTarget === sBase ? -1 : sBase; if(joyLTarget === joyRTarget) joyRTarget = -1; }
+                    else if (cx >= 142 && cx <= 242) { joyRTarget = joyRTarget === sBase ? -1 : sBase; if(joyLTarget === joyRTarget) joyLTarget = -1; }
                     else if (cx >= 271 && cx <= 371) { joyLTarget = joyLTarget === sBase+1 ? -1 : sBase+1; if(joyRTarget === joyLTarget) joyRTarget = -1; }
                     else if (cx >= 378 && cx <= 478) { joyRTarget = joyRTarget === sBase+1 ? -1 : sBase+1; if(joyLTarget === joyRTarget) joyRTarget = -1; }
                 } else { if (cx >= 30 && cx <= 246) activeColorSubSlot = 0; if (cx >= 266 && cx <= 482) activeColorSubSlot = 1; }
@@ -1410,9 +1385,8 @@
             
             drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
             drawButton(globalMenuCtx, 40, 330, 432, 45, `Render: ${renderMode === 'performance' ? 'PERFORMANCE' : 'STANDARD'}`, renderMode === 'performance');
-            drawButton(globalMenuCtx, 40, 390, 200, 45, 'Export: BOXES', exportMode === 'boxes'); 
-            drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
-            drawButton(globalMenuCtx, 40, 450, 432, 50, 'EXPORT TO .OBJ', false);
+            drawButton(globalMenuCtx, 40, 390, 432, 45, 'Export Format: VTB (Fast Binary)', true);
+            drawButton(globalMenuCtx, 40, 450, 432, 50, 'EXPORT VOXELS (.VTB)', false);
             
             globalMenuTexture.needsUpdate = true;
         }
@@ -1436,55 +1410,65 @@
                 });
                 if (hasSelection) updatePreviews();
             }
-            if (cy >= 390 && cy <= 435) { if (cx >= 40 && cx <= 240) exportMode = 'boxes'; if (cx >= 272 && cx <= 472) exportMode = 'mesh'; }
-            if (cy >= 450 && cy <= 500 && cx >= 40 && cx <= 472) exportToOBJ();
+            if (cy >= 450 && cy <= 500 && cx >= 40 && cx <= 472) exportToVTB();
 
             globalMenuNeedsUpdate = true;
         }
 
         let leftMenuNeedsUpdate = true, rightMenuNeedsUpdate = true, colorMenuNeedsUpdate = true, globalMenuNeedsUpdate = true, lastMenuUpdateTime = 0, lastColorJoystickUpdateTime = 0; 
 
-        function exportToOBJ() {
-            const isMesh = exportMode === 'mesh', vertBlobParts = ["# VoxTrotBravo Vertices\n"], faceBlobParts = ["\n# VoxTrotBravo Faces\nmtllib voxel_materials.mtl\n"], hs = 0.5;
-            const faceVerts = {
-                px: [new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3( hs, hs, hs)],
-                nx: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3(-hs, hs, hs), new THREE.Vector3(-hs, hs,-hs)],
-                py: [new THREE.Vector3(-hs, hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3(-hs, hs,-hs)],
-                ny: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3(-hs,-hs, hs)],
-                pz: [new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3(-hs, hs, hs)],
-                nz: [new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3( hs, hs,-hs)]
-            };
-            const dirs = [{d:[1,0,0],v:faceVerts.px}, {d:[-1,0,0],v:faceVerts.nx}, {d:[0,1,0],v:faceVerts.py}, {d:[0,-1,0],v:faceVerts.ny}, {d:[0,0,1],v:faceVerts.pz}, {d:[0,0,-1],v:faceVerts.nz}];
-            function hasV(gx, gy, gz) { const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5, k = (cx+65536)+(cy+65536)*131072+(cz+65536)*17179869184, c = chunks.get(k); return c ? c.voxelMatMap[(gx&31)|((gy&31)<<5)|((gz&31)<<10)]!==-1 : false; }
-            let vertAcc = [], faceAcc = [], vertexOffset = 1; const vertMap = new Map();
-            const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission", "Voxel_Metal"];
+        function exportToVTB() {
+            let activeCount = 0;
+            chunks.forEach(chunk => {
+                for (let m = 0; m < 4; m++) {
+                    if (chunk.layers[m]) activeCount += chunk.layers[m].count;
+                }
+            });
+
+            // 8 bytes for header + 10 bytes per active voxel
+            const buffer = new ArrayBuffer(8 + activeCount * 10);
+            const view = new DataView(buffer);
             
-            for (let m = 0; m < 4; m++) {
-                faceAcc.push(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`);
-                chunks.forEach(chunk => {
-                    const layer = chunk.layers[m]; if (!layer || layer.count === 0) return;
+            // Header: "VTB1"
+            view.setUint8(0, 86); view.setUint8(1, 84); view.setUint8(2, 66); view.setUint8(3, 49); 
+            view.setUint32(4, activeCount, true);
+            
+            let offset = 8;
+            chunks.forEach(chunk => {
+                for (let m = 0; m < 4; m++) {
+                    const layer = chunk.layers[m]; 
+                    if (!layer || layer.count === 0) continue;
+                    
                     for (let i = 0; i < layer.count; i++) {
-                        const localIdx = layer.indexToLocal[i]; if (localIdx === 65535) continue;
-                        const lx = localIdx&31, ly=(localIdx>>5)&31, lz=localIdx>>10, gx=(chunk.cx*32)+lx, gy=(chunk.cy*32)+ly, gz=(chunk.cz*32)+lz;
-                        tempMatrix.makeTranslation(gx, gy, gz); layer.mesh.getColorAt(i, tempColor);
-                        const rS = tempColor.r.toFixed(3), gS = tempColor.g.toFixed(3), bS = tempColor.b.toFixed(3);
-                        for (let d = 0; d < 6; d++) {
-                            const dir = dirs[d]; if (!hasV(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
-                                const fIdx = []; for (let v = 0; v < 4; v++) {
-                                    tempPos.copy(dir.v[v]).add({x:gx, y:gy, z:gz}).multiplyScalar(VOXEL_SIZE);
-                                    const fx=tempPos.x.toFixed(4), fy=tempPos.y.toFixed(4), fz=tempPos.z.toFixed(4), h=`${fx}_${fy}_${fz}_${rS}_${gS}_${bS}`;
-                                    let idx = vertMap.get(h); if (idx === undefined) { idx = vertexOffset++; vertMap.set(h, idx); vertAcc.push(`v ${fx} ${fy} ${fz} ${rS} ${gS} ${bS}\n`); }
-                                    fIdx.push(idx);
-                                }
-                                if (isMesh) faceAcc.push(`f ${fIdx[0]} ${fIdx[1]} ${fIdx[2]}\nf ${fIdx[0]} ${fIdx[2]} ${fIdx[3]}\n`); else faceAcc.push(`f ${fIdx[0]} ${fIdx[1]} ${fIdx[2]} ${fIdx[3]}\n`);
-                            }
-                        }
+                        const localIdx = layer.indexToLocal[i]; 
+                        if (localIdx === 65535) continue;
+                        
+                        const lx = localIdx & 31, ly = (localIdx >> 5) & 31, lz = localIdx >> 10;
+                        const gx = (chunk.cx * 32) + lx, gy = (chunk.cy * 32) + ly, gz = (chunk.cz * 32) + lz;
+                        
+                        layer.mesh.getColorAt(i, tempColor);
+                        
+                        // Int16 positions (-32768 to +32767) fits WebXR bounds perfectly
+                        view.setInt16(offset, gx, true); offset += 2;
+                        view.setInt16(offset, gy, true); offset += 2;
+                        view.setInt16(offset, gz, true); offset += 2;
+                        
+                        // Colors and Material ID
+                        view.setUint8(offset, Math.round(tempColor.r * 255)); offset += 1;
+                        view.setUint8(offset, Math.round(tempColor.g * 255)); offset += 1;
+                        view.setUint8(offset, Math.round(tempColor.b * 255)); offset += 1;
+                        view.setUint8(offset, m); offset += 1; // 0=Solid, 1=Glass, 2=Emission, 3=Metal
                     }
-                });
-            }
-            vertBlobParts.push(vertAcc.join("")); faceBlobParts.push(faceAcc.join(""));
-            const blob = new Blob([...vertBlobParts, ...faceBlobParts], { type: 'text/plain' }), url = URL.createObjectURL(blob), a = document.createElement('a');
-            a.href = url; a.download = isMesh ? 'vox_mesh.obj' : 'vox_boxes.obj'; a.click();
+                }
+            });
+
+            const blob = new Blob([buffer], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); 
+            a.href = url; 
+            a.download = 'model.vtb'; 
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
 
         function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slotIndex) {
@@ -1809,7 +1793,7 @@
             const updG=(gx,gy,gz)=>{ if(gx<minX||gx>maxX||gz<minZ||gz>maxZ)return; const idx=(gx-minX)+(gz-minZ)*sX; minYGrid[idx]=Math.min(minYGrid[idx],gy); maxYGrid[idx]=Math.max(maxYGrid[idx],gy); };
             const dV=(gx,gy,gz,col,m)=>{ if(gx<minX||gx>maxX||gy<minY||gy>maxY||gz<minZ||gz>maxZ)return; const h=(gx+32768)+(gy+32768)*65536+(gz+32768)*4294967296; if(!drawn.has(h)){ drawn.add(h); setVoxel(gx,gy,gz,isP,col,m); } updG(gx,gy,gz); };
             for(const e of edges){ const p1=verts[e[0]], p2=verts[e[1]], steps=Math.max(1,Math.ceil(p1.distanceTo(p2)*2)), r=wireWidth-1; for(let i=0; i<=steps; i++){ tempPos.lerpVectors(p1,p2,i/steps); const cx=Math.round(tempPos.x); const cy=Math.round(tempPos.y); const cz=Math.round(tempPos.z); for(let dx=-r;dx<=r;dx++)for(let dy=-r;dy<=r;dy++)for(let dz=-r;dz<=r;dz++) if(dx*dx+dy*dy+dz*dz<=r*r+0.1) dV(cx+dx,cy+dy,cz+dz,getDrawColor(cx,cy,cz,minX,maxX,minY,maxY,1),matTypes[1]); } }
-            if(icosahedronMode!=='wireframe'||wireFill) for(const f of faces){ const p1=verts[f[0]], p2=verts[f[1]], p3=verts[f[2]], steps=Math.max(1,Math.ceil(Math.max(p1.distanceTo(p2),p2.distanceTo(p3),p3.distanceTo(p1))*2)); for(let u=0; u<=steps; u++)for(let v=0; v<=steps-u; v++){ const w=steps-u-v, fU=u/steps, fV=v/steps, fW=w/steps, px=Math.round(p1.x*fU+p2.x*fV+p3.x*fW), py=Math.round(p1.y*fU+p2.y*fV+p3.y*fW), pz=Math.round(p1.z*fU+p2.z*fV+p3.z*fW); dV(px,py,pz,getDrawColor(px,py,pz,minX,maxX,minY,maxY,0),matTypes[0]); } }
+            if(icosahedronMode!=='wireframe'||wireFill) for(const f of faces){ const p1=verts[f[0]], p2=verts[f[1]], p3=verts[f[2]], steps=Math.max(1,Math.ceil(Math.max(p1.distanceTo(p2),p2.distanceTo(p3),p3.distanceTo(p1))*2)); for(let u=0; u<=steps; u++)for(let v=0; v<=steps-u; v++){ const w=steps-u-v, fU=u/steps, fV=v/steps, fW=w/steps, px=Math.round(p1.x*fU+p2.x*fV+p3.x*fW), py=Math.round(p1.y*fU+p2.y*fV+p3.y*fW), pz=Math.round(p1.x*fU+p2.x*fV+p3.x*fW); dV(px,py,pz,getDrawColor(px,py,pz,minX,maxX,minY,maxY,0),matTypes[0]); } }
             if(icosahedronMode==='solid'||(clearInterior&&isP)){ for(let gx=minX; gx<=maxX; gx++)for(let gz=minZ; gz<=maxZ; gz++){ const idx=(gx-minX)+(gz-minZ)*sX, min_y=minYGrid[idx], max_y=maxYGrid[idx]; if(min_y<=max_y)for(let gy=min_y; gy<=max_y; gy++){ const h=(gx+32768)+(gy+32768)*65536+(gz+32768)*4294967296; if(!drawn.has(h)){ if(icosahedronMode==='solid') setVoxel(gx,gy,gz,isP,getDrawColor(gx,gy,gz,minX,maxX,minY,maxY,0),matTypes[0]); else if(clearInterior&&isP) setVoxel(gx,gy,gz,false,null); } } } }
             leftMenuNeedsUpdate = true;
         }
