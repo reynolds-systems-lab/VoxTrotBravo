@@ -1703,14 +1703,15 @@ function updatePlanePreview(start, end, isPainting) {
             leftMenuNeedsUpdate = true;
         }
 
-        function placeBrushVoxels(pos, isP) {
-    // Determine radius: brushSize 1 means 1 voxel, 2 means 3x3x3, etc.
+function placeBrushVoxels(pos, isP) {
     const r = brushSize - 1;
-    const rSq = (r + 0.2) * (r + 0.2); 
+    // Using 0.5 offset for cleaner voxel spheres
+    const rSq = (r + 0.5) * (r + 0.5); 
     const cGx = Math.round(pos.x / VOXEL_SIZE);
     const cGy = Math.round(pos.y / VOXEL_SIZE);
     const cGz = Math.round(pos.z / VOXEL_SIZE);
 
+    // Helper to determine if a relative coordinate is within the brush shape
     const isInside = (dx, dy, dz) => {
         if (brushShape === 'sphere') {
             return (dx * dx + dy * dy + dz * dz <= rSq);
@@ -1719,23 +1720,24 @@ function updatePlanePreview(start, end, isPainting) {
         }
     };
 
-    // Calculate bounds for gradients
+    // Determine the bounds for color gradients
     const minX = cGx - r, maxX = cGx + r;
     const minY = cGy - r, maxY = cGy + r;
 
     for (let dx = -r; dx <= r; dx++) {
         for (let dy = -r; dy <= r; dy++) {
             for (let dz = -r; dz <= r; dz++) {
-                // Skip if this coordinate is not part of the brush shape
+                // Skip coordinates outside the brush volume
                 if (!isInside(dx, dy, dz)) continue;
 
                 const gx = cGx + dx;
                 const gy = cGy + dy;
                 const gz = cGz + dz;
 
-                if (isP) { 
+                if (isP) {
                     // DRAWING LOGIC
                     if (brushVolume === 'shell' && r > 0) {
+                        // A voxel is on the surface if any of its 6 neighbors are outside the shape
                         const isSurface = !isInside(dx + 1, dy, dz) || 
                                           !isInside(dx - 1, dy, dz) || 
                                           !isInside(dx, dy + 1, dz) || 
@@ -1743,22 +1745,22 @@ function updatePlanePreview(start, end, isPainting) {
                                           !isInside(dx, dy, dz + 1) || 
                                           !isInside(dx, dy, dz - 1);
                         
-                        if (!isSurface) {
-                            // If we are inside the shell, explicitly REMOVE voxels.
-                            // This ensures the path stays hollow during continuous strokes.
+                        if (isSurface) {
+                            // Place the shell voxel
+                            const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
+                            setVoxel(gx, gy, gz, true, color, matTypes[0]);
+                        } else {
+                            // IMPORTANT: Explicitly clear interior voxels to keep the path hollow
+                            // during continuous strokes.
                             setVoxel(gx, gy, gz, false, null);
-                            continue; 
                         }
+                    } else {
+                        // SOLID MODE: Just place the voxel
+                        const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
+                        setVoxel(gx, gy, gz, true, color, matTypes[0]);
                     }
-                    
-                    // Place the voxel with current color/material
-                    const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
-                    setVoxel(gx, gy, gz, true, color, matTypes[0]);
-
                 } else {
-                    // ERASING LOGIC
-                    // We keep the eraser as a solid volume even in shell mode 
-                    // so that it's easier to clean up mistakes.
+                    // ERASING LOGIC: Always remove the voxel regardless of shell/solid setting
                     setVoxel(gx, gy, gz, false, null);
                 }
             }
