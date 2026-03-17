@@ -2288,32 +2288,34 @@
                 }
                 if(xrLeft&&isErasing&&!isColorPicking){ 
                     hideAllPreviews();
-                    if(activeTool==='brush'){ if(!leftTargetLocal.equals(lastErasedPos)){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sculpt') executeSculpt(leftTargetLocal,false); else if(activeTool==='stroke'&&strokeMode==='continuous'){ if(lastErasedPos.x===Infinity){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } else if(!leftTargetLocal.equals(lastErasedPos)){ drawLineVoxels(lastErasedPos,leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sheet'&&xrRight){ if(lastSheetLeftPos.x===Infinity){ lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,lastSheetLeftPos,lastSheetRightPos,false,brushSize); } else { drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,leftTargetLocal,rightTargetLocal,false,brushSize); lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); } } 
-                    else if(activeTool==='box'&&isPreviewingBox) updateBoxPreview(drawStartPos,leftTargetLocal,false); 
-                    else if(activeTool==='quadsphere'&&isPreviewingSphere) updateSpherePreview(drawStartPos,leftTargetLocal,false); 
-                    else if(activeTool==='cylinder'&&isPreviewingCylinder) updateCylinderPreview(drawStartPos,leftTargetLocal,false); 
-                    else if(activeTool==='plane'&&isPreviewingPlane) updatePlanePreview(drawStartPos,leftTargetLocal,false); 
-                    else if(activeTool==='triangle'&&isPreviewingTriangle) updateTrianglePreview(drawStartPos,leftTargetLocal,false); 
-                    else if(activeTool==='icosahedron'&&isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,leftTargetLocal,false); 
-                }
+                    if(activeTool==='brush'){ if(!leftTargetLocal.equals(lastErasedPos)){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sculpt') executeSculpt(leftTargetLocal,false); else if(activeTool==='stroke'&&strokeMode==='continuous'){ if(lastErasedPos.x===Infinity){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } else if(!leftTargetLocal.equals(lastErasedPos)){ drawLineVoxels(lastErasedPos,leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sheet'&&xrRight){ if(lastSheetLeftPos.x===Infinity){ lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,lastSheetLeftPos,lastSheetRightPos,false,brushSize); } else { drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,leftTargetLocal,rightTargetLocal,false,brushSize); lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); } }
+else if(activeTool==='box'&&isPreviewingBox) updateBoxPreview(drawStartPos,leftTargetLocal,false);
+else if(activeTool==='quadsphere'&&isPreviewingSphere) updateSpherePreview(drawStartPos,leftTargetLocal,false);
+else if(activeTool==='cylinder'&&isPreviewingCylinder) updateCylinderPreview(drawStartPos,leftTargetLocal,false);
+else if(activeTool==='plane'&&isPreviewingPlane) updatePlanePreview(drawStartPos,leftTargetLocal,false);
+else if(activeTool==='triangle'&&isPreviewingTriangle) updateTrianglePreview(drawStartPos,leftTargetLocal,false);
+else if(activeTool==='icosahedron'&&isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,leftTargetLocal,false);
+}
 
-                if(hasSelection) updatePreviews(); else if(previewGroups.length>0&&previewGroups[0].visible) for(let g of previewGroups) g.visible=false;
-                const showM=activeTool!=='select', showRM=showM&&!isColorPicking;
-                if(needsSync(cursorLeft,showM)) syncMirrorProxies(cursorLeft,getMirrorProxies(cursorLeft),showM); if(needsSync(cursorRight,showRM)) syncMirrorProxies(cursorRight,getMirrorProxies(cursorRight),showRM); if(needsSync(boxPreviewMesh,showM)) syncMirrorProxies(boxPreviewMesh,getMirrorProxies(boxPreviewMesh),showM); if(needsSync(spherePreviewMesh,showM)) syncMirrorProxies(spherePreviewMesh,getMirrorProxies(spherePreviewMesh),showM);
-                if(needsSync(cylinderPreviewMesh, showM)) syncMirrorProxies(cylinderPreviewMesh, getMirrorProxies(cylinderPreviewMesh), showM);
-                if(needsSync(conePreviewMesh, showM)) syncMirrorProxies(conePreviewMesh, getMirrorProxies(conePreviewMesh), showM);
-                if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
-                chunks.forEach(c=>c.updateBuffers());
-            }
-            if (renderMode === 'performance') {
-                const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
-                for (let i = 0; i < perfMaterials.length; i++) perfMaterials[i].size = effSize;
-            }
-            renderer.render(scene, camera);
-        });
-        window.addEventListener('resize',()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
-        const load=document.getElementById('loading-overlay'); if(load){ load.style.opacity='0'; setTimeout(()=>load.style.display='none',500); }
-        }); 
-    </script>
+            if(hasSelection) updatePreviews(); else if(previewGroups.length>0&&previewGroups[0].visible) for(let g of previewGroups) g.visible=false;
+            const showM=activeTool!=='select', showRM=showM&&!isColorPicking;
+            if(needsSync(cursorLeft,showM)) syncMirrorProxies(cursorLeft,getMirrorProxies(cursorLeft),showM); if(needsSync(cursorRight,showRM)) syncMirrorProxies(cursorRight,getMirrorProxies(cursorRight),showRM); if(needsSync(boxPreviewMesh,showM)) syncMirrorProxies(boxPreviewMesh,getMirrorProxies(boxPreviewMesh),showM); if(needsSync(spherePreviewMesh,showM)) syncMirrorProxies(spherePreviewMesh,getMirrorProxies(spherePreviewMesh),showM);
+            if(needsSync(cylinderPreviewMesh, showM)) syncMirrorProxies(cylinderPreviewMesh, getMirrorProxies(cylinderPreviewMesh), showM);
+            if(needsSync(conePreviewMesh, showM)) syncMirrorProxies(conePreviewMesh, getMirrorProxies(conePreviewMesh), showM);
+            if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
+            chunks.forEach(c=>c.updateBuffers());
+        }
+        if (renderMode === 'performance') {
+            const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
+            for (let i = 0; i < perfMaterials.length; i++) perfMaterials[i].size = effSize;
+        }
+        renderer.render(scene, camera);
+    });
+    window.addEventListener('resize',()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
+    const load=document.getElementById('loading-overlay'); if(load){ load.style.opacity='0'; setTimeout(()=>load.style.display='none',500); }
+    }); 
+</script>
+
+
 </body>
 </html>
