@@ -1196,15 +1196,52 @@ function updatePlanePreview(start, end, isPainting) {
                 drawButton(leftMenuCtx, 20, 180, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 180, 160, 50, `Sides: ${cylinderSides === 0 ? 'ROUND' : cylinderSides}`, false); drawButton(leftMenuCtx, 250, 180, 50, 50, '+', false);
                 if (cylinderMode !== 'solid') drawButton(leftMenuCtx, 310, 180, 150, 50, `CAP: ${cylinderCap?'ON':'OFF'}`, cylinderCap);
                 if (cylinderMode === 'wireframe') { drawButton(leftMenuCtx, 20, 240, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 240, 160, 50, `Thick: ${wireWidth}`, false); drawButton(leftMenuCtx, 250, 240, 50, 50, '+', false); drawButton(leftMenuCtx, 330, 240, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); }
-            } else if (activeTool === 'triangle') {
-                drawButton(leftMenuCtx, 20, 60, 140, 50, 'CONE', triangleType === 'cone'); drawButton(leftMenuCtx, 170, 60, 150, 50, 'TETRA', triangleType === 'tetra'); drawButton(leftMenuCtx, 330, 60, 160, 50, 'PYRAMID', triangleType === 'pyramid');
-                drawButton(leftMenuCtx, 20, 120, 140, 50, 'SOLID', triangleMode === 'solid'); drawButton(leftMenuCtx, 170, 120, 150, 50, 'SHELL', triangleMode === 'shell'); drawButton(leftMenuCtx, 330, 120, 160, 50, 'WIRE', triangleMode === 'wireframe');
-                drawButton(leftMenuCtx, 20, 180, 140, 50, 'AXIS: X', triangleAxis === 'X'); drawButton(leftMenuCtx, 170, 180, 150, 50, 'AXIS: Y', triangleAxis === 'Y'); drawButton(leftMenuCtx, 330, 180, 160, 50, 'AXIS: Z', triangleAxis === 'Z');
-                if (triangleType === 'pyramid') { drawButton(leftMenuCtx, 20, 240, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 240, 160, 50, `Legs: ${pyramidLegs}`, false); drawButton(leftMenuCtx, 250, 240, 50, 50, '+', false); } else if (triangleMode !== 'solid' && cx >= 170 && cx <= 320) triangleCap = !triangleCap;
-                if (triangleMode === 'wireframe') { drawButton(leftMenuCtx, 20, 300, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 300, 160, 50, `Thick: ${wireWidth}`, false); drawButton(leftMenuCtx, 250, 300, 50, 50, '+', false); drawButton(leftMenuCtx, 330, 300, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); } 
-                drawButton(leftMenuCtx, 20, 360, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 360, 120, 50, `Divs: ${triangleDivs}`, false); drawButton(leftMenuCtx, 210, 360, 50, 50, '+', false);
-                drawButton(leftMenuCtx, 270, 360, 50, 50, '-', false); drawButton(leftMenuCtx, 330, 360, 100, 50, `DThk: ${triangleDivThick}`, false); drawButton(leftMenuCtx, 440, 360, 50, 50, '+', false);
-                drawButton(leftMenuCtx, 20, 420, 220, 50, `Divs: ${triangleGridMode.toUpperCase()}`, false);
+              } else if (activeTool === 'triangle') {
+                // UI: Cone vs Pyramid
+                drawButton(leftMenuCtx, 20, 60, 225, 50, 'CONE', triangleType === 'cone'); 
+                drawButton(leftMenuCtx, 265, 60, 225, 50, 'PYRAMID', triangleType === 'pyramid');
+                
+                // UI: Mode Selection
+                drawButton(leftMenuCtx, 20, 120, 140, 50, 'SOLID', triangleMode === 'solid'); 
+                drawButton(leftMenuCtx, 170, 120, 150, 50, 'SHELL', triangleMode === 'shell'); 
+                drawButton(leftMenuCtx, 330, 120, 160, 50, 'WIRE', triangleMode === 'wireframe');
+                
+                // UI: Axis Selection
+                drawButton(leftMenuCtx, 20, 180, 140, 50, 'AXIS: X', triangleAxis === 'X'); 
+                drawButton(leftMenuCtx, 170, 180, 150, 50, 'AXIS: Y', triangleAxis === 'Y'); 
+                drawButton(leftMenuCtx, 330, 180, 160, 50, 'AXIS: Z', triangleAxis === 'Z');
+                
+                // UI: Pyramid Legs (only if Pyramid is active)
+                if (triangleType === 'pyramid') { 
+                    drawButton(leftMenuCtx, 20, 240, 50, 50, '-', false); 
+                    drawButton(leftMenuCtx, 80, 240, 160, 50, `Legs: ${pyramidLegs}`, false); 
+                    drawButton(leftMenuCtx, 250, 240, 50, 50, '+', false); 
+                }
+                
+                // UI: Cap Toggle (only for Shell/Wire)
+                if (triangleMode !== 'solid') {
+                    drawButton(leftMenuCtx, 330, 240, 162, 50, `CAP: ${triangleCap?'ON':'OFF'}`, triangleCap);
+                }
+
+                // UI: Wireframe thickness
+                if (triangleMode === 'wireframe') { 
+                    drawButton(leftMenuCtx, 20, 300, 50, 50, '-', false); 
+                    drawButton(leftMenuCtx, 80, 300, 160, 50, `Thick: ${wireWidth}`, false); 
+                    drawButton(leftMenuCtx, 250, 300, 50, 50, '+', false); 
+                    drawButton(leftMenuCtx, 330, 300, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); 
+                } 
+                
+                // UI: Grid Dividers
+                drawButton(leftMenuCtx, 20, 360, 50, 50, '-', false); 
+                drawButton(leftMenuCtx, 80, 360, 120, 50, `Divs: ${triangleDivs}`, false); 
+                drawButton(leftMenuCtx, 210, 360, 50, 50, '+', false);
+                
+                drawButton(leftMenuCtx, 270, 360, 50, 50, '-', false); 
+                drawButton(leftMenuCtx, 330, 360, 100, 50, `DThk: ${triangleDivThick}`, false); 
+                drawButton(leftMenuCtx, 440, 360, 50, 50, '+', false);
+                
+                // UI: Grid Mode (Surface vs Internal)
+                drawButton(leftMenuCtx, 20, 420, 470, 50, `Grid Placement: ${triangleGridMode.toUpperCase()}`, false);
             } else if (activeTool === 'icosahedron') {
                 drawButton(leftMenuCtx, 20, 60, 225, 45, 'TETRA', platonicType === 'tetrahedron'); drawButton(leftMenuCtx, 265, 60, 225, 45, 'OCTA', platonicType === 'octahedron'); drawButton(leftMenuCtx, 20, 110, 225, 45, 'ICOSA', platonicType === 'icosahedron'); drawButton(leftMenuCtx, 265, 110, 225, 45, 'DODECA', platonicType === 'dodecahedron');
                 drawButton(leftMenuCtx, 20, 165, 140, 50, 'SOLID', icosahedronMode === 'solid'); drawButton(leftMenuCtx, 170, 165, 150, 50, 'SHELL', icosahedronMode === 'shell'); drawButton(leftMenuCtx, 330, 165, 160, 50, 'WIRE', icosahedronMode === 'wireframe');
@@ -1244,8 +1281,40 @@ function updatePlanePreview(start, end, isPainting) {
                 else { if (cy >= 270 && cy <= 310) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); } }
             } else if (activeTool === 'select' && !hasSelection) { if (cy >= 70 && cy <= 110) { if (cx >= 50 && cx <= 250) selectMode = 'box'; if (cx >= 262 && cx <= 462) selectMode = 'connected'; } if (cy >= 120 && cy <= 160) { if (cx >= 50 && cx <= 180) selectFilter = 'all'; if (cx >= 190 && cx <= 320) selectFilter = 'color'; if (cx >= 330 && cx <= 462) selectFilter = 'material'; }
             } else if (activeTool === 'triangle') {
-                if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 160) triangleType = 'cone'; if (cx >= 170 && cx <= 320) triangleType = 'tetra'; if (cx >= 330 && cx <= 490) triangleType = 'pyramid'; } else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) triangleMode = 'solid'; if (cx >= 170 && cx <= 320) triangleMode = 'shell'; if (cx >= 330 && cx <= 490) triangleMode = 'wireframe'; } else if (cy >= 180 && cy <= 230) { if (cx >= 20 && cx <= 160) triangleAxis = 'X'; if (cx >= 170 && cx <= 320) triangleAxis = 'Y'; if (cx >= 330 && cx <= 490) triangleAxis = 'Z'; } else if (cy >= 240 && cy <= 290) { if (triangleType === 'pyramid') { if (cx >= 20 && cx <= 70) pyramidLegs = Math.max(3, pyramidLegs - 1); if (cx >= 250 && cx <= 300) pyramidLegs = Math.min(12, pyramidLegs + 1); } else if (triangleMode !== 'solid' && cx >= 170 && cx <= 320) triangleCap = !triangleCap; } else if (cy >= 300 && cy <= 350 && triangleMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; } else if (cy >= 360 && cy <= 410) { if (cx >= 20 && cx <= 70) triangleDivs = Math.max(1, triangleDivs - 1); if (cx >= 210 && cx <= 260) triangleDivs = Math.min(20, triangleDivs + 1); if (cx >= 270 && cx <= 320) triangleDivThick = Math.max(1, triangleDivThick - 1); if (cx >= 440 && cx <= 490) triangleDivThick = Math.min(10, triangleDivThick + 1); } else if (cy >= 420 && cy <= 470 && cx >= 20 && cx <= 240) triangleGridMode = triangleGridMode === 'internal' ? 'surface' : 'internal';
-            } else if (activeTool === 'cylinder') {
+                if (cy >= 60 && cy <= 110) { 
+                    if (cx >= 20 && cx <= 245) triangleType = 'cone'; 
+                    if (cx >= 265 && cx <= 490) triangleType = 'pyramid'; 
+                } else if (cy >= 120 && cy <= 170) { 
+                    if (cx >= 20 && cx <= 160) triangleMode = 'solid'; 
+                    if (cx >= 170 && cx <= 320) triangleMode = 'shell'; 
+                    if (cx >= 330 && cx <= 490) triangleMode = 'wireframe'; 
+                } else if (cy >= 180 && cy <= 230) { 
+                    if (cx >= 20 && cx <= 160) triangleAxis = 'X'; 
+                    if (cx >= 170 && cx <= 320) triangleAxis = 'Y'; 
+                    if (cx >= 330 && cx <= 490) triangleAxis = 'Z'; 
+                } else if (cy >= 240 && cy <= 290) { 
+                    // Handle Pyramid Legs
+                    if (triangleType === 'pyramid') { 
+                        if (cx >= 20 && cx <= 70) pyramidLegs = Math.max(3, pyramidLegs - 1); 
+                        if (cx >= 250 && cx <= 300) pyramidLegs = Math.min(12, pyramidLegs + 1); 
+                    }
+                    // Handle Capping (New coordinate check)
+                    if (triangleMode !== 'solid' && cx >= 330 && cx <= 492) {
+                        triangleCap = !triangleCap;
+                    }
+                } else if (cy >= 300 && cy <= 350 && triangleMode === 'wireframe') { 
+                    if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); 
+                    if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); 
+                    if (cx >= 330 && cx <= 490) wireFill = !wireFill; 
+                } else if (cy >= 360 && cy <= 410) { 
+                    if (cx >= 20 && cx <= 70) triangleDivs = Math.max(1, triangleDivs - 1); 
+                    if (cx >= 210 && cx <= 260) triangleDivs = Math.min(20, triangleDivs + 1); 
+                    if (cx >= 270 && cx <= 320) triangleDivThick = Math.max(1, triangleDivThick - 1); 
+                    if (cx >= 440 && cx <= 490) triangleDivThick = Math.min(10, triangleDivThick + 1); 
+                } else if (cy >= 420 && cy <= 470 && cx >= 20 && cx <= 490) {
+                    triangleGridMode = (triangleGridMode === 'internal') ? 'surface' : 'internal';
+                }
+            }else if (activeTool === 'cylinder') {
                 if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 160) cylinderMode = 'solid'; if (cx >= 170 && cx <= 320) cylinderMode = 'shell'; if (cx >= 330 && cx <= 490) cylinderMode = 'wireframe'; } else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) cylinderAxis = 'X'; if (cx >= 170 && cx <= 320) cylinderAxis = 'Y'; if (cx >= 330 && cx <= 490) cylinderAxis = 'Z'; } else if (cy >= 180 && cy <= 230) { if (cx >= 20 && cx <= 70) { if (cylinderSides === 0) cylinderSides = 32; else if (cylinderSides > 3) cylinderSides--; else cylinderSides = 0; } if (cx >= 250 && cx <= 300) { if (cylinderSides === 0) cylinderSides = 3; else if (cylinderSides < 32) cylinderSides++; else cylinderSides = 0; } if (cylinderMode !== 'solid' && cx >= 310 && cx <= 460) cylinderCap = !cylinderCap; } else if (cy >= 240 && cy <= 290 && cylinderMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
             } else if (activeTool === 'icosahedron') {
                 if (cy >= 60 && cy <= 105) { if (cx >= 20 && cx <= 245) platonicType = 'tetrahedron'; if (cx >= 265 && cx <= 490) platonicType = 'octahedron'; } else if (cy >= 110 && cy <= 155) { if (cx >= 20 && cx <= 245) platonicType = 'icosahedron'; if (cx >= 265 && cx <= 490) platonicType = 'dodecahedron'; } else if (cy >= 165 && cy <= 215) { if (cx >= 20 && cx <= 160) icosahedronMode = 'solid'; if (cx >= 170 && cx <= 320) icosahedronMode = 'shell'; if (cx >= 330 && cx <= 490) icosahedronMode = 'wireframe'; } else if (cy >= 225 && cy <= 275) { if (cx >= 20 && cx <= 240) icosahedronLock = !icosahedronLock; if (platonicType !== 'dodecahedron') { if (cx >= 250 && cx <= 300) icosahedronDivs = Math.max(1, icosahedronDivs - 1); if (cx >= 450 && cx <= 492) icosahedronDivs = Math.min(5, icosahedronDivs + 1); } } else if (cy >= 285 && cy <= 335 && icosahedronMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
