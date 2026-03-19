@@ -27,8 +27,37 @@
         }
         h1 { margin: 0 0 10px 0; font-size: 24px; color: #4facfe; }
         p { margin: 5px 0; font-size: 14px; color: #ddd; }
+
+        /* Browser Export Button Styling */
+        #export-button-overlay {
+            position: absolute;
+            bottom: 85px; /* Positioned just above the standard WebXR button */
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: #4facfe;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1001;
+            pointer-events: auto;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        #export-button-overlay:hover {
+            background: #0088ff;
+            box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
+            transform: translateX(-50%) translateY(-2px);
+        }
+        #export-button-overlay:active {
+            transform: translateX(-50%) translateY(0);
+        }
         
         /* Loading Overlay Styles */
+
         #loading-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -71,6 +100,8 @@
         <p><b>A & B (Right):</b> Tools & Settings | <b>X & Y (Left):</b> Tool Options & Materials</p>
         <p style="color: #00ffcc;"><b>Joysticks:</b> Shift Colors — Assignable in the Color Menu (B-Button)</p>
     </div>
+
+    <button id="export-button-overlay">Export .OBJ (Current Mode)</button>
 
     <script type="module">
         import * as THREE from 'three';
@@ -2681,6 +2712,15 @@ function placeBrushVoxels(pos, isP) {
             renderer.render(scene, camera);
         });
         window.addEventListener('resize',()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
+        
+        // Add listener for the browser-based export button
+        const exportBtn = document.getElementById('export-button-overlay');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => {
+                exportToOBJ();
+            });
+        }
+
         const load=document.getElementById('loading-overlay'); if(load){ load.style.opacity='0'; setTimeout(()=>load.style.display='none',500); }
         }); 
     </script>
