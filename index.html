@@ -1816,17 +1816,68 @@ function updatePlanePreview(start, end, isPainting) {
 
         function applySelection() {
             const hasBeenTransformed = selectionGroup.position.lengthSq() > 0.0001 || selectionRotX !== 0 || selectionRotY !== 0 || selectionRotZ !== 0 || selectionScale !== 1;
-            const oX=Math.round(selectionGroup.position.x/VOXEL_SIZE), oY=Math.round(selectionGroup.position.y/VOXEL_SIZE), oZ=Math.round(selectionGroup.position.z/VOXEL_SIZE);
-            
+            const oX = Math.round(selectionGroup.position.x / VOXEL_SIZE);
+            const oY = Math.round(selectionGroup.position.y / VOXEL_SIZE);
+            const oZ = Math.round(selectionGroup.position.z / VOXEL_SIZE);
+
             if (transformMode === 'copy') {
-                // ... copy logic remains same ...
+                const steps = numCopies;
+                const pCX = pivotPoint.x, pCY = pivotPoint.y, pCZ = pivotPoint.z;
+
+                // Iterate through copies (1 to numCopies) matching the visual preview logic
+                for (let step = 1; step <= steps; step++) {
+                    const curOffX = oX * step;
+                    const curOffY = oY * step;
+                    const curOffZ = oZ * step;
+
+                    // Calculate the step-based rotation and scale
+                    const stepRot = new THREE.Euler(
+                        THREE.MathUtils.degToRad(copyStepRotX * step),
+                        THREE.MathUtils.degToRad(copyStepRotY * step),
+                        THREE.MathUtils.degToRad(copyStepRotZ * step),
+                        'XYZ'
+                    );
+                    const stepScale = Math.pow(copyStepScale, step);
+                    const stepMat = new THREE.Matrix4().makeRotationFromEuler(stepRot);
+                    tempMatrix.makeScale(stepScale, stepScale, stepScale);
+                    stepMat.multiply(tempMatrix);
+
+                    for (let i = 0; i < selectedVoxelsCount; i++) {
+                        const v = selectedVoxels[i];
+                        // Transform each voxel relative to the pivot, then apply offset
+                        tempPos.set(v.x - pCX, v.y - pCY, v.z - pCZ).applyMatrix4(stepMat);
+                        const rx = Math.round(pCX + tempPos.x + curOffX);
+                        const ry = Math.round(pCY + tempPos.y + curOffY);
+                        const rz = Math.round(pCX + tempPos.z + curOffZ); // Note: ensures Z is correct
+                        
+                        // Use the shared setVoxel to respect symmetry/mirrors
+                        setVoxel(rx, ry, Math.round(pCZ + tempPos.z + curOffZ), true, v.color, v.mat);
+                    }
+                }
             } else if (transformMode === 'move') {
-                // FIX: If never transformed, voxels are already in the world. Only stamp if they were moved/changed.
+                // Move logic remains: only stamp if the position or rotation actually changed
                 if (hasBeenTransformed) {
-                    for(let i=0; i<selectedVoxelsCount; i++) { const v=selectedVoxels[i]; setVoxel(v.x+oX, v.y+oY, v.z+oZ, true, v.color, v.mat); }
+                    for (let i = 0; i < selectedVoxelsCount; i++) {
+                        const v = selectedVoxels[i];
+                        setVoxel(v.x + oX, v.y + oY, v.z + oZ, true, v.color, v.mat);
+                    }
                 }
             }
-            baseSelectionCount = selectedVoxelsCount = 0; hasSelection = selectionGroup.visible = pivotIndicator.visible = isSettingPivot = false; selectionGroup.position.set(0,0,0); leftMenuNeedsUpdate = true;
+
+            // Cleanup selection state
+            baseSelectionCount = 0;
+            selectedVoxelsCount = 0;
+            hasSelection = false;
+            selectionGroup.visible = false;
+            pivotIndicator.visible = false;
+            isSettingPivot = false;
+            selectionGroup.position.set(0, 0, 0);
+            leftMenuNeedsUpdate = true;
+            
+            // Hide preview clusters
+            if (typeof previewGroups !== 'undefined') {
+                for (let i = 0; i < previewGroups.length; i++) previewGroups[i].visible = false;
+            }
         }
 
         function cancelSelection() { 
