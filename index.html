@@ -1565,6 +1565,8 @@ function updatePlanePreview(start, end, isPainting) {
                         const localIdx = layer.indexToLocal[i]; if (localIdx === 65535) continue;
                         const lx = localIdx&31, ly=(localIdx>>5)&31, lz=localIdx>>10, gx=(chunk.cx*32)+lx, gy=(chunk.cy*32)+ly, gz=(chunk.cz*32)+lz;
                         tempMatrix.makeTranslation(gx, gy, gz); layer.mesh.getColorAt(i, tempColor);
+                        // Normalize byte values before formatting for OBJ output
+                        if (tempColor.r > 1.0) { tempColor.r /= 255; tempColor.g /= 255; tempColor.b /= 255; }
                         const rS = tempColor.r.toFixed(3), gS = tempColor.g.toFixed(3), bS = tempColor.b.toFixed(3);
                         for (let d = 0; d < 6; d++) {
                             const dir = dirs[d]; if (!hasV(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
@@ -1597,7 +1599,14 @@ function updatePlanePreview(start, end, isPainting) {
         function getVoxelMatAndColor(gx, gy, gz, outColor) {
             const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5, k = (cx+65536)+(cy+65536)*131072+(cz+65536)*17179869184, c = chunks.get(k); if (!c) return -1;
             const lIdx = (gx&31)|((gy&31)<<5)|((gz&31)<<10), m = c.voxelMatMap[lIdx];
-            if (m !== -1 && outColor) { const layer = c.layers[m], iIdx = layer.voxelToIndex[lIdx]; if (iIdx !== 65535) layer.mesh.getColorAt(iIdx, outColor); }
+            if (m !== -1 && outColor) { 
+                const layer = c.layers[m], iIdx = layer.voxelToIndex[lIdx]; 
+                if (iIdx !== 65535) {
+                    layer.mesh.getColorAt(iIdx, outColor);
+                    // Normalize byte values (0-255) back to standard Three.js range (0-1)
+                    if (outColor.r > 1.0) { outColor.r /= 255; outColor.g /= 255; outColor.b /= 255; }
+                }
+            }
             return m;
         }
         
