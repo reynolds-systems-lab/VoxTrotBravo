@@ -1622,14 +1622,14 @@ function updatePlanePreview(start, end, isPainting) {
             rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; rightMenuCtx.fillRect(0, 0, 512, 512);
             rightMenuCtx.fillStyle = '#4facfe'; rightMenuCtx.font = 'bold 28px sans-serif'; rightMenuCtx.textAlign = 'center'; rightMenuCtx.fillText(`Tool Selection`, 256, 28);
             const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'stroke', label: 'Stroke (Continuous)' }, { id: 'sheet', label: 'Sheet (Two-Handed)' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' } ];
-            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 36 + i * 39, 412, 33, tools[i].label, activeTool === tools[i].id);
+            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 42 + i * 35, 412, 31, tools[i].label, activeTool === tools[i].id);
             rightMenuTexture.needsUpdate = true;
         }
 
 function handleRightMenuClick(cx, cy) {
             // Changed 12 * 39 to 13 * 39 to increase the click boundary for the new tool
-            if (cx >= 50 && cx <= 462 && cy >= 36 && cy <= 36 + 13 * 39) {
-                const idx = Math.floor((cy - 36) / 39);
+            if (cx >= 50 && cx <= 462 && cy >= 42 && cy <= 42 + 13 * 35) {
+                const idx = Math.floor((cy - 42) / 35);
                 
                 // Changed idx < 12 to idx < 13
                 if (idx >= 0 && idx < 13) {
