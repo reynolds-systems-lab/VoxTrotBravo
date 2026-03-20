@@ -3093,6 +3093,21 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     else if(activeTool==='triangle'&&isPreviewingTriangle) updateTrianglePreview(drawStartPos,leftTargetLocal,false); 
                     else if(activeTool==='icosahedron'&&isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,leftTargetLocal,false); 
                 }
+		// --- NEW: Always-On Two-Handed Arc Preview ---
+                if (activeTool === 'line' && lineMode === 'two-hand' && !isDrawing && !isErasing && xrLeft && xrRight) {
+                    hideAllPreviews();
+                    if (lineType === 'arc') {
+                        const arcPoints = [];
+                        calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, arcPoints);
+                        updateLinePreviewFromPoints(arcPoints, true);
+                    } else {
+                        updateLinePreviewMesh(leftTargetLocal, rightTargetLocal, true);
+                    }
+                    linePreviewMesh.visible = true;
+                } else if (!isDrawing && !isErasing && linePreviewMesh) {
+                    linePreviewMesh.visible = false;
+                }
+                // ---------------------------------------------
 
                 if(hasSelection) updatePreviews(); else if(previewGroups.length>0&&previewGroups[0].visible) for(let g of previewGroups) g.visible=false;
                 const showM=activeTool!=='select', showRM=showM&&!isColorPicking;
