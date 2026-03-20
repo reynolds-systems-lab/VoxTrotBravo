@@ -788,11 +788,7 @@ function updateLinePreviewFromPoints(points, isPainting) {
                     }
                 }
             }
-            linePreviewMesh.count = instCount;
-            linePreviewMesh.instanceMatrix.needsUpdate = true;
-            if (isPainting) linePreviewMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]); 
-            else linePreviewMesh.material.color.setHex(0xff0055);
-        }
+
             linePreviewMesh.count = instCount;
             linePreviewMesh.instanceMatrix.needsUpdate = true;
             if (isPainting) linePreviewMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]); 
