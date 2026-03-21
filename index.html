@@ -1778,15 +1778,19 @@ else if (cx >= 350 && cx <= 425) {
             let writer = null;
             let blobParts = [];
 
+            let writable = null;
             if (window.showSaveFilePicker) {
                 try {
                     const fileHandle = await window.showSaveFilePicker({
                         suggestedName: fileName,
                         types: [{ description: 'OBJ Model', accept: { 'text/plain': ['.obj'] } }],
                     });
-                    const writable = await fileHandle.createWritable();
+                    writable = await fileHandle.createWritable();
                     writer = writable.getWriter();
-                } catch (e) { return; }
+                } catch (e) { 
+                    console.warn("Save picker cancelled or failed, falling back to Blob.");
+                    // We don't return here so it can fallback to blobParts if writer is null
+                }
             }
 
 
@@ -1893,16 +1897,19 @@ else if (cx >= 350 && cx <= 425) {
 
             if (currentChunkString.length > 0) await writeData(currentChunkString);
 
-            if (writer) {
+            if (writer && writable) {
                 writer.releaseLock();
                 await writable.close();
-            } else {
+            } else if (blobParts.length > 0) {
                 const blob = new Blob(blobParts, { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
-                link.href = url;
-                link.download = fileName;
+                link.setAttribute('href', url);
+                link.setAttribute('download', fileName);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
                 link.click();
+                document.body.removeChild(link);
                 URL.revokeObjectURL(url);
             }
             if (exportBtn) exportBtn.innerText = originalText;
