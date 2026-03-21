@@ -1440,8 +1440,35 @@ function updatePlanePreview(start, end, isPainting) {
                     else if (cx >= 110 && cx <= 185) { newM = 'free'; isSettingPivot = false; } 
                     else if (cx >= 190 && cx <= 265) { newM = 'copy'; isSettingPivot = false; } 
                     else if (cx >= 270 && cx <= 345) { newM = 'draw'; isSettingPivot = false; } 
-                    else if (cx >= 350 && cx <= 425) { selectionScale = (Math.abs(selectionScale - 1.618) < 0.1) ? 0.618 : 1.618; updateRotatedSelection(); leftMenuNeedsUpdate = true; }
-                    else if (cx >= 430 && cx <= 490) isSettingPivot = !isSettingPivot;
+else if (cx >= 350 && cx <= 425) { 
+    const phi = 1.618034;
+    // Toggle copyStepScale (the multiplier for each step) instead of global scale
+    copyStepScale = (Math.abs(copyStepScale - phi) < 0.05) ? (1/phi) : phi;
+    
+    // Automatically move pivot to a "Golden" position within the current selection bounds
+    if (baseSelectionCount > 0) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for(let i=0; i<baseSelectionCount; i++) {
+            const v = baseSelection[i];
+            if(v.x < minX) minX = v.x; if(v.x > maxX) maxX = v.x;
+            if(v.y < minY) minY = v.y; if(v.y > maxY) maxY = v.y;
+            if(v.z < minZ) minZ = v.z; if(v.z > maxZ) maxZ = v.z;
+        }
+        // Place pivot at 1/phi (0.618) distance along the bounds for a natural "growth" center
+        const invPhi = 1/phi;
+        pivotPoint.x = Math.round(minX + (maxX - minX) * invPhi);
+        pivotPoint.y = Math.round(minY + (maxY - minY) * invPhi);
+        pivotPoint.z = Math.round(minZ + (maxZ - minZ) * invPhi);
+        
+        // Update the visual indicator in the world
+        pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
+        pivotIndicator.updateMatrix();
+    }
+    
+    updateRotatedSelection(); 
+    if (typeof updatePreviews === 'function') updatePreviews();
+    leftMenuNeedsUpdate = true; 
+}                    else if (cx >= 430 && cx <= 490) isSettingPivot = !isSettingPivot;
                     if (newM !== transformMode) {  
                         transformMode = newM; 
                     }
