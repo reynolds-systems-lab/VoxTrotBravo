@@ -101,7 +101,10 @@
         <p style="color: #00ffcc;"><b>Joysticks:</b> Shift Colors — Assignable in the Color Menu (B-Button)</p>
     </div>
 
-
+<div id="spectator-ui" style="position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; pointer-events: none;">
+    <p style="color: #4facfe; margin: 0 0 5px 0; font-weight: bold; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px;">Spectator View</p>
+    <canvas id="spectator-canvas" width="320" height="180" style="border: 2px solid #4facfe; border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.5);"></canvas>
+</div>
 <button id="export-button-overlay">Export .OBJ (Current Mode)</button>
 
     <script type="module">
@@ -167,6 +170,9 @@
     let isDropperActive = false;
     let viewportActive = false;
 
+    // Inside DOMContentLoaded or similar init block:
+    const specUI = document.getElementById('spectator-ui');
+    if (specUI) specUI.style.display = 'none';
         
         let planeOutline = true;
         let planeOutlineThick = 1;
@@ -378,7 +384,9 @@
     camera.position.set(0, 1.6, 3);
     
     // Spectator Camera
-
+    const spectatorCamera = new THREE.PerspectiveCamera(50, 320 / 180, 0.1, 1000);
+    spectatorCamera.position.set(2, 2, 2);
+    spectatorCamera.lookAt(0, 0, 0);
 
         const renderer = new THREE.WebGLRenderer({ 
             canvas: canvas, 
@@ -1703,7 +1711,8 @@ function handleRightMenuClick(cx, cy) {
             drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false); drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
             
             drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
-	    drawButton(globalMenuCtx, 40, 330, 432, 45, `Render Mode: ${renderMode === 'performance' ? 'PERFORMANCE (POINTS)' : 'STANDARD (VOXELS)'}`, renderMode === 'performance');
+        drawButton(globalMenuCtx, 40, 330, 200, 45, `Render: ${renderMode === 'performance' ? 'PERF' : 'STD'}`, renderMode === 'performance');
+        drawButton(globalMenuCtx, 272, 330, 200, 45, `Viewport: ${viewportActive ? 'ON' : 'OFF'}`, viewportActive);
             drawButton(globalMenuCtx, 40, 390, 200, 45, 'Export: BOXES', exportMode === 'boxes'); 
             drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
             drawButton(globalMenuCtx, 40, 450, 432, 50, 'EXPORT TO .OBJ', false);
@@ -1718,18 +1727,22 @@ function handleRightMenuClick(cx, cy) {
             
             if (cy >= 270 && cy <= 315) drawFromCenter = !drawFromCenter;
         if (cy >= 330 && cy <= 375) {
-           if (cx >= 40 && cx <= 472) {
-    renderMode = renderMode === 'standard' ? 'performance' : 'standard';
-    chunks.forEach(chunk => {
-        for (let i = 0; i < 4; i++) {
-            const layer = chunk.layers[i];
-            if (layer && layer.count > 0) {
-                layer.mesh.visible = (renderMode === 'standard');
-                layer.pointsMesh.visible = (renderMode === 'performance');
+            if (cx >= 40 && cx <= 240) {
+                renderMode = renderMode === 'standard' ? 'performance' : 'standard';
+                chunks.forEach(chunk => {
+                    for (let i = 0; i < 4; i++) {
+                        const layer = chunk.layers[i];
+                        if (layer && layer.count > 0) {
+                            layer.mesh.visible = (renderMode === 'standard');
+                            layer.pointsMesh.visible = (renderMode === 'performance');
+                        }
+                    }
+                });
+            } else if (cx >= 272 && cx <= 472) {
+                viewportActive = !viewportActive;
+                const specUI = document.getElementById('spectator-ui');
+                if (specUI) specUI.style.display = viewportActive ? 'flex' : 'none';
             }
-        }
-    });
-}
             if (hasSelection) updatePreviews();
         }
             if (cy >= 390 && cy <= 435) { if (cx >= 40 && cx <= 240) exportMode = 'boxes'; if (cx >= 272 && cx <= 472) exportMode = 'mesh'; }
@@ -2914,7 +2927,7 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
     }
     leftMenuNeedsUpdate = true;
 }
-        let isDrawing=false, isErasing=false, isColorPicking=false, rightMenuHovered=false, globalMenuHovered=false, leftMenuHovered=false, colorMenuHovered=false;
+let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=false, rightMenuHovered=false, globalMenuHovered=false, leftMenuHovered=false, colorMenuHovered=false;
         let rightMenuUV={x:0,y:0}, globalMenuUV={x:0,y:0}, leftMenuUV={x:0,y:0}, colorMenuUV={x:0,y:0}, isRightGripping=false, isLeftGripping=false;
         const prevRightPos=new THREE.Vector3(), prevLeftPos=new THREE.Vector3(), prevMid=new THREE.Vector3(), prevHandVec=new THREE.Vector3(), rightPos=new THREE.Vector3(), leftPos=new THREE.Vector3(), rightDir=new THREE.Vector3(), leftDir=new THREE.Vector3(), rightTargetLocal=new THREE.Vector3(), leftTargetLocal=new THREE.Vector3(), lastPaintedPos=new THREE.Vector3(Infinity,Infinity,Infinity), lastErasedPos=new THREE.Vector3(Infinity,Infinity,Infinity);
         let prevGripDist=0;
@@ -2923,27 +2936,23 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
         function paintSelection(ox, oy, oz) { for(let i=0; i<selectedVoxelsCount; i++){ const v=selectedVoxels[i]; recolorVoxelSet(v.x + ox, v.y + oy, v.z + oz, v.color, v.mat); } }
 
         function onSelectStart() {
+            menuClickActive = false; // Reset on every press
             if (this === xrRight) { 
                 if (leftMenuHovered && leftMenuMesh.visible) {
+                    menuClickActive = true;
                     const cx=Math.floor(leftMenuUV.x*512), cy=Math.floor((1-leftMenuUV.y)*512);
                     if(activeTool==='select'&&hasSelection){ if(cy>=100&&cy<=130) activeSliderDrag='rotX'; else if(cy>=140&&cy<=170) activeSliderDrag='rotY'; else if(cy>=180&&cy<=210) activeSliderDrag='rotZ'; else if(cy>=220&&cy<=250) activeSliderDrag='scale'; else if(transformMode==='copy'){ if(cy>=300&&cy<=330) activeSliderDrag='stepRotX'; else if(cy>=335&&cy<=365) activeSliderDrag='stepRotY'; else if(cy>=370&&cy<=400) activeSliderDrag='stepRotZ'; else if(cy>=405&&cy<=435) activeSliderDrag='stepScale'; else handleLeftMenuClick(cx,cy); } else handleLeftMenuClick(cx,cy); } else handleLeftMenuClick(cx,cy);
                     return;
                 } else if (colorMenuHovered && colorMenuMesh.visible) {
+                    menuClickActive = true;
                     const cx=Math.floor(colorMenuUV.x*512), cy=Math.floor((1-colorMenuUV.y)*512);
                     if(cy>=155&&cy<=335&&cx>=20&&cx<=492) { isColorPicking=true; isPaletteMagnified=true; updateColorMenuTexture(); } else handleColorMenuClick(cx,cy);
                     return;
                 }
             } else if (this === xrLeft) { 
-                if (rightMenuHovered && rightMenuMesh.visible) { handleRightMenuClick(Math.floor(rightMenuUV.x*512),Math.floor((1-rightMenuUV.y)*512)); return; }
-                else if (globalMenuHovered && globalMenuMesh.visible) { handleGlobalMenuClick(Math.floor(globalMenuUV.x*512),Math.floor((1-globalMenuUV.y)*512)); return; }
+                if (rightMenuHovered && rightMenuMesh.visible) { menuClickActive = true; handleRightMenuClick(Math.floor(rightMenuUV.x*512),Math.floor((1-rightMenuUV.y)*512)); return; }
+                else if (globalMenuHovered && globalMenuMesh.visible) { menuClickActive = true; handleGlobalMenuClick(Math.floor(globalMenuUV.x*512),Math.floor((1-globalMenuUV.y)*512)); return; }
             }
-
-            const targetPos = this === xrRight ? rightTargetLocal : leftTargetLocal;
-            lockCtx.startG = {
-                x: Math.round(targetPos.x / VOXEL_SIZE),
-                y: Math.round(targetPos.y / VOXEL_SIZE),
-                z: Math.round(targetPos.z / VOXEL_SIZE)
-            };
             
             lockCtx.symmetries = activeSymmetries.map(sym => {
                 const mx = lockCtx.startG.x * sym.sx;
@@ -3008,10 +3017,10 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
                 else if(isColorPicking) { isColorPicking=isPaletteMagnified=false; updateColorMenuTexture(); } 
                 else { 
                     isDrawing=false; 
-                    if(activeTool==='select'&&selectMode==='box'&&isPreviewingBox){ executeSelectBox(drawStartPos,rightTargetLocal); isPreviewingBox=false; boxPreviewMesh.visible=false; } 
+                    if(activeTool==='select'&&selectMode==='box'&&isPreviewingBox){ if(!menuClickActive) executeSelectBox(drawStartPos,rightTargetLocal); isPreviewingBox=false; boxPreviewMesh.visible=false; } 
                     
                     if(activeTool==='line') {
-                        if (lineDrawMode === 'stroke' && linePreviewMesh.visible) {
+                        if (!menuClickActive && lineDrawMode === 'stroke' && linePreviewMesh.visible) {
                             let pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
                             executeLineTool(pStart, rightTargetLocal, true);
                         }
@@ -3289,7 +3298,34 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
             }
         renderer.render(scene, camera);
 
-
+        // Optional: Secondary render for spectator viewport
+        // Fixed Spectator Viewport Logic
+        if (viewportActive) {
+            const spectatorCanvas = document.getElementById('spectator-canvas');
+            const specCtx = spectatorCanvas.getContext('2d');
+            
+            // Track the head position using the camera's world matrix
+            tempPos.setFromMatrixPosition(camera.matrixWorld);
+            spectatorCamera.position.lerp(tempPos.add(new THREE.Vector3(1.5, 0.8, 1.5)), 0.05);
+            spectatorCamera.lookAt(worldGroup.position);
+            
+            // Temporarily disable XR to force a render pass to the DOM canvas
+            const wasXREnabled = renderer.xr.enabled;
+            renderer.xr.enabled = false;
+            
+            renderer.setViewport(0, 0, 320, 180);
+            renderer.setScissor(0, 0, 320, 180);
+            renderer.setScissorTest(true);
+            renderer.render(scene, spectatorCamera);
+            
+            // Capture the pixels from the WebGL canvas before the next clear
+            specCtx.drawImage(renderer.domElement, 0, renderer.domElement.height - 180, 320, 180, 0, 0, 320, 180);
+            
+            // Restore state
+            renderer.setScissorTest(false);
+            renderer.xr.enabled = wasXREnabled;
+            renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+        }
     });
         window.addEventListener('resize',()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
         
