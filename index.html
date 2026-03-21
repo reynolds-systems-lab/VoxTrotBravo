@@ -1730,7 +1730,7 @@ function handleRightMenuClick(cx, cy) {
                         }
                     }
                 });
-
+            } // <-- Added missing brace to close the "Render" button logic
             if (hasSelection) updatePreviews();
         }
             if (cy >= 390 && cy <= 435) { if (cx >= 40 && cx <= 240) exportMode = 'boxes'; if (cx >= 272 && cx <= 472) exportMode = 'mesh'; }
