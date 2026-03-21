@@ -120,6 +120,7 @@
         let activeTool = 'brush'; 
         let extrudeAxis = 'free'; // New State for Extrude Tool
         let extrudeAdjoining = false; // New: Toggle for face extrusion
+        let strokeMode = 'continuous'; 
         let sheetMode = 'surface';
         let brushShape = 'cube'; 
         let brushVolume = 'shell';
@@ -1327,8 +1328,12 @@ function updatePlanePreview(start, end, isPainting) {
                 drawButton(leftMenuCtx, 50, 140, 200, 50, 'Shape: CUBE', brushShape === 'cube'); drawButton(leftMenuCtx, 262, 140, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
                 drawButton(leftMenuCtx, 50, 210, 200, 50, 'SOLID', brushVolume === 'solid'); drawButton(leftMenuCtx, 262, 210, 200, 50, 'SHELL', brushVolume === 'shell');
                 drawButton(leftMenuCtx, 50, 280, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 280, 232, 50, `Radius: ${brushSize}`, false); drawButton(leftMenuCtx, 382, 280, 80, 50, '[+]', false);
+            } else if (activeTool === 'stroke') {
+                drawButton(leftMenuCtx, 50, 70, 200, 50, 'CONTINUOUS', strokeMode === 'continuous'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'STRAIGHT LINE', strokeMode === 'line');
+                drawButton(leftMenuCtx, 50, 140, 200, 50, 'Shape: CUBE', brushShape === 'cube'); drawButton(leftMenuCtx, 262, 140, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
+                drawButton(leftMenuCtx, 50, 210, 200, 50, 'SOLID', brushVolume === 'solid'); drawButton(leftMenuCtx, 262, 210, 200, 50, 'SHELL', brushVolume === 'shell');
+                drawButton(leftMenuCtx, 50, 280, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 280, 232, 50, `Radius: ${brushSize}`, false); drawButton(leftMenuCtx, 382, 280, 80, 50, '[+]', false);
             } else if (activeTool === 'paint') {
-
                 drawButton(leftMenuCtx, 50, 70, 200, 50, 'BRUSH', paintMode === 'brush'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'BUCKET', paintMode === 'bucket');
                 if (paintMode === 'brush') {
                     drawButton(leftMenuCtx, 50, 140, 200, 50, 'Shape: CUBE', brushShape === 'cube'); drawButton(leftMenuCtx, 262, 140, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
@@ -1414,7 +1419,7 @@ function updatePlanePreview(start, end, isPainting) {
                     drawButton(leftMenuCtx, 50, 70, 200, 40, 'BOX MODE', selectMode === 'box'); drawButton(leftMenuCtx, 262, 70, 200, 40, 'CONNECTED', selectMode === 'connected');
                     drawButton(leftMenuCtx, 50, 120, 130, 40, 'ALL', selectFilter === 'all'); drawButton(leftMenuCtx, 190, 120, 130, 40, 'COLOR', selectFilter === 'color'); drawButton(leftMenuCtx, 330, 120, 132, 40, 'MATERIAL', selectFilter === 'material');
                 } else {
-                    const btnW = 75; drawButton(leftMenuCtx, 30, 60, btnW, 30, 'MOVE', transformMode === 'move' && !isSettingPivot); drawButton(leftMenuCtx, 110, 60, btnW, 30, 'FREE', transformMode === 'free' && !isSettingPivot); drawButton(leftMenuCtx, 190, 60, btnW, 30, 'COPY', transformMode === 'copy' && !isSettingPivot); drawButton(leftMenuCtx, 270, 60, btnW, 30, 'DRAW', transformMode === 'draw' && !isSettingPivot); drawButton(leftMenuCtx, 350, 60, btnW, 30, 'GOLDEN', false); drawButton(leftMenuCtx, 430, 60, 60, 30, isSettingPivot ? 'PICK' : 'PIVOT', isSettingPivot);
+                    const btnW = 80; drawButton(leftMenuCtx, 50, 60, btnW, 30, 'MOVE', transformMode === 'move' && !isSettingPivot); drawButton(leftMenuCtx, 135, 60, btnW, 30, 'COPY', transformMode === 'copy' && !isSettingPivot); drawButton(leftMenuCtx, 220, 60, btnW, 30, 'DRAW', transformMode === 'draw' && !isSettingPivot); drawButton(leftMenuCtx, 305, 60, btnW, 30, 'PAINT', transformMode === 'paint' && !isSettingPivot); drawButton(leftMenuCtx, 390, 60, 85, 30, isSettingPivot ? 'PICK' : 'PIVOT', isSettingPivot);
                     drawSlider(leftMenuCtx, 50, 100, 412, 30, 'ROT X', selectionRotX, -180, 180); drawSlider(leftMenuCtx, 50, 140, 412, 30, 'ROT Y', selectionRotY, -180, 180); drawSlider(leftMenuCtx, 50, 180, 412, 30, 'ROT Z', selectionRotZ, -180, 180);
                     drawSlider(leftMenuCtx, 50, 220, 412, 30, 'SCALE', selectionScale, 0.1, 5.0, 'SCALE: %vx');
                     if (transformMode === 'copy') { 
@@ -1430,41 +1435,8 @@ function updatePlanePreview(start, end, isPainting) {
         function handleLeftMenuClick(cx, cy) {
             if (activeTool === 'select' && hasSelection) {
                 if (cy >= 60 && cy <= 90) {
-                    let newM = transformMode; 
-                    if (cx >= 30 && cx <= 105) { newM = 'move'; isSettingPivot = false; } 
-                    else if (cx >= 110 && cx <= 185) { newM = 'free'; isSettingPivot = false; } 
-                    else if (cx >= 190 && cx <= 265) { newM = 'copy'; isSettingPivot = false; } 
-                    else if (cx >= 270 && cx <= 345) { newM = 'draw'; isSettingPivot = false; } 
-else if (cx >= 350 && cx <= 425) { 
-    const phi = 1.618034;
-    // Toggle copyStepScale (the multiplier for each step) instead of global scale
-    copyStepScale = (Math.abs(copyStepScale - phi) < 0.05) ? (1/phi) : phi;
-    
-    // Automatically move pivot to a "Golden" position within the current selection bounds
-    if (baseSelectionCount > 0) {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-        for(let i=0; i<baseSelectionCount; i++) {
-            const v = baseSelection[i];
-            if(v.x < minX) minX = v.x; if(v.x > maxX) maxX = v.x;
-            if(v.y < minY) minY = v.y; if(v.y > maxY) maxY = v.y;
-            if(v.z < minZ) minZ = v.z; if(v.z > maxZ) maxZ = v.z;
-        }
-        // Place pivot at 1/phi (0.618) distance along the bounds for a natural "growth" center
-        const invPhi = 1/phi;
-        pivotPoint.x = Math.round(minX + (maxX - minX) * invPhi);
-        pivotPoint.y = Math.round(minY + (maxY - minY) * invPhi);
-        pivotPoint.z = Math.round(minZ + (maxZ - minZ) * invPhi);
-        
-        // Update the visual indicator in the world
-        pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
-        pivotIndicator.updateMatrix();
-    }
-    
-    updateRotatedSelection(); 
-    if (typeof updatePreviews === 'function') updatePreviews();
-    leftMenuNeedsUpdate = true; 
-}                    else if (cx >= 430 && cx <= 490) isSettingPivot = !isSettingPivot;
-                    if (newM !== transformMode) {  
+                    let newM = transformMode; if (cx >= 50 && cx <= 130) { newM = 'move'; isSettingPivot = false; } else if (cx >= 135 && cx <= 215) { newM = 'copy'; isSettingPivot = false; } else if (cx >= 220 && cx <= 300) { newM = 'draw'; isSettingPivot = false; } else if (cx >= 305 && cx <= 385) { newM = 'paint'; isSettingPivot = false; } else if (cx >= 390 && cx <= 475) isSettingPivot = !isSettingPivot;
+                    if (newM !== transformMode) { 
                         transformMode = newM; 
                     }
                 }
@@ -1571,7 +1543,7 @@ else if (cx >= 350 && cx <= 425) {
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
                 if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                 if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
-            } else if (activeTool === 'paint' && paintMode === 'brush') {
+            } else if ((activeTool === 'paint' && paintMode === 'brush') || activeTool === 'stroke') {
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
                 if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                 if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
@@ -1689,25 +1661,24 @@ else if (cx >= 350 && cx <= 425) {
         function updateRightMenuTexture() {
             rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; rightMenuCtx.fillRect(0, 0, 512, 512);
             rightMenuCtx.fillStyle = '#4facfe'; rightMenuCtx.font = 'bold 28px sans-serif'; rightMenuCtx.textAlign = 'center'; rightMenuCtx.fillText(`Tool Selection`, 256, 28);
-            const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'extrude', label: 'Extrude (Pull)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'sheet', label: 'Sheet (Two-Handed)' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' } ];
+            const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'extrude', label: 'Extrude (Pull)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'stroke', label: 'Stroke (Continuous)' }, { id: 'sheet', label: 'Sheet (Two-Handed)' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' } ];
             for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 42 + i * 35, 412, 31, tools[i].label, activeTool === tools[i].id);
-
             rightMenuTexture.needsUpdate = true;
         }
 
-        function handleRightMenuClick(cx, cy) {
-            // Updated boundary for 13 tools
-            if (cx >= 50 && cx <= 462 && cy >= 42 && cy <= 42 + 13 * 35) {
+function handleRightMenuClick(cx, cy) {
+            // Changed 12 * 39 to 13 * 39 to increase the click boundary for the new tool
+            if (cx >= 50 && cx <= 462 && cy >= 42 && cy <= 42 + 14 * 35) {
                 const idx = Math.floor((cy - 42) / 35);
                 
-                if (idx >= 0 && idx < 13) {
+                if (idx >= 0 && idx < 14) {
                     if (hasSelection) applySelection();
                     isPreviewingBox = isPreviewingSphere = isPreviewingPlane = isPreviewingTriangle = isPreviewingCylinder = isPreviewingIcosahedron = false;
                     boxPreviewMesh.visible = spherePreviewMesh.visible = bucketPreviewMesh.visible = linePreviewMesh.visible = false;
                     
-                    const tools = ['brush', 'extrude', 'line', 'sheet', 'paint', 'sculpt', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select'];
+                    const tools = ['brush', 'extrude', 'line', 'stroke', 'sheet', 'paint', 'sculpt', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select'];
                     
-                    activeTool = tools[idx];   
+                    activeTool = tools[idx];  
                     updateCursors(); 
                     rightMenuNeedsUpdate = leftMenuNeedsUpdate = true;
                 }
@@ -1771,40 +1742,36 @@ else if (cx >= 350 && cx <= 425) {
         let leftMenuNeedsUpdate = true, rightMenuNeedsUpdate = true, colorMenuNeedsUpdate = true, globalMenuNeedsUpdate = true, lastMenuUpdateTime = 0, lastColorJoystickUpdateTime = 0; 
 
         async function exportToOBJ() {
-            const isMesh = exportMode === 'mesh';
-            const fileName = isMesh ? 'vox_mesh.obj' : 'vox_boxes.obj';
-            const encoder = new TextEncoder();
-            
-            let writer = null;
-            let blobParts = [];
-
-            let writable = null;
-            if (window.showSaveFilePicker) {
-                try {
-                    const fileHandle = await window.showSaveFilePicker({
-                        suggestedName: fileName,
-                        types: [{ description: 'OBJ Model', accept: { 'text/plain': ['.obj'] } }],
-                    });
-                    writable = await fileHandle.createWritable();
-                    writer = writable.getWriter();
-                } catch (e) { 
-                    console.warn("Save picker cancelled or failed, falling back to Blob.");
-                    // We don't return here so it can fallback to blobParts if writer is null
-                }
+            if (!window.showSaveFilePicker) {
+                const msg = "Streaming Export not supported. Use Chrome/Edge on Desktop.";
+                console.error(msg);
+                const box = document.createElement('div');
+                box.style = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;color:#ff4444;padding:20px;border:2px solid red;z-index:9999;border-radius:10px;text-align:center;font-family:sans-serif;";
+                box.innerHTML = `<h3>Export Error</h3><p>${msg}</p><button onclick="this.parentElement.remove()">Close</button>`;
+                document.body.appendChild(box);
+                return;
             }
 
+            const isMesh = exportMode === 'mesh';
+            const fileName = isMesh ? 'vox_mesh.obj' : 'vox_boxes.obj';
+            
+            let fileHandle;
+            try {
+                fileHandle = await window.showSaveFilePicker({
+                    suggestedName: fileName,
+                    types: [{ description: 'OBJ Model', accept: { 'text/plain': ['.obj'] } }],
+                });
+            } catch (e) { return; }
 
-            // Pre-allocated objects to avoid millions of allocations
-            const writeData = async (str) => {
-                if (writer) await writer.write(encoder.encode(str));
-                else blobParts.push(str);
-            };
+            const writable = await fileHandle.createWritable();
+            const encoder = new TextEncoder();
+            const writer = writable.getWriter();
 
             // Pre-allocated objects to avoid millions of allocations
             const vOffset = new THREE.Vector3(); 
             const calcPos = new THREE.Vector3();
 
-            await writeData("# VoxTrotBravo High-Efficiency Export\nmtllib voxel_materials.mtl\no VoxModel\n");
+            await writer.write(encoder.encode("# VoxTrotBravo High-Efficiency Export\nmtllib voxel_materials.mtl\no VoxModel\n"));
 
             const hs = 0.5;
             const faceVerts = {
@@ -1813,7 +1780,7 @@ else if (cx >= 350 && cx <= 425) {
                 py: [new THREE.Vector3(-hs, hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3(-hs, hs,-hs)],
                 ny: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3(-hs,-hs, hs)],
                 pz: [new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3(-hs, hs, hs)],
-                nz: [new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3(-hs, hs,-hs), new THREE.Vector3( hs, hs,-hs)]
+                nz: [new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3( hs, hs,-hs)]
             };
             const dirs = [{d:[1,0,0],v:faceVerts.px}, {d:[-1,0,0],v:faceVerts.nx}, {d:[0,1,0],v:faceVerts.py}, {d:[0,-1,0],v:faceVerts.ny}, {d:[0,0,1],v:faceVerts.pz}, {d:[0,0,-1],v:faceVerts.nz}];
             
@@ -1834,7 +1801,7 @@ else if (cx >= 350 && cx <= 425) {
             let currentChunkString = "";
 
             for (let m = 0; m < 4; m++) {
-                await writeData(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`);
+                await writer.write(encoder.encode(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`));
                 
                 for (let [key, chunk] of chunks) {
                     const layer = chunk.layers[m]; 
@@ -1851,6 +1818,7 @@ else if (cx >= 350 && cx <= 425) {
 
                         layer.mesh.getColorAt(i, tempColor);
                         if (tempColor.r > 1.0) { tempColor.r /= 255; tempColor.g /= 255; tempColor.b /= 255; }
+                        // Pre-calculate color strings once per voxel, not 24 times
                         const colorPart = `${tempColor.r.toFixed(3)} ${tempColor.g.toFixed(3)} ${tempColor.b.toFixed(3)}`;
 
                         for (let d = 0; d < 6; d++) {
@@ -1885,37 +1853,23 @@ else if (cx >= 350 && cx <= 425) {
                         }
 
                         voxelCounter++;
+                        // Flush more frequently for massive models to keep RAM footprint minimal
                         if (voxelCounter % 500 === 0) {
-                            await writeData(currentChunkString);
+                            await writer.write(encoder.encode(currentChunkString));
                             currentChunkString = "";
-                            if (exportBtn) exportBtn.innerText = `Exporting: ${Math.round((voxelCounter / totalActiveVoxels) * 100)}%`;
+                            if (exportBtn) exportBtn.innerText = `Streaming: ${Math.round((voxelCounter / totalActiveVoxels) * 100)}%`;
                             await new Promise(resolve => setTimeout(resolve, 0));
                         }
                     }
                 }
             }
 
-            if (currentChunkString.length > 0) await writeData(currentChunkString);
-
-            if (writer && writable) {
-                writer.releaseLock();
-                await writable.close();
-            } else if (blobParts.length > 0) {
-                const blob = new Blob(blobParts, { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.setAttribute('href', url);
-                link.setAttribute('download', fileName);
-                link.style.visibility = 'hidden';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-            }
+            if (currentChunkString.length > 0) await writer.write(encoder.encode(currentChunkString));
+            writer.releaseLock();
+            await writable.close();
             if (exportBtn) exportBtn.innerText = originalText;
             console.log("Export Complete");
         }
-
 
 
 
@@ -3038,11 +2992,12 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     } 
                 }
 		else { if(selectMode==='box'){ isDrawing=true; drawStartPos.copy(rightTargetLocal); isPreviewingBox=true; } else if(selectMode==='connected') executeSelectConnected(rightTargetLocal); } }
+                else if (activeTool==='stroke'&&strokeMode==='line'){ if(isPreviewingLineLeft){ drawLineVoxels(lineStartLeft,rightTargetLocal,false); isPreviewingLineLeft=false; lineStartLeft.set(Infinity,Infinity,Infinity); } else if(!isPreviewingLineRight){ lineStartRight.copy(rightTargetLocal); isPreviewingLineRight=true; } else { drawLineVoxels(lineStartRight,rightTargetLocal,true); lineStartRight.copy(rightTargetLocal); } }
                 else { isDrawing=true; drawStartPos.copy(rightTargetLocal); if(activeTool==='box')isPreviewingBox=true; if(activeTool==='extrude')isPreviewingExtrude=true; if(activeTool==='quadsphere')isPreviewingSphere=true; if(activeTool==='plane')isPreviewingPlane=true; if(activeTool==='cylinder')isPreviewingCylinder=true; if(activeTool==='triangle')isPreviewingTriangle=true; if(activeTool==='icosahedron'){ isDrawing=true; isPreviewingIcosahedron=true; drawStartPos.copy(rightTargetLocal); } }
             } else if (this === xrLeft) {
-                if(activeTool==='select'&&hasSelection) applySelection(); else { isErasing=true; drawStartPos.copy(leftTargetLocal); if(activeTool==='box')isPreviewingBox=true; if(activeTool==='extrude')isPreviewingExtrude=true; if(activeTool==='quadsphere')isPreviewingSphere=true; if(activeTool==='plane')isPreviewingPlane=true; if(activeTool==='cylinder')isPreviewingCylinder=true; if(activeTool==='triangle')isPreviewingTriangle=true; if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } }
+                if(activeTool==='select'&&hasSelection) applySelection(); else if(activeTool==='stroke'&&strokeMode==='line'){ if(isPreviewingLineRight){ drawLineVoxels(lineStartRight,leftTargetLocal,true); isPreviewingLineRight=false; lineStartRight.set(Infinity,Infinity,Infinity); } else if(!isPreviewingLineLeft){ lineStartLeft.copy(leftTargetLocal); isPreviewingLineLeft=true; } else { drawLineVoxels(lineStartLeft,leftTargetLocal,false); lineStartLeft.copy(leftTargetLocal); } } else { isErasing=true; drawStartPos.copy(leftTargetLocal); if(activeTool==='box')isPreviewingBox=true; if(activeTool==='extrude')isPreviewingExtrude=true; if(activeTool==='quadsphere')isPreviewingSphere=true; if(activeTool==='plane')isPreviewingPlane=true; if(activeTool==='cylinder')isPreviewingCylinder=true; if(activeTool==='triangle')isPreviewingTriangle=true; if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } }
             }
-        } // Added missing closing brace for onSelectStart
+        }
 
         function onSelectEnd() {
             if (this === xrRight) { 
@@ -3130,12 +3085,9 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     }
                     const ax = source.gamepad.axes;
                     if (ax && ax.length >= 2) { 
-                        const xVal = ax.length >= 4 ? ax[2] : ax[0], yVal = ax.length >= 4 ? ax[3] : ax[1], dead = 0.15;
-                        if (hasSelection && transformMode === 'free' && source.handedness === 'right' && Math.abs(yVal) > dead) {
-                            selectionScale = Math.max(0.1, Math.min(10, selectionScale - yVal * 0.05));
-                            updateRotatedSelection();
-                            leftMenuNeedsUpdate = true;
-                        } else if (Math.abs(xVal) > dead || Math.abs(yVal) > dead) { 
+                        const xVal = ax.length >= 4 ?
+                        ax[2] : ax[0], yVal = ax.length >= 4 ? ax[3] : ax[1], dead = 0.15;
+                        if (Math.abs(xVal) > dead || Math.abs(yVal) > dead) { 
                             const targetIdx = source.handedness === 'right' ?
                             joyRTarget : joyLTarget;
                             if (targetIdx !== -1) {
@@ -3183,8 +3135,8 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
 
                     if(hasSelection && !isSettingPivot){
-                        // Snap to controller tip for brush-style modes (Draw/Paint/Free)
-                        if (transformMode === 'draw' || transformMode === 'paint' || (transformMode === 'free' && isDrawing)) {
+                        // Snap to controller tip for brush-style modes (Draw/Paint)
+                        if (transformMode === 'draw' || transformMode === 'paint') {
                             selectionGroup.position.set(rightTargetLocal.x - Math.round(selectionCenter.x)*VOXEL_SIZE, rightTargetLocal.y - Math.round(selectionCenter.y)*VOXEL_SIZE, rightTargetLocal.z - Math.round(selectionCenter.z)*VOXEL_SIZE);
                             
                             tempQuat.setFromRotationMatrix(xrRight.matrixWorld);
@@ -3254,7 +3206,8 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                         linePreviewMesh.visible = true;
                     }
 
-                    else if(activeTool==='brush'){ if(!rightTargetLocal.equals(lastPaintedPos)){ placeBrushVoxels(rightTargetLocal,true); lastPaintedPos.copy(rightTargetLocal); } } else if(activeTool==='sculpt') executeSculpt(rightTargetLocal,true); else if(activeTool==='sheet'&&xrLeft){ if(lastSheetLeftPos.x===Infinity){ lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,lastSheetLeftPos,lastSheetRightPos,true,brushSize); } else { drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,leftTargetLocal,rightTargetLocal,true,brushSize); lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); } } else if(activeTool==='paint'&&paintMode==='brush'){ if(lastPaintedPos.x===Infinity){ placePaintVoxels(rightTargetLocal); lastPaintedPos.copy(rightTargetLocal); } else if(!rightTargetLocal.equals(lastPaintedPos)){ drawPaintLineVoxels(lastPaintedPos,rightTargetLocal); lastPaintedPos.copy(rightTargetLocal); } } 
+                    else if(activeTool==='brush'){ if(!rightTargetLocal.equals(lastPaintedPos)){ placeBrushVoxels(rightTargetLocal,true); lastPaintedPos.copy(rightTargetLocal); } } else if(activeTool==='sculpt') executeSculpt(rightTargetLocal,true); else if(activeTool==='stroke'&&strokeMode==='continuous'){ if(lastPaintedPos.x===Infinity){ placeBrushVoxels(rightTargetLocal,true); lastPaintedPos.copy(rightTargetLocal); } else if(!rightTargetLocal.equals(lastPaintedPos)){ drawLineVoxels(lastPaintedPos,rightTargetLocal,true); lastPaintedPos.copy(rightTargetLocal); } } else if(activeTool==='sheet'&&xrLeft){ if(lastSheetLeftPos.x===Infinity){ lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,lastSheetLeftPos,lastSheetRightPos,true,brushSize); } else { drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,leftTargetLocal,rightTargetLocal,true,brushSize); lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); } } else if(activeTool==='paint'&&paintMode==='brush'){ if(lastPaintedPos.x===Infinity){ placePaintVoxels(rightTargetLocal); lastPaintedPos.copy(rightTargetLocal); } else if(!rightTargetLocal.equals(lastPaintedPos)){ drawPaintLineVoxels(lastPaintedPos,rightTargetLocal); lastPaintedPos.copy(rightTargetLocal); } } 
+
                     else if(isPreviewingSphere) updateSpherePreview(drawStartPos,rightTargetLocal,true); 
                     else if(isPreviewingPlane) updatePlanePreview(drawStartPos,rightTargetLocal,true); 
                     else if(isPreviewingCylinder) updateCylinderPreview(drawStartPos,rightTargetLocal,true); 
@@ -3290,7 +3243,7 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                         }
                     }
 
-                    else if(activeTool==='brush'){ if(!leftTargetLocal.equals(lastErasedPos)){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sculpt') executeSculpt(leftTargetLocal,false); else if(activeTool==='sheet'&&xrRight){ if(lastSheetLeftPos.x===Infinity){ lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,lastSheetLeftPos,lastSheetRightPos,false,brushSize); } else { drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,leftTargetLocal,rightTargetLocal,false,brushSize); lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); } } 
+                    else if(activeTool==='brush'){ if(!leftTargetLocal.equals(lastErasedPos)){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sculpt') executeSculpt(leftTargetLocal,false); else if(activeTool==='stroke'&&strokeMode==='continuous'){ if(lastErasedPos.x===Infinity){ placeBrushVoxels(leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } else if(!leftTargetLocal.equals(lastErasedPos)){ drawLineVoxels(lastErasedPos,leftTargetLocal,false); lastErasedPos.copy(leftTargetLocal); } } else if(activeTool==='sheet'&&xrRight){ if(lastSheetLeftPos.x===Infinity){ lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,lastSheetLeftPos,lastSheetRightPos,false,brushSize); } else { drawSheetQuad(lastSheetLeftPos,lastSheetRightPos,leftTargetLocal,rightTargetLocal,false,brushSize); lastSheetLeftPos.copy(leftTargetLocal); lastSheetRightPos.copy(rightTargetLocal); } } 
                     else if(activeTool==='box'&&isPreviewingBox) updateBoxPreview(drawStartPos,leftTargetLocal,false); 
                     else if(activeTool==='extrude'&&isPreviewingExtrude) updateBoxPreview(drawStartPos,leftTargetLocal,false);
                     else if(activeTool==='quadsphere'&&isPreviewingSphere) updateSpherePreview(drawStartPos,leftTargetLocal,false); 
