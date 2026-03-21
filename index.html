@@ -167,8 +167,12 @@
     let paintMode = 'brush'; 
     let exportMode = 'boxes'; 
     let renderMode = 'standard'; 
-    let isDropperActive = false; // New: Color sampling state
-    let viewportActive = false;  // New: Spectator viewport state
+    let isDropperActive = false;
+    let viewportActive = false;
+
+    // Inside DOMContentLoaded or similar init block:
+    const specUI = document.getElementById('spectator-ui');
+    if (specUI) specUI.style.display = 'none';
         
         let planeOutline = true;
         let planeOutlineThick = 1;
@@ -1732,21 +1736,11 @@ function handleRightMenuClick(cx, cy) {
                 });
             } else if (cx >= 272 && cx <= 472) {
                 viewportActive = !viewportActive;
-                document.getElementById('spectator-ui').style.display = viewportActive ? 'flex' : 'none';
+                const specUI = document.getElementById('spectator-ui');
+                if (specUI) specUI.style.display = viewportActive ? 'flex' : 'none';
             }
             if (hasSelection) updatePreviews();
         }
-                chunks.forEach(chunk => {
-                    for (let i = 0; i < 4; i++) {
-                        const layer = chunk.layers[i];
-                        if (layer && layer.count > 0) {
-                            layer.mesh.visible = (renderMode === 'standard');
-                            layer.pointsMesh.visible = (renderMode === 'performance');
-                        }
-                    }
-                });
-                if (hasSelection) updatePreviews();
-            }
             if (cy >= 390 && cy <= 435) { if (cx >= 40 && cx <= 240) exportMode = 'boxes'; if (cx >= 272 && cx <= 472) exportMode = 'mesh'; }
             if (cy >= 450 && cy <= 500 && cx >= 40 && cx <= 472) exportToOBJ();
 
