@@ -1440,131 +1440,90 @@ function updatePlanePreview(start, end, isPainting) {
                     else if (cx >= 110 && cx <= 185) { newM = 'free'; isSettingPivot = false; } 
                     else if (cx >= 190 && cx <= 265) { newM = 'copy'; isSettingPivot = false; } 
                     else if (cx >= 270 && cx <= 345) { newM = 'draw'; isSettingPivot = false; } 
-else if (cx >= 350 && cx <= 425) { 
-    const phi = 1.618034;
-    // Toggle copyStepScale (the multiplier for each step) instead of global scale
-    copyStepScale = (Math.abs(copyStepScale - phi) < 0.05) ? (1/phi) : phi;
-    
-    // Automatically move pivot to a "Golden" position within the current selection bounds
-    if (baseSelectionCount > 0) {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-        for(let i=0; i<baseSelectionCount; i++) {
-            const v = baseSelection[i];
-            if(v.x < minX) minX = v.x; if(v.x > maxX) maxX = v.x;
-            if(v.y < minY) minY = v.y; if(v.y > maxY) maxY = v.y;
-            if(v.z < minZ) minZ = v.z; if(v.z > maxZ) maxZ = v.z;
-        }
-        // Place pivot at 1/phi (0.618) distance along the bounds for a natural "growth" center
-        const invPhi = 1/phi;
-        pivotPoint.x = Math.round(minX + (maxX - minX) * invPhi);
-        pivotPoint.y = Math.round(minY + (maxY - minY) * invPhi);
-        pivotPoint.z = Math.round(minZ + (maxZ - minZ) * invPhi);
-        
-        // Update the visual indicator in the world
-        pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
-        pivotIndicator.updateMatrix();
-    }
-    
-    updateRotatedSelection(); 
-    if (typeof updatePreviews === 'function') updatePreviews();
-    leftMenuNeedsUpdate = true; 
-}                    else if (cx >= 430 && cx <= 490) isSettingPivot = !isSettingPivot;
-                    if (newM !== transformMode) {  
-                        transformMode = newM; 
-                    }
+                    else if (cx >= 350 && cx <= 425) { 
+                        const phi = 1.618034;
+                        copyStepScale = (Math.abs(copyStepScale - phi) < 0.05) ? (1/phi) : phi;
+                        if (baseSelectionCount > 0) {
+                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+                            for(let i=0; i<baseSelectionCount; i++) {
+                                const v = baseSelection[i];
+                                if(v.x < minX) minX = v.x; if(v.x > maxX) maxX = v.x;
+                                if(v.y < minY) minY = v.y; if(v.y > maxY) maxY = v.y;
+                                if(v.z < minZ) minZ = v.z; if(v.z > maxZ) maxZ = v.z;
+                            }
+                            const invPhi = 1/phi;
+                            pivotPoint.x = Math.round(minX + (maxX - minX) * invPhi);
+                            pivotPoint.y = Math.round(minY + (maxY - minY) * invPhi);
+                            pivotPoint.z = Math.round(minZ + (maxZ - minZ) * invPhi);
+                            pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
+                            pivotIndicator.updateMatrix();
+                        }
+                        updateRotatedSelection(); 
+                        if (typeof updatePreviews === 'function') updatePreviews();
+                    } else if (cx >= 430 && cx <= 490) isSettingPivot = !isSettingPivot;
+                    if (newM !== transformMode) transformMode = newM;
                 }
-                if (transformMode === 'copy') { if (cy >= 260 && cy <= 290) { if (cx >= 50 && cx <= 130) numCopies = Math.max(1, numCopies - 1); if (cx >= 382 && cx <= 462) numCopies = Math.min(20, numCopies + 1); } if (cy >= 445 && cy <= 485) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); } }
-                else { if (cy >= 270 && cy <= 310) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); } }
-            } else if (activeTool === 'select' && !hasSelection) { if (cy >= 70 && cy <= 110) { if (cx >= 50 && cx <= 250) selectMode = 'box'; if (cx >= 262 && cx <= 462) selectMode = 'connected'; } if (cy >= 120 && cy <= 160) { if (cx >= 50 && cx <= 180) selectFilter = 'all'; if (cx >= 190 && cx <= 320) selectFilter = 'color'; if (cx >= 330 && cx <= 462) selectFilter = 'material'; }
-            } else if (activeTool === 'triangle') {
-                if (cy >= 60 && cy <= 110) { 
-                    if (cx >= 20 && cx <= 245) triangleType = 'cone'; 
-                    if (cx >= 265 && cx <= 490) triangleType = 'pyramid'; 
-                } else if (cy >= 120 && cy <= 170) { 
-                    if (cx >= 20 && cx <= 160) triangleMode = 'solid'; 
-                    if (cx >= 170 && cx <= 320) triangleMode = 'shell'; 
-                    if (cx >= 330 && cx <= 490) triangleMode = 'wireframe'; 
-                } else if (cy >= 180 && cy <= 230) { 
-                    if (cx >= 20 && cx <= 160) triangleAxis = 'X'; 
-                    if (cx >= 170 && cx <= 320) triangleAxis = 'Y'; 
-                    if (cx >= 330 && cx <= 490) triangleAxis = 'Z'; 
-                } else if (cy >= 240 && cy <= 290) { 
-                    // Handle Pyramid Legs
-                    if (triangleType === 'pyramid') { 
-                        if (cx >= 20 && cx <= 70) pyramidLegs = Math.max(3, pyramidLegs - 1); 
-                        if (cx >= 250 && cx <= 300) pyramidLegs = Math.min(12, pyramidLegs + 1); 
-                    }
-                    // Handle Capping (New coordinate check)
-                    if (triangleMode !== 'solid' && cx >= 330 && cx <= 492) {
-                        triangleCap = !triangleCap;
-                    }
-                } else if (cy >= 300 && cy <= 350 && triangleMode === 'wireframe') { 
-                    if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); 
-                    if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); 
-                    if (cx >= 330 && cx <= 490) wireFill = !wireFill; 
-                } else if (cy >= 360 && cy <= 410) { 
-                    if (cx >= 20 && cx <= 70) triangleDivs = Math.max(1, triangleDivs - 1); 
-                    if (cx >= 210 && cx <= 260) triangleDivs = Math.min(20, triangleDivs + 1); 
-                    if (cx >= 270 && cx <= 320) triangleDivThick = Math.max(1, triangleDivThick - 1); 
-                    if (cx >= 440 && cx <= 490) triangleDivThick = Math.min(10, triangleDivThick + 1); 
-                } else if (cy >= 420 && cy <= 470 && cx >= 20 && cx <= 490) {
-                    triangleGridMode = (triangleGridMode === 'internal') ? 'surface' : 'internal';
+                if (transformMode === 'copy') { 
+                    if (cy >= 260 && cy <= 290) { if (cx >= 50 && cx <= 130) numCopies = Math.max(1, numCopies - 1); if (cx >= 382 && cx <= 462) numCopies = Math.min(20, numCopies + 1); } 
+                    if (cy >= 445 && cy <= 485) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); } 
+                } else { 
+                    if (cy >= 270 && cy <= 310) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); } 
                 }
-            }else if (activeTool === 'cylinder') {
-                if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 160) cylinderMode = 'solid'; if (cx >= 170 && cx <= 320) cylinderMode = 'shell'; if (cx >= 330 && cx <= 490) cylinderMode = 'wireframe'; } else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) cylinderAxis = 'X'; if (cx >= 170 && cx <= 320) cylinderAxis = 'Y'; if (cx >= 330 && cx <= 490) cylinderAxis = 'Z'; } else if (cy >= 180 && cy <= 230) { if (cx >= 20 && cx <= 70) { if (cylinderSides === 0) cylinderSides = 32; else if (cylinderSides > 3) cylinderSides--; else cylinderSides = 0; } if (cx >= 250 && cx <= 300) { if (cylinderSides === 0) cylinderSides = 3; else if (cylinderSides < 32) cylinderSides++; else cylinderSides = 0; } if (cylinderMode !== 'solid' && cx >= 310 && cx <= 460) cylinderCap = !cylinderCap; } else if (cy >= 240 && cy <= 290 && cylinderMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
-            } else if (activeTool === 'icosahedron') {
-                if (cy >= 60 && cy <= 105) { if (cx >= 20 && cx <= 245) platonicType = 'tetrahedron'; if (cx >= 265 && cx <= 490) platonicType = 'octahedron'; } else if (cy >= 110 && cy <= 155) { if (cx >= 20 && cx <= 245) platonicType = 'icosahedron'; if (cx >= 265 && cx <= 490) platonicType = 'dodecahedron'; } else if (cy >= 165 && cy <= 215) { if (cx >= 20 && cx <= 160) icosahedronMode = 'solid'; if (cx >= 170 && cx <= 320) icosahedronMode = 'shell'; if (cx >= 330 && cx <= 490) icosahedronMode = 'wireframe'; } else if (cy >= 225 && cy <= 275) { if (cx >= 20 && cx <= 240) icosahedronLock = !icosahedronLock; if (platonicType !== 'dodecahedron') { if (cx >= 250 && cx <= 300) icosahedronDivs = Math.max(1, icosahedronDivs - 1); if (cx >= 450 && cx <= 492) icosahedronDivs = Math.min(5, icosahedronDivs + 1); } } else if (cy >= 285 && cy <= 335 && icosahedronMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
-            } else if (activeTool === 'sculpt') {
-                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 130) sculptSize = Math.max(1, sculptSize - 1); if (cx >= 382 && cx <= 462) sculptSize = Math.min(10, sculptSize + 1); }
-                if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 130) sculptDensity = Math.max(1, sculptDensity - 1); if (cx >= 382 && cx <= 462) sculptDensity = Math.min(10, sculptDensity + 1); }
-            }else if (activeTool === 'line') {
-                if (cy >= 60 && cy <= 105) {
-                    if (cx >= 50 && cx <= 250) lineMode = 'one-hand';
-                    if (cx >= 262 && cx <= 462) lineMode = 'two-hand';
-                } else if (cy >= 115 && cy <= 160) {
-                    if (cx >= 50 && cx <= 250) lineDrawMode = 'stroke';
-                    if (cx >= 262 && cx <= 462) { lineDrawMode = 'sheet'; brushSize = 1; }
-                } else if (cy >= 170 && cy <= 215) {
-                    if (cx >= 50 && cx <= 250) lineType = 'straight';
-                    if (cx >= 262 && cx <= 462) lineType = 'arc';
-                } else if (cy >= 225 && cy <= 270) {
-                    if (cx >= 50 && cx <= 130) arcBulge = Math.max(-5.0, arcBulge - 0.5);
-                    if (cx >= 382 && cx <= 462) arcBulge = Math.min(5.0, arcBulge + 0.5);
-                } else if (cy >= 280 && cy <= 325) {
-                    if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1);
-                    if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1);
-                }
-            }
-
-
-            else if (activeTool === 'extrude') {
-                if (cy >= 60 && cy <= 105) {
-                    if (cx >= 20 && cx <= 130) extrudeAxis = 'free';
-                    if (cx >= 140 && cx <= 250) extrudeAxis = 'X';
-                    if (cx >= 260 && cx <= 370) extrudeAxis = 'Y';
-                    if (cx >= 380 && cx <= 492) extrudeAxis = 'Z';
-                } else if (cy >= 120 && cy <= 165) {
-                    if (cx >= 20 && cx <= 492) extrudeAdjoining = !extrudeAdjoining;
-                }
+            } else if (activeTool === 'select' && !hasSelection) { 
+                if (cy >= 70 && cy <= 110) { if (cx >= 50 && cx <= 250) selectMode = 'box'; if (cx >= 262 && cx <= 462) selectMode = 'connected'; } 
+                if (cy >= 120 && cy <= 160) { if (cx >= 50 && cx <= 180) selectFilter = 'all'; if (cx >= 190 && cx <= 320) selectFilter = 'color'; if (cx >= 330 && cx <= 462) selectFilter = 'material'; }
+            } else if (activeTool === 'brush') {
+                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
+                if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
+                if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); } 
+            } else if (activeTool === 'extrude') {
+                if (cy >= 60 && cy <= 105) { if (cx >= 20 && cx <= 130) extrudeAxis = 'free'; if (cx >= 140 && cx <= 250) extrudeAxis = 'X'; if (cx >= 260 && cx <= 370) extrudeAxis = 'Y'; if (cx >= 380 && cx <= 492) extrudeAxis = 'Z'; } 
+                else if (cy >= 120 && cy <= 165) { if (cx >= 20 && cx <= 492) extrudeAdjoining = !extrudeAdjoining; }
+            } else if (activeTool === 'line') {
+                if (cy >= 60 && cy <= 105) { if (cx >= 50 && cx <= 250) lineMode = 'one-hand'; if (cx >= 262 && cx <= 462) lineMode = 'two-hand'; } 
+                else if (cy >= 115 && cy <= 160) { if (cx >= 50 && cx <= 250) lineDrawMode = 'stroke'; if (cx >= 262 && cx <= 462) { lineDrawMode = 'sheet'; brushSize = 1; } } 
+                else if (cy >= 170 && cy <= 215) { if (cx >= 50 && cx <= 250) lineType = 'straight'; if (cx >= 262 && cx <= 462) lineType = 'arc'; } 
+                else if (cy >= 225 && cy <= 270) { if (cx >= 50 && cx <= 130) arcBulge = Math.max(-5.0, arcBulge - 0.5); if (cx >= 382 && cx <= 462) arcBulge = Math.min(5.0, arcBulge + 0.5); } 
+                else if (cy >= 280 && cy <= 325) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
             } else if (activeTool === 'stroke') {
-                if (cy >= 70 && cy <= 120) { 
-                    if (cx >= 50 && cx <= 250) strokeMode = 'continuous'; 
-                    if (cx >= 262 && cx <= 462) { strokeMode = 'line'; isPreviewingLineLeft = isPreviewingLineRight = false; lineStartLeft.set(Infinity, Infinity, Infinity); lineStartRight.set(Infinity, Infinity, Infinity); } 
-                }
+                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) strokeMode = 'continuous'; if (cx >= 262 && cx <= 462) { strokeMode = 'line'; isPreviewingLineLeft = isPreviewingLineRight = false; lineStartLeft.set(Infinity, Infinity, Infinity); lineStartRight.set(Infinity, Infinity, Infinity); } }
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
                 if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                 if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
             } else if (activeTool === 'sheet') {
+                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) sheetMode = 'surface'; if (cx >= 262 && cx <= 462) sheetMode = 'lines'; }
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
                 if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                 if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
-            } else if (activeTool === 'paint') { 
+            } else if (activeTool === 'paint') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) paintMode = 'brush'; if (cx >= 262 && cx <= 462) paintMode = 'bucket'; }
                 if (paintMode === 'brush') {
                     if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
                     if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                     if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
                 }
+            } else if (activeTool === 'sculpt') {
+                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 130) sculptSize = Math.max(1, sculptSize - 1); if (cx >= 382 && cx <= 462) sculptSize = Math.min(10, sculptSize + 1); }
+                if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 130) sculptDensity = Math.max(1, sculptDensity - 1); if (cx >= 382 && cx <= 462) sculptDensity = Math.min(10, sculptDensity + 1); }
+            } else if (activeTool === 'triangle') {
+                if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 245) triangleType = 'cone'; if (cx >= 265 && cx <= 490) triangleType = 'pyramid'; } 
+                else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) triangleMode = 'solid'; if (cx >= 170 && cx <= 320) triangleMode = 'shell'; if (cx >= 330 && cx <= 490) triangleMode = 'wireframe'; } 
+                else if (cy >= 180 && cy <= 230) { if (cx >= 20 && cx <= 160) triangleAxis = 'X'; if (cx >= 170 && cx <= 320) triangleAxis = 'Y'; if (cx >= 330 && cx <= 490) triangleAxis = 'Z'; } 
+                else if (cy >= 240 && cy <= 290) { if (triangleType === 'pyramid') { if (cx >= 20 && cx <= 70) pyramidLegs = Math.max(3, pyramidLegs - 1); if (cx >= 250 && cx <= 300) pyramidLegs = Math.min(12, pyramidLegs + 1); } if (triangleMode !== 'solid' && cx >= 330 && cx <= 492) triangleCap = !triangleCap; } 
+                else if (cy >= 300 && cy <= 350 && triangleMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; } 
+                else if (cy >= 360 && cy <= 410) { if (cx >= 20 && cx <= 70) triangleDivs = Math.max(1, triangleDivs - 1); if (cx >= 210 && cx <= 260) triangleDivs = Math.min(20, triangleDivs + 1); if (cx >= 270 && cx <= 320) triangleDivThick = Math.max(1, triangleDivThick - 1); if (cx >= 440 && cx <= 490) triangleDivThick = Math.min(10, triangleDivThick + 1); } 
+                else if (cy >= 420 && cy <= 470 && cx >= 20 && cx <= 490) triangleGridMode = (triangleGridMode === 'internal') ? 'surface' : 'internal';
+            } else if (activeTool === 'cylinder') {
+                if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 160) cylinderMode = 'solid'; if (cx >= 170 && cx <= 320) cylinderMode = 'shell'; if (cx >= 330 && cx <= 490) cylinderMode = 'wireframe'; } 
+                else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) cylinderAxis = 'X'; if (cx >= 170 && cx <= 320) cylinderAxis = 'Y'; if (cx >= 330 && cx <= 490) cylinderAxis = 'Z'; } 
+                else if (cy >= 180 && cy <= 230) { if (cx >= 20 && cx <= 70) { if (cylinderSides === 0) cylinderSides = 32; else if (cylinderSides > 3) cylinderSides--; else cylinderSides = 0; } if (cx >= 250 && cx <= 300) { if (cylinderSides === 0) cylinderSides = 3; else if (cylinderSides < 32) cylinderSides++; else cylinderSides = 0; } if (cylinderMode !== 'solid' && cx >= 310 && cx <= 460) cylinderCap = !cylinderCap; } 
+                else if (cy >= 240 && cy <= 290 && cylinderMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
+            } else if (activeTool === 'icosahedron') {
+                if (cy >= 60 && cy <= 105) { if (cx >= 20 && cx <= 245) platonicType = 'tetrahedron'; if (cx >= 265 && cx <= 490) platonicType = 'octahedron'; } 
+                else if (cy >= 110 && cy <= 155) { if (cx >= 20 && cx <= 245) platonicType = 'icosahedron'; if (cx >= 265 && cx <= 490) platonicType = 'dodecahedron'; } 
+                else if (cy >= 165 && cy <= 215) { if (cx >= 20 && cx <= 160) icosahedronMode = 'solid'; if (cx >= 170 && cx <= 320) icosahedronMode = 'shell'; if (cx >= 330 && cx <= 490) icosahedronMode = 'wireframe'; } 
+                else if (cy >= 225 && cy <= 275) { if (cx >= 20 && cx <= 240) icosahedronLock = !icosahedronLock; if (platonicType !== 'dodecahedron') { if (cx >= 250 && cx <= 300) icosahedronDivs = Math.max(1, icosahedronDivs - 1); if (cx >= 450 && cx <= 492) icosahedronDivs = Math.min(5, icosahedronDivs + 1); } } 
+                else if (cy >= 285 && cy <= 335 && icosahedronMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
             } else if (activeTool === 'box') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 20 && cx <= 160) boxMode = 'solid'; if (cx >= 170 && cx <= 320) boxMode = 'shell'; if (cx >= 330 && cx <= 490) boxMode = 'wireframe'; } 
                 else if (cy >= 140 && cy <= 190 && boxMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; } 
@@ -1574,15 +1533,11 @@ else if (cx >= 350 && cx <= 425) {
             } else if (activeTool === 'quadsphere') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) sphereMode = 'solid'; if (cx >= 262 && cx <= 462) sphereMode = 'shell'; }
             } else if (activeTool === 'plane') {
-                if (cy >= 70 && cy <= 120) {
-                    if (cx >= 30 && cx <= 180) planeOutline = !planeOutline;
-                    if (planeOutline) { if (cx >= 190 && cx <= 240) planeOutlineThick = Math.max(1, planeOutlineThick - 1); if (cx >= 420 && cx <= 470) planeOutlineThick = Math.min(10, planeOutlineThick + 1); }
-                } else if (cy >= 140 && cy <= 190) { if (cx >= 30 && cx <= 130) planeFill = !planeFill; if (cx >= 140 && cx <= 240) planeGrid = !planeGrid; if (cx >= 250 && cx <= 290) planeGridThick = Math.max(1, planeGridThick - 1); if (cx >= 430 && cx <= 470) planeGridThick = Math.min(10, planeGridThick + 1); } 
+                if (cy >= 70 && cy <= 120) { if (cx >= 30 && cx <= 180) planeOutline = !planeOutline; if (planeOutline) { if (cx >= 190 && cx <= 240) planeOutlineThick = Math.max(1, planeOutlineThick - 1); if (cx >= 420 && cx <= 470) planeOutlineThick = Math.min(10, planeOutlineThick + 1); } } 
+                else if (cy >= 140 && cy <= 190) { if (cx >= 30 && cx <= 130) planeFill = !planeFill; if (cx >= 140 && cx <= 240) planeGrid = !planeGrid; if (cx >= 250 && cx <= 290) planeGridThick = Math.max(1, planeGridThick - 1); if (cx >= 430 && cx <= 470) planeGridThick = Math.min(10, planeGridThick + 1); } 
                 else if (cy >= 210 && cy <= 260) { if (cx >= 30 && cx <= 70) planeDivU = Math.max(1, planeDivU - 1); if (cx >= 190 && cx <= 230) planeDivU = Math.min(20, planeDivU + 1); if (cx >= 250 && cx <= 290) planeDivV = Math.max(1, planeDivV - 1); if (cx >= 410 && cx <= 450) planeDivV = Math.min(20, planeDivV + 1); } 
-               else if (cy >= 280 && cy <= 330) { if (cx >= 190 && cx <= 240) planeThick = Math.max(1, planeThick - 1); if (cx >= 420 && cx <= 470) planeThick = Math.min(20, planeThick + 1); }
+                else if (cy >= 280 && cy <= 330) { if (cx >= 190 && cx <= 240) planeThick = Math.max(1, planeThick - 1); if (cx >= 420 && cx <= 470) planeThick = Math.min(20, planeThick + 1); }
             }
-            updateCursors(); leftMenuNeedsUpdate = true;
-        }
             updateCursors(); leftMenuNeedsUpdate = true;
         }
 
