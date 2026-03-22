@@ -1419,7 +1419,14 @@ function updatePlanePreview(start, end, isPainting) {
                     drawButton(leftMenuCtx, 50, 70, 200, 40, 'BOX MODE', selectMode === 'box'); drawButton(leftMenuCtx, 262, 70, 200, 40, 'CONNECTED', selectMode === 'connected');
                     drawButton(leftMenuCtx, 50, 120, 130, 40, 'ALL', selectFilter === 'all'); drawButton(leftMenuCtx, 190, 120, 130, 40, 'COLOR', selectFilter === 'color'); drawButton(leftMenuCtx, 330, 120, 132, 40, 'MATERIAL', selectFilter === 'material');
                 } else {
-                    const btnW = 75; drawButton(leftMenuCtx, 30, 60, btnW, 30, 'MOVE', transformMode === 'move' && !isSettingPivot); drawButton(leftMenuCtx, 110, 60, btnW, 30, 'FREE', transformMode === 'free' && !isSettingPivot); drawButton(leftMenuCtx, 190, 60, btnW, 30, 'COPY', transformMode === 'copy' && !isSettingPivot); drawButton(leftMenuCtx, 270, 60, btnW, 30, 'DRAW', transformMode === 'draw' && !isSettingPivot); drawButton(leftMenuCtx, 350, 60, btnW, 30, 'GOLDEN', false); drawButton(leftMenuCtx, 430, 60, 60, 30, isSettingPivot ? 'PICK' : 'PIVOT', isSettingPivot);
+			const btnW = 62; 
+		    drawButton(leftMenuCtx, 15, 60, btnW, 30, 'MOVE', transformMode === 'move' && !isSettingPivot); 
+		    drawButton(leftMenuCtx, 82, 60, btnW, 30, 'FREE', transformMode === 'free' && !isSettingPivot); 
+		    drawButton(leftMenuCtx, 149, 60, btnW, 30, 'COPY', transformMode === 'copy' && !isSettingPivot); 
+		    drawButton(leftMenuCtx, 216, 60, btnW, 30, 'DRAW', transformMode === 'draw' && !isSettingPivot); 
+		    drawButton(leftMenuCtx, 283, 60, btnW, 30, 'PAINT', transformMode === 'paint' && !isSettingPivot);
+		    drawButton(leftMenuCtx, 350, 60, btnW, 30, 'GOLDEN', false); 
+		    drawButton(leftMenuCtx, 417, 60, 80, 30, isSettingPivot ? 'PICK POS' : 'SET PIVOT', isSettingPivot);
                     drawSlider(leftMenuCtx, 50, 100, 412, 30, 'ROT X', selectionRotX, -180, 180); drawSlider(leftMenuCtx, 50, 140, 412, 30, 'ROT Y', selectionRotY, -180, 180); drawSlider(leftMenuCtx, 50, 180, 412, 30, 'ROT Z', selectionRotZ, -180, 180);
                     drawSlider(leftMenuCtx, 50, 220, 412, 30, 'SCALE', selectionScale, 0.1, 5.0, 'SCALE: %vx');
                     if (transformMode === 'copy') { 
@@ -1434,35 +1441,36 @@ function updatePlanePreview(start, end, isPainting) {
 
         function handleLeftMenuClick(cx, cy) {
             if (activeTool === 'select' && hasSelection) {
-                if (cy >= 60 && cy <= 90) {
-                    let newM = transformMode; 
-                    if (cx >= 30 && cx <= 105) { newM = 'move'; isSettingPivot = false; } 
-                    else if (cx >= 110 && cx <= 185) { newM = 'free'; isSettingPivot = false; } 
-                    else if (cx >= 190 && cx <= 265) { newM = 'copy'; isSettingPivot = false; } 
-                    else if (cx >= 270 && cx <= 345) { newM = 'draw'; isSettingPivot = false; } 
-                    else if (cx >= 350 && cx <= 425) { 
-                        const phi = 1.618034;
-                        copyStepScale = (Math.abs(copyStepScale - phi) < 0.05) ? (1/phi) : phi;
-                        if (baseSelectionCount > 0) {
-                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-                            for(let i=0; i<baseSelectionCount; i++) {
-                                const v = baseSelection[i];
-                                if(v.x < minX) minX = v.x; if(v.x > maxX) maxX = v.x;
-                                if(v.y < minY) minY = v.y; if(v.y > maxY) maxY = v.y;
-                                if(v.z < minZ) minZ = v.z; if(v.z > maxZ) maxZ = v.z;
-                            }
-                            const invPhi = 1/phi;
-                            pivotPoint.x = Math.round(minX + (maxX - minX) * invPhi);
-                            pivotPoint.y = Math.round(minY + (maxY - minY) * invPhi);
-                            pivotPoint.z = Math.round(minZ + (maxZ - minZ) * invPhi);
-                            pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
-                            pivotIndicator.updateMatrix();
-                        }
-                        updateRotatedSelection(); 
-                        if (typeof updatePreviews === 'function') updatePreviews();
-                    } else if (cx >= 430 && cx <= 490) isSettingPivot = !isSettingPivot;
-                    if (newM !== transformMode) transformMode = newM;
-                }
+if (cy >= 60 && cy <= 90) {
+    let newM = transformMode; 
+    if (cx >= 15 && cx <= 77) { newM = 'move'; isSettingPivot = false; } 
+    else if (cx >= 82 && cx <= 144) { newM = 'free'; isSettingPivot = false; } 
+    else if (cx >= 149 && cx <= 211) { newM = 'copy'; isSettingPivot = false; } 
+    else if (cx >= 216 && cx <= 278) { newM = 'draw'; isSettingPivot = false; } 
+    else if (cx >= 283 && cx <= 345) { newM = 'paint'; isSettingPivot = false; } 
+    else if (cx >= 350 && cx <= 412) { 
+        const phi = 1.618034;
+        copyStepScale = (Math.abs(copyStepScale - phi) < 0.05) ? (1/phi) : phi;
+        if (baseSelectionCount > 0) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            for(let i=0; i<baseSelectionCount; i++) {
+                const v = baseSelection[i];
+                if(v.x < minX) minX = v.x; if(v.x > maxX) maxX = v.x;
+                if(v.y < minY) minY = v.y; if(v.y > maxY) maxY = v.y;
+                if(v.z < minZ) minZ = v.z; if(v.z > maxZ) maxZ = v.z;
+            }
+            const invPhi = 1/phi;
+            pivotPoint.x = Math.round(minX + (maxX - minX) * invPhi);
+            pivotPoint.y = Math.round(minY + (maxY - minY) * invPhi);
+            pivotPoint.z = Math.round(minZ + (maxZ - minZ) * invPhi);
+            pivotIndicator.position.set(pivotPoint.x * VOXEL_SIZE, pivotPoint.y * VOXEL_SIZE, pivotPoint.z * VOXEL_SIZE);
+            pivotIndicator.updateMatrix();
+        }
+        updateRotatedSelection(); 
+        if (typeof updatePreviews === 'function') updatePreviews();
+    } else if (cx >= 417 && cx <= 497) isSettingPivot = !isSettingPivot;
+    if (newM !== transformMode) transformMode = newM;
+}
                 if (transformMode === 'copy') { 
                     if (cy >= 260 && cy <= 290) { if (cx >= 50 && cx <= 130) numCopies = Math.max(1, numCopies - 1); if (cx >= 382 && cx <= 462) numCopies = Math.min(20, numCopies + 1); } 
                     if (cy >= 445 && cy <= 485) { if (cx >= 50 && cx <= 180) applySelection(); if (cx >= 190 && cx <= 320) cancelSelection(); if (cx >= 330 && cx <= 462) deleteSelection(); } 
