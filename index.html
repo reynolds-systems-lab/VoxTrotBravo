@@ -1904,30 +1904,46 @@ function handleRightMenuClick(cx, cy) {
 
 
         function calculateArcPoints(p1, p2, ctrlL, ctrlR, outPoints, fixedSteps = 0) {
-            const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-            const diff = new THREE.Vector3().subVectors(p2, p1);
-            const dist = diff.length();
-            
-            const upL = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrlL.quaternion);
-            const upR = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrlR.quaternion);
-            const avgUp = new THREE.Vector3().addVectors(upL, upR).normalize();
-            
-            // Rotate the arc plane around the start-to-end axis based on controller roll
+            const dist = p1.distanceTo(p2);
             const lineAxis = new THREE.Vector3().subVectors(p2, p1).normalize();
-            if (lineAxis.lengthSq() > 0.0001) {
-                avgUp.applyAxisAngle(lineAxis, arcAngleOffset);
-            }
             
-            const controlPoint = mid.clone().addScaledVector(avgUp, dist * 0.5 * arcBulge);
-            
+            // Generate a local coordinate system relative to the line baseline
+            const worldUp = new THREE.Vector3(0, 1, 0);
+            if (Math.abs(worldUp.dot(lineAxis)) > 0.95) worldUp.set(0, 0, 1);
+            const side = new THREE.Vector3().crossVectors(lineAxis, worldUp).normalize();
+            const baselineUp = new THREE.Vector3().crossVectors(side, lineAxis).normalize();
+
+            // Helper to compute a bulge vector for a specific hand
+            const getHandBulge = (ctrl) => {
+                tempSEuler.setFromQuaternion(ctrl.quaternion, 'YZX');
+                const pitch = tempSEuler.x;  // Forward/Backward tilt
+                const roll = tempSEuler.z;   // Wrist twist
+                
+                // Roll magnitude determines bulge size (reversed sign per previous feedback)
+                const magnitude = -roll * dist * 0.75; 
+                // Pitch determines the rotation of the bulge around the baseline
+                const bulgeDir = baselineUp.clone().applyAxisAngle(lineAxis, pitch);
+                return bulgeDir.multiplyScalar(magnitude);
+            };
+
+            const bulgeVecL = getHandBulge(ctrlL);
+            const bulgeVecR = getHandBulge(ctrlR);
+
+            // Control points are offset from their respective ends
+            const cp1 = p1.clone().add(bulgeVecL);
+            const cp2 = p2.clone().add(bulgeVecR);
+
             const steps = fixedSteps > 0 ? fixedSteps : Math.min(100, Math.max(10, Math.ceil(dist / (VOXEL_SIZE * 2))));
             outPoints.length = 0;
             for (let i = 0; i <= steps; i++) {
                 const t = i / steps;
+                const omt = 1 - t;
                 const p = new THREE.Vector3();
-                p.x = Math.pow(1 - t, 2) * p1.x + 2 * (1 - t) * t * controlPoint.x + Math.pow(t, 2) * p2.x;
-                p.y = Math.pow(1 - t, 2) * p1.y + 2 * (1 - t) * t * controlPoint.y + Math.pow(t, 2) * p2.y;
-                p.z = Math.pow(1 - t, 2) * p1.z + 2 * (1 - t) * t * controlPoint.z + Math.pow(t, 2) * p2.z;
+                // Cubic Bezier formula: (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3
+                p.addScaledVector(p1, omt * omt * omt);
+                p.addScaledVector(cp1, 3 * omt * omt * t);
+                p.addScaledVector(cp2, 3 * omt * t * t);
+                p.addScaledVector(p2, t * t * t);
                 outPoints.push(p);
             }
         }
@@ -3257,17 +3273,8 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
 
-                    // Real-time Arc Control: Map Right Controller Roll to Bulge and Left Roll to Angle
-                    if (activeTool === 'line' && lineType === 'arc') {
-                        // Extract Roll (Z rotation in YZX order)
-                        tempSEuler.setFromQuaternion(xrRight.quaternion, 'YZX');
-                        arcBulge = -tempSEuler.z * 1.5; // REVERSED: Map roll range to inverted bulge factor
-
-                        if (xrLeft) {
-                            tempSEuler.setFromQuaternion(xrLeft.quaternion, 'YZX');
-                            arcAngleOffset = tempSEuler.z; // Rotate arc plane by left wrist twist
-                        }
-                    }
+                    // Real-time gesture control is now handled inside calculateArcPoints
+                    // using the active controller quaternions every frame.
 
                     if(hasSelection && !isSettingPivot){
                         // Snap to controller tip for brush-style modes (Draw/Paint/Free)
