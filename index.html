@@ -188,7 +188,9 @@
         let lineType = 'straight';  // 'straight' or 'arc'
         let lineDrawMode = 'stroke'; // 'stroke' or 'sheet'
         let arcBulge = 1.0;        // Multiplier for the arc curve depth
+        let arcAngleOffset = 0;    // Dynamic rotation of the arc plane
         let lastArcPoints = [];    // Cache for sheet extrusion
+
 
 
 
@@ -1910,6 +1912,12 @@ function handleRightMenuClick(cx, cy) {
             const upR = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrlR.quaternion);
             const avgUp = new THREE.Vector3().addVectors(upL, upR).normalize();
             
+            // Rotate the arc plane around the start-to-end axis based on controller roll
+            const lineAxis = new THREE.Vector3().subVectors(p2, p1).normalize();
+            if (lineAxis.lengthSq() > 0.0001) {
+                avgUp.applyAxisAngle(lineAxis, arcAngleOffset);
+            }
+            
             const controlPoint = mid.clone().addScaledVector(avgUp, dist * 0.5 * arcBulge);
             
             const steps = fixedSteps > 0 ? fixedSteps : Math.min(100, Math.max(10, Math.ceil(dist / (VOXEL_SIZE * 2))));
@@ -3248,6 +3256,18 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir,0.05); worldGroup.worldToLocal(rightTargetLocal); 
                     rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
+
+                    // Real-time Arc Control: Map Right Controller Roll to Bulge and Left Roll to Angle
+                    if (activeTool === 'line' && lineType === 'arc') {
+                        // Extract Roll (Z rotation in YZX order)
+                        tempSEuler.setFromQuaternion(xrRight.quaternion, 'YZX');
+                        arcBulge = tempSEuler.z * 1.5; // Map roll range (~ -3 to 3) to bulge factor
+
+                        if (xrLeft) {
+                            tempSEuler.setFromQuaternion(xrLeft.quaternion, 'YZX');
+                            arcAngleOffset = tempSEuler.z; // Rotate arc plane by left wrist twist
+                        }
+                    }
 
                     if(hasSelection && !isSettingPivot){
                         // Snap to controller tip for brush-style modes (Draw/Paint/Free)
