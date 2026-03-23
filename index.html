@@ -1330,8 +1330,7 @@ function updatePlanePreview(start, end, isPainting) {
             drawButton(leftMenuCtx, 382, 280, 80, 45, '[+]', false);
             drawButton(leftMenuCtx, 50, 335, 200, 45, 'SOLID', brushVolume === 'solid'); 
             drawButton(leftMenuCtx, 262, 335, 200, 45, 'HOLLOW', brushVolume === 'shell');
-        } else if (activeTool === 'paint') {
-                drawButton(leftMenuCtx, 50, 70, 200, 50, 'BRUSH', paintMode === 'brush'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'BUCKET', paintMode === 'bucket');
+        } else if (activeTool === 'paint') {                drawButton(leftMenuCtx, 50, 70, 200, 50, 'BRUSH', paintMode === 'brush'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'BUCKET', paintMode === 'bucket');
                 if (paintMode === 'brush') {
                     drawButton(leftMenuCtx, 50, 140, 200, 50, 'Shape: CUBE', brushShape === 'cube'); drawButton(leftMenuCtx, 262, 140, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
                     drawButton(leftMenuCtx, 50, 210, 200, 50, 'SOLID', brushVolume === 'solid'); drawButton(leftMenuCtx, 262, 210, 200, 50, 'SHELL', brushVolume === 'shell');
@@ -2350,16 +2349,67 @@ function placeBrushVoxels(pos, isP) {
                 for (let i=0; i<FILL_NEIGHBORS.length; i+=3) { const nx=x+FILL_NEIGHBORS[i], ny=y+FILL_NEIGHBORS[i+1], nz=z+FILL_NEIGHBORS[i+2], k=(nx+32768)+(ny+32768)*65536+(nz+32768)*4294967296; if(!fillVisited.has(k) && getVoxelMatAndColor(nx,ny,nz,queryColor)===targetMat && Math.abs(queryColor.r-targetQueryColor.r)<0.02) { fillVisited.add(k); fillQueue.push(nx,ny,nz); } }
             }
         }
-function executeLineTool(startPos, endPos, isPainting) {
-            if (lineType === 'arc' && lineMode === 'two-hand' && xrLeft && xrRight) {
-                const arcPoints = [];
-                calculateArcPoints(startPos, endPos, xrLeft, xrRight, arcPoints);
-                for (let i = 0; i < arcPoints.length - 1; i++) {
-                    drawLineVoxels(arcPoints[i], arcPoints[i+1], isPainting);
-                }
-            } else {
-                drawLineVoxels(startPos, endPos, isPainting);
+        function getDistToPath(pos, points) {
+            let minDist = Infinity;
+            for (let i = 0; i < points.length - 1; i++) {
+                const A = points[i], B = points[i+1];
+                const v = new THREE.Vector3().subVectors(B, A);
+                const w = new THREE.Vector3().subVectors(pos, A);
+                const c1 = w.dot(v), c2 = v.dot(v);
+                let d;
+                if (c1 <= 0) d = pos.distanceTo(A);
+                else if (c2 <= c1) d = pos.distanceTo(B);
+                else d = pos.distanceTo(new THREE.Vector3().addVectors(A, v.multiplyScalar(c1 / c2)));
+                if (d < minDist) minDist = d;
             }
+            return minDist;
+        }
+
+        function executeLineTool(startPos, endPos, isPainting) {
+            const points = [];
+            if (lineType === 'arc' && lineMode === 'two-hand' && xrLeft && xrRight) {
+                calculateArcPoints(startPos, endPos, xrLeft, xrRight, points, 32);
+            } else {
+                points.push(startPos.clone(), endPos.clone());
+            }
+
+            const r = (brushSize - 1) * VOXEL_SIZE;
+            const shellThick = VOXEL_SIZE * 0.5;
+            const candidates = new Set();
+            
+            // 1. Gather all voxels that could be part of the stroke
+            points.forEach(p => {
+                const gX = Math.round(p.x / VOXEL_SIZE), gY = Math.round(p.y / VOXEL_SIZE), gZ = Math.round(p.z / VOXEL_SIZE);
+                const radSteps = brushSize + 1;
+                for(let x=-radSteps; x<=radSteps; x++) 
+                for(let y=-radSteps; y<=radSteps; y++) 
+                for(let z=-radSteps; z<=radSteps; z++) {
+                    candidates.add(`${gX+x},${gY+y},${gZ+z}`);
+                }
+            });
+
+            // 2. Process candidates
+            candidates.forEach(key => {
+                const [gx, gy, gz] = key.split(',').map(Number);
+                tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
+                const d = getDistToPath(tempPos, points);
+
+                if (d <= r + 0.001) {
+                    if (brushVolume === 'solid') {
+                        setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
+                    } else {
+                        // Voxel is on shell if it's inside R but has a neighbor outside R
+                        let isShell = false;
+                        const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+                        for(let n of neighbors) {
+                            tempPos.set((gx+n[0])*VOXEL_SIZE, (gy+n[1])*VOXEL_SIZE, (gz+n[2])*VOXEL_SIZE);
+                            if (getDistToPath(tempPos, points) > r) { isShell = true; break; }
+                        }
+                        if (isShell) setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
+                        else if (isPainting) setVoxel(gx, gy, gz, false, null); // Clear interior
+                    }
+                }
+            });
         }
 
         function executeExtrudeTool(start, end, isP) {
