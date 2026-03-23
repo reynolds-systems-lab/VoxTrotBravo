@@ -143,6 +143,8 @@
         let cylinderSides = 0; 
         let cylinderAxis = 'Y';
         let cylinderCap = true;
+        let cylinderDivs = 1;
+        let cylinderDivThick = 1;
         
         let triangleType = 'cone'; 
         let triangleMode = 'solid';
@@ -1356,8 +1358,22 @@ function updatePlanePreview(start, end, isPainting) {
                 drawButton(leftMenuCtx, 20, 120, 140, 50, 'AXIS: X', cylinderAxis === 'X'); drawButton(leftMenuCtx, 170, 120, 150, 50, 'AXIS: Y', cylinderAxis === 'Y'); drawButton(leftMenuCtx, 330, 120, 160, 50, 'AXIS: Z', cylinderAxis === 'Z');
                 drawButton(leftMenuCtx, 20, 180, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 180, 160, 50, `Sides: ${cylinderSides === 0 ? 'ROUND' : cylinderSides}`, false); drawButton(leftMenuCtx, 250, 180, 50, 50, '+', false);
                 if (cylinderMode !== 'solid') drawButton(leftMenuCtx, 310, 180, 150, 50, `CAP: ${cylinderCap?'ON':'OFF'}`, cylinderCap);
-                if (cylinderMode === 'wireframe') { drawButton(leftMenuCtx, 20, 240, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 240, 160, 50, `Thick: ${wireWidth}`, false); drawButton(leftMenuCtx, 250, 240, 50, 50, '+', false); drawButton(leftMenuCtx, 330, 240, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); }
-              } else if (activeTool === 'triangle') {
+                
+                // New Divisions Controls
+                drawButton(leftMenuCtx, 20, 240, 50, 50, '-', false); 
+                drawButton(leftMenuCtx, 80, 240, 120, 50, `Divs: ${cylinderDivs}`, false); 
+                drawButton(leftMenuCtx, 210, 240, 50, 50, '+', false);
+                drawButton(leftMenuCtx, 270, 240, 50, 50, '-', false); 
+                drawButton(leftMenuCtx, 330, 240, 100, 50, `DThk: ${cylinderDivThick}`, false); 
+                drawButton(leftMenuCtx, 440, 240, 50, 50, '+', false);
+
+                if (cylinderMode === 'wireframe') { 
+                    drawButton(leftMenuCtx, 20, 300, 50, 50, '-', false); 
+                    drawButton(leftMenuCtx, 80, 300, 160, 50, `Thick: ${wireWidth}`, false); 
+                    drawButton(leftMenuCtx, 250, 300, 50, 50, '+', false); 
+                    drawButton(leftMenuCtx, 330, 300, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); 
+                }
+            } else if (activeTool === 'triangle') {
                 // UI: Cone vs Pyramid
                 drawButton(leftMenuCtx, 20, 60, 225, 50, 'CONE', triangleType === 'cone'); 
                 drawButton(leftMenuCtx, 265, 60, 225, 50, 'PYRAMID', triangleType === 'pyramid');
@@ -1525,7 +1541,13 @@ if (cy >= 60 && cy <= 90) {
                 if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 160) cylinderMode = 'solid'; if (cx >= 170 && cx <= 320) cylinderMode = 'shell'; if (cx >= 330 && cx <= 490) cylinderMode = 'wireframe'; } 
                 else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) cylinderAxis = 'X'; if (cx >= 170 && cx <= 320) cylinderAxis = 'Y'; if (cx >= 330 && cx <= 490) cylinderAxis = 'Z'; } 
                 else if (cy >= 180 && cy <= 230) { if (cx >= 20 && cx <= 70) { if (cylinderSides === 0) cylinderSides = 32; else if (cylinderSides > 3) cylinderSides--; else cylinderSides = 0; } if (cx >= 250 && cx <= 300) { if (cylinderSides === 0) cylinderSides = 3; else if (cylinderSides < 32) cylinderSides++; else cylinderSides = 0; } if (cylinderMode !== 'solid' && cx >= 310 && cx <= 460) cylinderCap = !cylinderCap; } 
-                else if (cy >= 240 && cy <= 290 && cylinderMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
+                else if (cy >= 240 && cy <= 290) { 
+                    if (cx >= 20 && cx <= 70) cylinderDivs = Math.max(1, cylinderDivs - 1); 
+                    if (cx >= 210 && cx <= 260) cylinderDivs = Math.min(20, cylinderDivs + 1); 
+                    if (cx >= 270 && cx <= 320) cylinderDivThick = Math.max(1, cylinderDivThick - 1); 
+                    if (cx >= 440 && cx <= 490) cylinderDivThick = Math.min(10, cylinderDivThick + 1); 
+                }
+                else if (cy >= 300 && cy <= 350 && cylinderMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
             } else if (activeTool === 'icosahedron') {
                 if (cy >= 60 && cy <= 105) { if (cx >= 20 && cx <= 245) platonicType = 'tetrahedron'; if (cx >= 265 && cx <= 490) platonicType = 'octahedron'; } 
                 else if (cy >= 110 && cy <= 155) { if (cx >= 20 && cx <= 245) platonicType = 'icosahedron'; if (cx >= 265 && cx <= 490) platonicType = 'dodecahedron'; } 
@@ -2577,7 +2599,7 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
             leftMenuNeedsUpdate = true;
         }
 
-       function executeCylinderTool(startPos, endPos, isPainting) {
+function executeCylinderTool(startPos, endPos, isPainting) {
     let s = startPos, e = endPos;
     if (drawFromCenter) {
         tempPos.copy(endPos).sub(startPos);
@@ -2616,6 +2638,19 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
     const loopMinZ = axis === 'Z' ? minZ : Math.floor(cZ - rZ * max_r);
     const loopMaxZ = axis === 'Z' ? maxZ : Math.ceil(cZ + rZ * max_r);
 
+    // Calculate grid divider positions along the length
+    const divW = new Uint8Array(maxW - minW + 1);
+    if (cylinderDivs > 1) {
+        const step = (maxW - minW) / cylinderDivs;
+        const h = (cylinderDivThick - 1) / 2;
+        for (let i = 1; i < cylinderDivs; i++) {
+            const center = Math.round(i * step);
+            for (let v = Math.ceil(center - h); v <= Math.floor(center + h + 0.001); v++) {
+                if (v >= 0 && v < divW.length) divW[v] = 1;
+            }
+        }
+    }
+
     const isInside = (gx, gy, gz) => {
         const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
         const gu = axis === 'X' ? gy : gx, gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
@@ -2639,44 +2674,49 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
                     const isSurface = (!isInside(gx + 1, gy, gz) || !isInside(gx - 1, gy, gz) || !isInside(gx, gy + 1, gz) || !isInside(gx, gy - 1, gz) || !isInside(gx, gy, gz + 1) || !isInside(gx, gy, gz - 1));
                     const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
                     const isCap = (gw === minW || gw === maxW);
+                    const isDivPos = divW[gw - minW] === 1;
                     
                     let shouldDraw = false, drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, 0), drawMat = matTypes[0];
                     
                     if (cylinderMode === 'solid') {
                         shouldDraw = true;
+                        if (isDivPos) { drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, 1); drawMat = matTypes[1]; }
                     } else if (cylinderMode === 'shell') {
-                        if (isSurface) {
-                            if (!cylinderCap && isCap) {
-                                // Only draw edge of cap if cylinder is uncapped
-                                let sideS = false;
-                                if (axis === 'X') sideS = !isInside(gx, gy + 1, gz) || !isInside(gx, gy - 1, gz) || !isInside(gx, gy, gz + 1) || !isInside(gx, gy, gz - 1);
-                                if (axis === 'Y') sideS = !isInside(gx + 1, gy, gz) || !isInside(gx - 1, gy, gz) || !isInside(gx, gy, gz + 1) || !isInside(gx, gy, gz - 1);
-                                if (axis === 'Z') sideS = !isInside(gx + 1, gy, gz) || !isInside(gx - 1, gy, gz) || !isInside(gx, gy + 1, gz) || !isInside(gx, gy - 1, gz);
-                                if (sideS) shouldDraw = true;
-                            } else shouldDraw = true;
+                        if (isSurface || isDivPos) {
+                            if (!cylinderCap && isCap && !isSurface) {
+                                shouldDraw = false;
+                            } else {
+                                shouldDraw = true;
+                                if (isDivPos) { drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, 1); drawMat = matTypes[1]; }
+                            }
                         } else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
                     } else if (cylinderMode === 'wireframe') {
                         if (isSurface) {
                             let isEdge = false;
-                            if (isCap) {
+                            if (isCap || isDivPos) {
                                 let sideS = false;
                                 if (axis === 'X') sideS = !isInside(gx, gy + 1, gz) || !isInside(gx, gy - 1, gz) || !isInside(gx, gy, gz + 1) || !isInside(gx, gy, gz - 1);
                                 if (axis === 'Y') sideS = !isInside(gx + 1, gy, gz) || !isInside(gx - 1, gy, gz) || !isInside(gx, gy, gz + 1) || !isInside(gx, gy, gz - 1);
                                 if (axis === 'Z') sideS = !isInside(gx + 1, gy, gz) || !isInside(gx - 1, gy, gz) || !isInside(gx, gy + 1, gz) || !isInside(gx, gy - 1, gz);
                                 if (sideS) isEdge = true;
                             }
-                            if (N !== 0 && !isEdge) {
+                            
+                            // Check longitudinal edges for polygons or 8 silhouette ribs for round cylinders
+                            const ribCount = N === 0 ? 8 : N;
+                            if (!isEdge) {
                                 const gu = axis === 'X' ? gy : gx, gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
                                 const nu = (gu - cu) * invRu, nv = (gv - cv) * invRv;
                                 let phi = Math.atan2(nv, nu); if (phi < 0) phi += 2 * Math.PI;
                                 const r_scaled = Math.sqrt(nu * nu + nv * nv) * ((rX + rY + rZ) / 3);
-                                for (let i = 0; i < N; i++) {
-                                    const tp = (i * (2 * Math.PI / N) - Math.PI / N + 2 * Math.PI) % (2 * Math.PI);
+                                const PI_RIB = Math.PI / ribCount;
+                                for (let i = 0; i < ribCount; i++) {
+                                    const tp = (i * (2 * Math.PI / ribCount) - (N === 0 ? 0 : PI_RIB) + 2 * Math.PI) % (2 * Math.PI);
                                     let diff = Math.abs(phi - tp); if (diff > Math.PI) diff = 2 * Math.PI - diff;
                                     if (diff * r_scaled <= (wireWidth - 0.2)) { isEdge = true; break; }
                                 }
                             }
-                            if (isEdge) {
+
+                            if (isEdge || (isDivPos && cylinderCap)) {
                                 shouldDraw = true; drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, 1); drawMat = matTypes[1];
                             } else if (wireFill) {
                                 shouldDraw = true; if (!cylinderCap && isCap) shouldDraw = false;
