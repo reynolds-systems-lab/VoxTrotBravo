@@ -3261,7 +3261,7 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     if (activeTool === 'line' && lineType === 'arc') {
                         // Extract Roll (Z rotation in YZX order)
                         tempSEuler.setFromQuaternion(xrRight.quaternion, 'YZX');
-                        arcBulge = tempSEuler.z * 1.5; // Map roll range (~ -3 to 3) to bulge factor
+                        arcBulge = -tempSEuler.z * 1.5; // REVERSED: Map roll range to inverted bulge factor
 
                         if (xrLeft) {
                             tempSEuler.setFromQuaternion(xrLeft.quaternion, 'YZX');
