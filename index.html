@@ -1328,6 +1328,8 @@ function updatePlanePreview(start, end, isPainting) {
             drawButton(leftMenuCtx, 50, 280, 80, 45, '[-]', false); 
             drawButton(leftMenuCtx, 140, 280, 232, 45, `Radius: ${brushSize}`, false); 
             drawButton(leftMenuCtx, 382, 280, 80, 45, '[+]', false);
+            drawButton(leftMenuCtx, 50, 335, 200, 45, 'SOLID', brushVolume === 'solid'); 
+            drawButton(leftMenuCtx, 262, 335, 200, 45, 'HOLLOW', brushVolume === 'shell');
         } else if (activeTool === 'paint') {
                 drawButton(leftMenuCtx, 50, 70, 200, 50, 'BRUSH', paintMode === 'brush'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'BUCKET', paintMode === 'bucket');
                 if (paintMode === 'brush') {
@@ -1521,6 +1523,7 @@ if (cy >= 60 && cy <= 90) {
                 else if (cy >= 170 && cy <= 215) { if (cx >= 50 && cx <= 250) lineType = 'straight'; if (cx >= 262 && cx <= 462) lineType = 'arc'; } 
                 else if (cy >= 225 && cy <= 270) { if (cx >= 50 && cx <= 130) arcBulge = Math.max(-5.0, arcBulge - 0.5); if (cx >= 382 && cx <= 462) arcBulge = Math.min(5.0, arcBulge + 0.5); } 
                 else if (cy >= 280 && cy <= 325) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); }
+                else if (cy >= 335 && cy <= 380) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
             } else if (activeTool === 'paint') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) paintMode = 'brush'; if (cx >= 262 && cx <= 462) paintMode = 'bucket'; }
                 if (paintMode === 'brush') {
