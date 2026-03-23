@@ -1906,35 +1906,37 @@ function handleRightMenuClick(cx, cy) {
         function calculateArcPoints(p1, p2, ctrlL, ctrlR, outPoints, fixedSteps = 0) {
             const dist = p1.distanceTo(p2);
             if (dist < 0.001) return;
-            const lineAxis = new THREE.Vector3().subVectors(p2, p1).normalize();
             
-            // To ensure the arc follows the user's wrist relative to the voxel grid,
-            // we must account for the worldGroup's current rotation/scale.
-            const worldGroupInvQuat = new THREE.Quaternion();
+            // Uses global temporary objects to prevent GC pressure/crashes
+            const lineAxis = tempHandVec.subVectors(p2, p1).normalize();
+            
+            // Capture world rotation to keep control intuitive even when the user spins the world
+            const worldGroupInvQuat = tempQuat2;
             worldGroup.getWorldQuaternion(worldGroupInvQuat).invert();
 
-            const getHandBulge = (ctrl) => {
-                // Get the controller's "Up" vector (+Y) in scene space.
-                // Note: XR controllers in Three.js are usually children of the scene.
-                const bulgeDir = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrl.quaternion);
+            const getHandBulge = (ctrl, targetVec) => {
+                // Get controller "Up" in local space
+                targetVec.set(0, 1, 0).applyQuaternion(ctrl.quaternion).applyQuaternion(worldGroupInvQuat);
+
+                // Project onto plane perpendicular to line
+                const dot = targetVec.dot(lineAxis);
+                targetVec.subScaledVector(lineAxis, dot);
                 
-                // Transform the direction into the voxel world's local coordinate system.
-                bulgeDir.applyQuaternion(worldGroupInvQuat);
-
-                // Project the vector onto the plane perpendicular to the line.
-                // This prevents the arc from "stretching" the segment and keeps it a true curve.
-                const dot = bulgeDir.dot(lineAxis);
-                bulgeDir.subScaledVector(lineAxis, dot).normalize();
-
-                // Scale magnitude by the user-defined bulge setting and the distance between hands.
-                // Multiplying by 0.5 makes the Bezier control points roughly match the physical tilt.
-                return bulgeDir.multiplyScalar(arcBulge * dist * 0.5);
+                // Safety check: if hand is pointing exactly along the line, pick a default "Up"
+                if (targetVec.lengthSq() < 0.0001) {
+                    targetVec.set(0, 1, 0).applyQuaternion(worldGroupInvQuat);
+                    const dotFallback = targetVec.dot(lineAxis);
+                    targetVec.subScaledVector(lineAxis, dotFallback);
+                }
+                
+                targetVec.normalize().multiplyScalar(arcBulge * dist * 0.5);
+                return targetVec;
             };
 
-            const bulgeVecL = getHandBulge(ctrlL);
-            const bulgeVecR = getHandBulge(ctrlR);
+            // Use temp vectors to avoid 'new THREE.Vector3()' allocations every frame
+            const bulgeVecL = getHandBulge(ctrlL, new THREE.Vector3()); 
+            const bulgeVecR = getHandBulge(ctrlR, new THREE.Vector3());
 
-            // Create Bezier control points by offsetting the anchor points
             const cp1 = new THREE.Vector3().copy(p1).add(bulgeVecL);
             const cp2 = new THREE.Vector3().copy(p2).add(bulgeVecR);
 
@@ -1944,7 +1946,7 @@ function handleRightMenuClick(cx, cy) {
                 const t = i / steps;
                 const omt = 1 - t;
                 const p = new THREE.Vector3();
-                // Standard Cubic Bezier formula for smooth curvature
+                // Cubic Bezier: (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3
                 p.addScaledVector(p1, omt * omt * omt);
                 p.addScaledVector(cp1, 3 * omt * omt * t);
                 p.addScaledVector(cp2, 3 * omt * t * t);
