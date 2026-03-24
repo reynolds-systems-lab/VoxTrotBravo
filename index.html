@@ -1913,37 +1913,29 @@ function handleRightMenuClick(cx, cy) {
             const cA = slotColors[slot][0];
             const cB = slotColors[slot][1];
             
-            if (lineColorMode === 'wild') {
-                // Wild Mode: Spherical world-space interference pattern
-                // This creates the "round checker" look you like.
-                const freq = 0.4; 
-                const dist = Math.sqrt(gx*gx + gy*gy + gz*gz);
-                const pattern = Math.sin(gx * freq) * Math.cos(gy * freq) * Math.sin(gz * freq) + Math.sin(dist * freq * 0.5);
-                const t = THREE.MathUtils.clamp((pattern + 1) / 2, 0, 1);
-                return tempColorForDraw[slot].copy(cA).lerp(cB, t);
-            }
-            
-            if (lineColorMode === 'gradient') {
-                // Coherent Directional Gradient
-                const dx = maxX - minX;
-                const dy = maxY - minY;
-                const dz = maxZ - minZ;
-                
-                let t = 0.5;
-                // Avoid "random" jitter by checking if the stroke has actual volume
-                if (dx + dy + dz > 0) {
-                    // Automatically pick the longest axis for the gradient transition
-                    if (dx >= dy && dx >= dz) t = (gx - minX) / dx;
-                    else if (dy >= dx && dy >= dz) t = (gy - minY) / dy;
-                    else t = (gz - minZ) / dz;
-                }
-                
-                return tempColorForDraw[slot].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
-            }
-            
-            // Standard: Falls back to the standard palette logic
-            return getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slot);
+        if (lineColorMode === 'wild') {
+            const freq = 0.4; 
+            const dist = Math.sqrt(gx*gx + gy*gy + gz*gz);
+            const pattern = Math.sin(gx * freq) * Math.cos(gy * freq) * Math.sin(gz * freq) + Math.sin(dist * freq * 0.5);
+            const t = THREE.MathUtils.clamp((pattern + 1) / 2, 0, 1);
+            return tempColorForDraw[slot].copy(cA).lerp(cB, t);
         }
+        
+        if (lineColorMode === 'gradient') {
+            const dx = maxX - minX;
+            const dy = maxY - minY;
+            const dz = maxZ - minZ;
+            let t = (pathT !== -1) ? pathT : 0.5;
+            if (pathT === -1 && dx + dy + dz > 0) {
+                if (dx >= dy && dx >= dz) t = (gx - minX) / dx;
+                else if (dy >= dx && dy >= dz) t = (gy - minY) / dy;
+                else t = (gz - minZ) / dz;
+            }
+            return tempColorForDraw[slot].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
+        }
+        
+        return getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slot, pathT);
+    }
 
 
 
@@ -2457,98 +2449,98 @@ function placeBrushVoxels(pos, isP) {
                 if (xrRight) arcUp.set(0, 1, 0).applyQuaternion(xrRight.quaternion);
             }
 
-            const r = (brushSize - 1) * VOXEL_SIZE;
-            const candidates = new Set();
-            const segments = [];
+        const r = (brushSize - 1) * VOXEL_SIZE;
+        const candidates = new Set();
+        const segments = [];
+        let totalPathLength = 0;
 
-            // Pre-calculate segment axes and gather candidates
-            for (let i = 0; i < points.length - 1; i++) {
-                const A = points[i], B = points[i+1];
-                const dir = new THREE.Vector3().subVectors(B, A);
-                const L = dir.length();
-                const normDir = dir.clone().normalize();
-                
-                const u = new THREE.Vector3().copy(arcUp).projectOnPlane(normDir).normalize();
-                if (u.lengthSq() < 0.01) u.set(1, 0, 0).projectOnPlane(normDir).normalize();
-                const v = new THREE.Vector3().crossVectors(normDir, u);
+        for (let i = 0; i < points.length - 1; i++) {
+            const A = points[i], B = points[i+1];
+            const dir = new THREE.Vector3().subVectors(B, A);
+            const L = dir.length();
+            const normDir = dir.clone().normalize();
+            const u = new THREE.Vector3().copy(arcUp).projectOnPlane(normDir).normalize();
+            if (u.lengthSq() < 0.01) u.set(1, 0, 0).projectOnPlane(normDir).normalize();
+            const v = new THREE.Vector3().crossVectors(normDir, u);
 
-                segments.push({ A, B, L, normDir, u, v });
+            segments.push({ A, B, L, normDir, u, v, startDist: totalPathLength });
+            totalPathLength += L;
 
-                // Tighter sampling for radius 1: ensures every voxel on the path is considered
-                const steps = Math.max(2, Math.ceil(L / (VOXEL_SIZE * 0.4)));
-                for (let s = 0; s <= steps; s++) {
-                    const p = new THREE.Vector3().lerpVectors(A, B, s / steps);
-                    const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
-                    const rad = brushSize;
-                    for (let x = -rad; x <= rad; x++)
-                        for (let y = -rad; y <= rad; y++)
-                            for (let z = -rad; z <= rad; z++)
-                                candidates.add((gx + x + 32768) + (gy + y + 32768) * 65536 + (gz + z + 32768) * 4294967296);
+            const steps = Math.max(2, Math.ceil(L / (VOXEL_SIZE * 0.4)));
+            for (let s = 0; s <= steps; s++) {
+                const p = new THREE.Vector3().lerpVectors(A, B, s / steps);
+                const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
+                const rad = brushSize;
+                for (let x = -rad; x <= rad; x++)
+                    for (let y = -rad; y <= rad; y++)
+                        for (let z = -rad; z <= rad; z++)
+                            candidates.add((gx + x + 32768) + (gy + y + 32768) * 65536 + (gz + z + 32768) * 4294967296);
+            }
+        }
+
+        const testPos = new THREE.Vector3();
+        const localW = new THREE.Vector3();
+        const localDistVec = new THREE.Vector3();
+
+        const getStrokeInfo = (pos) => {
+            let bestT = -1;
+            for (const seg of segments) {
+                localW.subVectors(pos, seg.A);
+                const t = localW.dot(seg.normDir);
+                if (t < -0.005 || t > seg.L + 0.005) continue;
+
+                localDistVec.copy(seg.A).addScaledVector(seg.normDir, t);
+                localDistVec.subVectors(pos, localDistVec);
+
+                let inside = false;
+                if (brushShape === 'sphere') {
+                    if (localDistVec.lengthSq() <= (r + 0.005) * (r + 0.005)) inside = true;
+                } else {
+                    const dU = Math.abs(localDistVec.dot(seg.u));
+                    const dV = Math.abs(localDistVec.dot(seg.v));
+                    if (dU <= r + 0.005 && dV <= r + 0.005) inside = true;
+                }
+
+                if (inside) {
+                    bestT = (seg.startDist + THREE.MathUtils.clamp(t, 0, seg.L)) / (totalPathLength || 1);
+                    return bestT;
                 }
             }
+            return -1;
+        };
 
-            // Local helper for intersection tests to avoid corrupting tempPos
-            const testPos = new THREE.Vector3();
-            const localW = new THREE.Vector3();
-            const localDist = new THREE.Vector3();
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        points.forEach(p => {
+            const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
+            minX = Math.min(minX, gx); maxX = Math.max(maxX, gx);
+            minY = Math.min(minY, gy); maxY = Math.max(maxY, gy);
+            minZ = Math.min(minZ, gz); maxZ = Math.max(maxZ, gz);
+        });
 
-            const isInsideStroke = (pos) => {
-                for (const seg of segments) {
-                    localW.subVectors(pos, seg.A);
-                    const t = localW.dot(seg.normDir);
-                    // Slight longitudinal padding to close floating point gaps between segments
-                    if (t < -0.005 || t > seg.L + 0.005) continue;
-
-                    localDist.copy(seg.A).addScaledVector(seg.normDir, t);
-                    localDist.subVectors(pos, localDist);
-
-                    if (brushShape === 'sphere') {
-                        if (localDist.lengthSq() <= (r + 0.005) * (r + 0.005)) return true;
-                    } else {
-                        const dU = Math.abs(localDist.dot(seg.u));
-                        const dV = Math.abs(localDist.dot(seg.v));
-                        if (dU <= r + 0.005 && dV <= r + 0.005) return true;
+        candidates.forEach(hash => {
+            const gx = (hash % 65536) - 32768;
+            const gy = (Math.floor(hash / 65536) % 65536) - 32768;
+            const gz = Math.floor(hash / 4294967296) - 32768;
+            const pos = new THREE.Vector3(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
+            
+            const pathT = getStrokeInfo(pos);
+            if (pathT !== -1) {
+                const finalColor = getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, pathT);
+                if (brushVolume === 'solid' || brushSize === 1) {
+                    setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[0]);
+                } else {
+                    let isShell = false;
+                    const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+                    for(let n of neighbors) {
+                        testPos.set(pos.x + n[0]*VOXEL_SIZE, pos.y + n[1]*VOXEL_SIZE, pos.z + n[2]*VOXEL_SIZE);
+                        if (getStrokeInfo(testPos) === -1) { isShell = true; break; }
                     }
+                    if (isShell) setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[0]);
+                    else if (isPainting) setVoxel(gx, gy, gz, false, null); 
                 }
-                return false;
-            };
-
-            // Calculate total bounds (X, Y, and Z) for gradient application
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-            points.forEach(p => {
-                const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
-                minX = Math.min(minX, gx); maxX = Math.max(maxX, gx);
-                minY = Math.min(minY, gy); maxY = Math.max(maxY, gy);
-                minZ = Math.min(minZ, gz); maxZ = Math.max(maxZ, gz);
-            });
-
-            candidates.forEach(hash => {
-                const gx = (hash % 65536) - 32768;
-                const gy = (Math.floor(hash / 65536) % 65536) - 32768;
-                const gz = Math.floor(hash / 4294967296) - 32768;
-                const pos = new THREE.Vector3(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                
-                if (isInsideStroke(pos)) {
-                    // Pass the full 3D bounding box to the color helper
-                    const finalColor = getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ);
-                    if (brushVolume === 'solid' || brushSize === 1) {
-                        setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[0]);
-                    } else {
-
-                        let isShell = false;
-                        const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
-                        for(let n of neighbors) {
-                            testPos.set(pos.x + n[0]*VOXEL_SIZE, pos.y + n[1]*VOXEL_SIZE, pos.z + n[2]*VOXEL_SIZE);
-                            if (!isInsideStroke(testPos)) {
-                                isShell = true; break;
-                            }
-                        }
-                        if (isShell) setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
-                        else if (isPainting) setVoxel(gx, gy, gz, false, null); 
-                    }
-                }
-            });
-        }
+            }
+        });
+    }
 
 
 
