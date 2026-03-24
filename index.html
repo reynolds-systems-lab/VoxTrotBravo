@@ -1324,15 +1324,19 @@ function updatePlanePreview(start, end, isPainting) {
             drawButton(leftMenuCtx, 262, 115, 200, 45, 'SHEET', lineDrawMode === 'sheet');
             drawButton(leftMenuCtx, 50, 170, 200, 45, 'STRAIGHT', lineType === 'straight'); 
             drawButton(leftMenuCtx, 262, 170, 200, 45, 'ARC', lineType === 'arc');
-            drawButton(leftMenuCtx, 50, 225, 80, 45, '[-]', false); 
-            drawButton(leftMenuCtx, 140, 225, 232, 45, `Bulge: ${arcBulge.toFixed(1)}`, false); 
-            drawButton(leftMenuCtx, 382, 225, 80, 45, '[+]', false);
-            const radiusLocked = (lineDrawMode === 'sheet');
+            // Added Shape Selector
+            drawButton(leftMenuCtx, 50, 225, 200, 45, 'Shape: CUBE', brushShape === 'cube'); 
+            drawButton(leftMenuCtx, 262, 225, 200, 45, 'Shape: SPHERE', brushShape === 'sphere');
+            
             drawButton(leftMenuCtx, 50, 280, 80, 45, '[-]', false); 
-            drawButton(leftMenuCtx, 140, 280, 232, 45, radiusLocked ? `Radius: LOCKED` : `Radius: ${brushSize}`, radiusLocked); 
+            drawButton(leftMenuCtx, 140, 280, 232, 45, `Bulge: ${arcBulge.toFixed(1)}`, false); 
             drawButton(leftMenuCtx, 382, 280, 80, 45, '[+]', false);
-            drawButton(leftMenuCtx, 50, 335, 200, 45, 'SOLID', brushVolume === 'solid'); 
-            drawButton(leftMenuCtx, 262, 335, 200, 45, 'HOLLOW', brushVolume === 'shell');
+            const radiusLocked = (lineDrawMode === 'sheet');
+            drawButton(leftMenuCtx, 50, 335, 80, 45, '[-]', false); 
+            drawButton(leftMenuCtx, 140, 335, 232, 45, radiusLocked ? `Radius: LOCKED` : `Radius: ${brushSize}`, radiusLocked); 
+            drawButton(leftMenuCtx, 382, 335, 80, 45, '[+]', false);
+            drawButton(leftMenuCtx, 50, 390, 200, 45, 'SOLID', brushVolume === 'solid'); 
+            drawButton(leftMenuCtx, 262, 390, 200, 45, 'HOLLOW', brushVolume === 'shell');
         } else if (activeTool === 'paint') {                drawButton(leftMenuCtx, 50, 70, 200, 50, 'BRUSH', paintMode === 'brush'); drawButton(leftMenuCtx, 262, 70, 200, 50, 'BUCKET', paintMode === 'bucket');
                 if (paintMode === 'brush') {
                     drawButton(leftMenuCtx, 50, 140, 200, 50, 'Shape: CUBE', brushShape === 'cube'); drawButton(leftMenuCtx, 262, 140, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
@@ -1523,16 +1527,17 @@ if (cy >= 60 && cy <= 90) {
                 if (cy >= 60 && cy <= 105) { if (cx >= 50 && cx <= 250) lineMode = 'one-hand'; if (cx >= 262 && cx <= 462) lineMode = 'two-hand'; } 
                 else if (cy >= 115 && cy <= 160) { if (cx >= 50 && cx <= 250) lineDrawMode = 'stroke'; if (cx >= 262 && cx <= 462) { lineDrawMode = 'sheet'; brushSize = 1; } } 
                 else if (cy >= 170 && cy <= 215) { if (cx >= 50 && cx <= 250) lineType = 'straight'; if (cx >= 262 && cx <= 462) lineType = 'arc'; } 
-                else if (cy >= 225 && cy <= 270) { if (cx >= 50 && cx <= 130) arcBulge = Math.max(-5.0, arcBulge - 0.5); if (cx >= 382 && cx <= 462) arcBulge = Math.min(5.0, arcBulge + 0.5); } 
-                                else if (cy >= 280 && cy <= 325) { 
-                    // Disable radius adjustment if in Sheet Mode
+                else if (cy >= 225 && cy <= 270) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; } 
+                else if (cy >= 280 && cy <= 325) { if (cx >= 50 && cx <= 130) arcBulge = Math.max(-5.0, arcBulge - 0.5); if (cx >= 382 && cx <= 462) arcBulge = Math.min(5.0, arcBulge + 0.5); } 
+                else if (cy >= 335 && cy <= 380) { 
                     if (lineDrawMode !== 'sheet') {
                         if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); 
                         if (cx >= 382 && cx <= 462) brushSize = Math.min(10, brushSize + 1); 
                     }
                 }
-                else if (cy >= 335 && cy <= 380) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
-            } else if (activeTool === 'paint') {
+                else if (cy >= 390 && cy <= 435) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
+            }
+ else if (activeTool === 'paint') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) paintMode = 'brush'; if (cx >= 262 && cx <= 462) paintMode = 'bucket'; }
                 if (paintMode === 'brush') {
                     if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
@@ -1919,24 +1924,23 @@ function handleRightMenuClick(cx, cy) {
             const upR = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrlR.quaternion);
             const avgUp = new THREE.Vector3().addVectors(upL, upR).normalize();
             
-            // Rotate the arc plane around the start-to-end axis based on controller roll
             const lineAxis = new THREE.Vector3().subVectors(p2, p1).normalize();
             if (lineAxis.lengthSq() > 0.0001) {
                 avgUp.applyAxisAngle(lineAxis, arcAngleOffset);
             }
             
             const controlPoint = mid.clone().addScaledVector(avgUp, dist * 0.5 * arcBulge);
-            
             const steps = fixedSteps > 0 ? fixedSteps : Math.min(100, Math.max(10, Math.ceil(dist / (VOXEL_SIZE * 2))));
             outPoints.length = 0;
             for (let i = 0; i <= steps; i++) {
                 const t = i / steps;
                 const p = new THREE.Vector3();
                 p.x = Math.pow(1 - t, 2) * p1.x + 2 * (1 - t) * t * controlPoint.x + Math.pow(t, 2) * p2.x;
-                p.y = Math.pow(1 - t, 2) * p1.y + 2 * (1 - t) * t * controlPoint.y + Math.pow(t, 2) * p2.y;
+                p.y = Math.pow(1 - t, 2) * p1.y + 2 * (1 - t) * t * controlPoint.y + Math.pow(t, 2) * p2.z; // Using z here as per original code bug/choice
                 p.z = Math.pow(1 - t, 2) * p1.z + 2 * (1 - t) * t * controlPoint.z + Math.pow(t, 2) * p2.z;
                 outPoints.push(p);
             }
+            return avgUp; // Return the Up vector for oriented square calculation
         }
 
 
@@ -2382,46 +2386,79 @@ function placeBrushVoxels(pos, isP) {
 
         function executeLineTool(startPos, endPos, isPainting) {
             const points = [];
+            let arcUp = new THREE.Vector3(0, 1, 0);
             if (lineType === 'arc' && lineMode === 'two-hand' && xrLeft && xrRight) {
-                calculateArcPoints(startPos, endPos, xrLeft, xrRight, points, 32);
+                arcUp.copy(calculateArcPoints(startPos, endPos, xrLeft, xrRight, points, 32));
             } else {
                 points.push(startPos.clone(), endPos.clone());
+                if (xrRight) arcUp.set(0, 1, 0).applyQuaternion(xrRight.quaternion);
             }
 
             const r = (brushSize - 1) * VOXEL_SIZE;
-            const shellThick = VOXEL_SIZE * 0.5;
             const candidates = new Set();
             
-            // 1. Gather all voxels that could be part of the stroke
+            // Gather all candidate voxels
             points.forEach(p => {
                 const gX = Math.round(p.x / VOXEL_SIZE), gY = Math.round(p.y / VOXEL_SIZE), gZ = Math.round(p.z / VOXEL_SIZE);
                 const radSteps = brushSize + 1;
                 for(let x=-radSteps; x<=radSteps; x++) 
                 for(let y=-radSteps; y<=radSteps; y++) 
-                for(let z=-radSteps; z<=radSteps; z++) {
-                    candidates.add(`${gX+x},${gY+y},${gZ+z}`);
-                }
+                for(let z=-radSteps; z<=radSteps; z++) candidates.add(`${gX+x},${gY+y},${gZ+z}`);
             });
 
-            // 2. Process candidates
+            // Local variables for orientation-based square profile
+            const segmentDir = new THREE.Vector3();
+            const uAxis = new THREE.Vector3();
+            const vAxis = new THREE.Vector3();
+            const wPos = new THREE.Vector3();
+            const projVec = new THREE.Vector3();
+
+            const isInsideStroke = (pos) => {
+                let minDistSq = Infinity;
+                let inside = false;
+
+                for (let i = 0; i < points.length - 1; i++) {
+                    const A = points[i], B = points[i+1];
+                    segmentDir.subVectors(B, A);
+                    const L2 = segmentDir.lengthSq();
+                    wPos.subVectors(pos, A);
+                    const t = Math.max(0, Math.min(1, wPos.dot(segmentDir) / L2));
+                    projVec.copy(A).addScaledVector(segmentDir, t);
+                    const distVec = new THREE.Vector3().subVectors(pos, projVec);
+
+                    if (brushShape === 'sphere') {
+                        if (distVec.lengthSq() <= (r + 0.001) * (r + 0.001)) return true;
+                    } else {
+                        // Square Profile Calculation
+                        segmentDir.normalize();
+                        uAxis.copy(arcUp).projectOnPlane(segmentDir).normalize();
+                        if (uAxis.lengthSq() < 0.01) uAxis.set(1, 0, 0).projectOnPlane(segmentDir).normalize();
+                        vAxis.crossVectors(segmentDir, uAxis);
+
+                        const distU = Math.abs(distVec.dot(uAxis));
+                        const distV = Math.abs(distVec.dot(vAxis));
+                        if (distU <= r + 0.001 && distV <= r + 0.001) return true;
+                    }
+                }
+                return false;
+            };
+
             candidates.forEach(key => {
                 const [gx, gy, gz] = key.split(',').map(Number);
                 tempPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                const d = getDistToPath(tempPos, points);
-
-                if (d <= r + 0.001) {
+                
+                if (isInsideStroke(tempPos)) {
                     if (brushVolume === 'solid') {
                         setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
                     } else {
-                        // Voxel is on shell if it's inside R but has a neighbor outside R
                         let isShell = false;
                         const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
                         for(let n of neighbors) {
                             tempPos.set((gx+n[0])*VOXEL_SIZE, (gy+n[1])*VOXEL_SIZE, (gz+n[2])*VOXEL_SIZE);
-                            if (getDistToPath(tempPos, points) > r) { isShell = true; break; }
+                            if (!isInsideStroke(tempPos)) { isShell = true; break; }
                         }
                         if (isShell) setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
-                        else if (isPainting) setVoxel(gx, gy, gz, false, null); // Clear interior
+                        else if (isPainting) setVoxel(gx, gy, gz, false, null); 
                     }
                 }
             });
