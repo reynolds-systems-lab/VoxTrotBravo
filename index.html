@@ -766,7 +766,6 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
             // Update Wireframe
             const wirePoints = [];
             const r = (brushSize - 0.5) * VOXEL_SIZE;
-            const segments = [];
             
             for (let i = 0; i < points.length - 1; i++) {
                 const A = points[i], B = points[i+1];
@@ -785,7 +784,7 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
 
                 for (let j = 0; j < 4; j++) {
                     const next = (j + 1) % 4;
-                    // Cap edges
+                    // Cap edges at joints
                     wirePoints.push(new THREE.Vector3().addVectors(A, corners[j]), new THREE.Vector3().addVectors(A, corners[next]));
                     wirePoints.push(new THREE.Vector3().addVectors(B, corners[j]), new THREE.Vector3().addVectors(B, corners[next]));
                     // Longitudinal edges
@@ -800,6 +799,7 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
             // Hide the expensive voxel preview during complex arc updates for performance
             linePreviewMesh.visible = false;
         }
+
 
         
         const selectionGroup = new THREE.Group();
@@ -2379,22 +2379,21 @@ function placeBrushVoxels(pos, isP) {
             const candidates = new Set();
             const segments = [];
 
-            // Pre-calculate segment data to avoid per-voxel matrix math
+            // Pre-calculate segment axes and gather candidates
             for (let i = 0; i < points.length - 1; i++) {
                 const A = points[i], B = points[i+1];
                 const dir = new THREE.Vector3().subVectors(B, A);
-                const L2 = dir.lengthSq();
-                const L = Math.sqrt(L2);
+                const L = dir.length();
                 const normDir = dir.clone().normalize();
                 
                 const u = new THREE.Vector3().copy(arcUp).projectOnPlane(normDir).normalize();
                 if (u.lengthSq() < 0.01) u.set(1, 0, 0).projectOnPlane(normDir).normalize();
                 const v = new THREE.Vector3().crossVectors(normDir, u);
 
-                segments.push({ A, B, dir, L2, L, normDir, u, v });
+                segments.push({ A, B, L, normDir, u, v });
 
-                // Gather candidates numerically (avoid string keys)
-                const steps = Math.max(1, Math.ceil(L / (VOXEL_SIZE * 0.5)));
+                // Tighter sampling for radius 1: ensures every voxel on the path is considered
+                const steps = Math.max(2, Math.ceil(L / (VOXEL_SIZE * 0.4)));
                 for (let s = 0; s <= steps; s++) {
                     const p = new THREE.Vector3().lerpVectors(A, B, s / steps);
                     const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
@@ -2406,22 +2405,27 @@ function placeBrushVoxels(pos, isP) {
                 }
             }
 
+            // Local helper for intersection tests to avoid corrupting tempPos
+            const testPos = new THREE.Vector3();
+            const localW = new THREE.Vector3();
+            const localDist = new THREE.Vector3();
+
             const isInsideStroke = (pos) => {
                 for (const seg of segments) {
-                    const w = tempPos.subVectors(pos, seg.A);
-                    const t = w.dot(seg.normDir);
-                    // Check longitudinal bounds strictly (fixes missing top surface in arcs)
-                    if (t < -0.001 || t > seg.L + 0.001) continue;
+                    localW.subVectors(pos, seg.A);
+                    const t = localW.dot(seg.normDir);
+                    // Slight longitudinal padding to close floating point gaps between segments
+                    if (t < -0.005 || t > seg.L + 0.005) continue;
 
-                    const proj = tempPos.copy(seg.A).addScaledVector(seg.normDir, t);
-                    const distVec = tempPos.subVectors(pos, proj);
+                    localDist.copy(seg.A).addScaledVector(seg.normDir, t);
+                    localDist.subVectors(pos, localDist);
 
                     if (brushShape === 'sphere') {
-                        if (distVec.lengthSq() <= (r + 0.001) * (r + 0.001)) return true;
+                        if (localDist.lengthSq() <= (r + 0.005) * (r + 0.005)) return true;
                     } else {
-                        const dU = Math.abs(distVec.dot(seg.u));
-                        const dV = Math.abs(distVec.dot(seg.v));
-                        if (dU <= r + 0.001 && dV <= r + 0.001) return true;
+                        const dU = Math.abs(localDist.dot(seg.u));
+                        const dV = Math.abs(localDist.dot(seg.v));
+                        if (dU <= r + 0.005 && dV <= r + 0.005) return true;
                     }
                 }
                 return false;
@@ -2434,13 +2438,14 @@ function placeBrushVoxels(pos, isP) {
                 const pos = new THREE.Vector3(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
                 
                 if (isInsideStroke(pos)) {
-                    if (brushVolume === 'solid') {
+                    if (brushVolume === 'solid' || brushSize === 1) {
                         setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
                     } else {
                         let isShell = false;
                         const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
                         for(let n of neighbors) {
-                            if (!isInsideStroke(tempPos.set(pos.x + n[0]*VOXEL_SIZE, pos.y + n[1]*VOXEL_SIZE, pos.z + n[2]*VOXEL_SIZE))) {
+                            testPos.set(pos.x + n[0]*VOXEL_SIZE, pos.y + n[1]*VOXEL_SIZE, pos.z + n[2]*VOXEL_SIZE);
+                            if (!isInsideStroke(testPos)) {
                                 isShell = true; break;
                             }
                         }
@@ -2450,6 +2455,7 @@ function placeBrushVoxels(pos, isP) {
                 }
             });
         }
+
 
 
         function executeExtrudeTool(start, end, isP) {
