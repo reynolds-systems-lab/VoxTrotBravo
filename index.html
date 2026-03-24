@@ -2323,18 +2323,45 @@ function placeBrushVoxels(pos, isP) {
         }
 
         function drawSheetQuad(pL1, pR1, pL2, pR2, isP, thick) {
-            const minX = Math.round(Math.min(pL1.x, pR1.x, pL2.x, pR2.x)/VOXEL_SIZE)-thick, maxX = Math.round(Math.max(pL1.x, pR1.x, pL2.x, pR2.x)/VOXEL_SIZE)+thick;
-            const minY = Math.round(Math.min(pL1.y, pR1.y, pL2.y, pR2.y)/VOXEL_SIZE)-thick, maxY = Math.round(Math.max(pL1.y, pR1.y, pL2.y, pR2.y)/VOXEL_SIZE)+thick;
-            const distL=pL1.distanceTo(pL2), distR=pR1.distanceTo(pR2), stepsV=Math.max(1, Math.ceil(Math.max(distL,distR)/(VOXEL_SIZE*0.25))), r=thick-1, rSq=(r+0.1)*(r+0.1);
-            fillVisited.clear(); const isInside = (dx,dy,dz) => brushShape==='sphere'?(dx*dx+dy*dy+dz*dz<=rSq):(Math.abs(dx)<=r&&Math.abs(dy)<=r&&Math.abs(dz)<=r);
-            for (let v=0; v<=stepsV; v++) {
-                sheetPosL.copy(pL1).lerp(pL2, v/stepsV); sheetPosR.copy(pR1).lerp(pR2, v/stepsV); const distU=sheetPosL.distanceTo(sheetPosR), stepsU=Math.max(1, Math.ceil(distU/(VOXEL_SIZE*0.25)));
-                for (let u=0; u<=stepsU; u++) {
-                    tempPos.copy(sheetPosL).lerp(sheetPosR, u/stepsU); const cx=Math.round(tempPos.x/VOXEL_SIZE), cy=Math.round(tempPos.y/VOXEL_SIZE), cz=Math.round(tempPos.z/VOXEL_SIZE);
-                    for (let dx=-r; dx<=r; dx++) for (let dy=-r; dy<=r; dy++) for (let dz=-r; dz<=r; dz++) {
-                        if(!isInside(dx,dy,dz)) continue;
-                        if(brushVolume==='shell'&&r>0) { const sur = !isInside(dx+1,dy,dz)||!isInside(dx-1,dy,dz)||!isInside(dx,dy+1,dz)||!isInside(dx,dy-1)||!isInside(dx,dy,dz+1)||!isInside(dx,dy-1); if(!sur) continue; }
-                        const hash=(cx+dx+32768)+(cy+dy+32768)*65536+(cz+dz+32768)*4294967296; if(!fillVisited.has(hash)) { fillVisited.add(hash); setVoxel(cx+dx, cy+dy, cz+dz, isP, getDrawColor(cx+dx,cy+dy,cz+dz,minX,maxX,minY,maxY,0), matTypes[0]); }
+            // Gradient Bounds: Use the drawStartPos and current Right Controller as context for smooth gradients
+            const contextStart = drawStartPos, contextEnd = rightTargetLocal;
+            const minX = Math.round(Math.min(contextStart.x, contextEnd.x)/VOXEL_SIZE), maxX = Math.round(Math.max(contextStart.x, contextEnd.x)/VOXEL_SIZE);
+            const minY = Math.round(Math.min(contextStart.y, contextEnd.y)/VOXEL_SIZE), maxY = Math.max(Math.round(contextStart.y/VOXEL_SIZE), Math.round(contextEnd.y/VOXEL_SIZE));
+
+            const distL = pL1.distanceTo(pL2), distR = pR1.distanceTo(pR2);
+            // Increased sampling (0.15 instead of 0.25) to ensure "solid" fill during fast hand movements
+            const stepsV = Math.max(1, Math.ceil(Math.max(distL, distR) / (VOXEL_SIZE * 0.15)));
+            const r = thick - 1, rSq = (r + 0.1) * (r + 0.1);
+            
+            fillVisited.clear(); 
+            const isInside = (dx,dy,dz) => brushShape==='sphere' ? (dx*dx+dy*dy+dz*dz <= rSq) : (Math.abs(dx) <= r && Math.abs(dy) <= r && Math.abs(dz) <= r);
+
+            for (let v = 0; v <= stepsV; v++) {
+                sheetPosL.copy(pL1).lerp(pL2, v / stepsV); 
+                sheetPosR.copy(pR1).lerp(pR2, v / stepsV); 
+                const distU = sheetPosL.distanceTo(sheetPosR);
+                const stepsU = Math.max(1, Math.ceil(distU / (VOXEL_SIZE * 0.15)));
+
+                for (let u = 0; u <= stepsU; u++) {
+                    tempPos.copy(sheetPosL).lerp(sheetPosR, u / stepsU); 
+                    const cx = Math.round(tempPos.x / VOXEL_SIZE), cy = Math.round(tempPos.y / VOXEL_SIZE), cz = Math.round(tempPos.z / VOXEL_SIZE);
+                    
+                    for (let dx = -r; dx <= r; dx++) {
+                        for (let dy = -r; dy <= r; dy++) {
+                            for (let dz = -r; dz <= r; dz++) {
+                                if (!isInside(dx, dy, dz)) continue;
+                                if (brushVolume === 'shell' && r > 0) {
+                                    const sur = !isInside(dx + 1, dy, dz) || !isInside(dx - 1, dy, dz) || !isInside(dx, dy + 1, dz) || !isInside(dx, dy - 1, dz) || !isInside(dx, dy, dz + 1) || !isInside(dx, dy, dz - 1);
+                                    if (!sur) continue;
+                                }
+                                const hash = (cx+dx+32768) + (cy+dy+32768)*65536 + (cz+dz+32768)*4294967296;
+                                if (!fillVisited.has(hash)) {
+                                    fillVisited.add(hash);
+                                    // Use the wider gesture context for color mapping
+                                    setVoxel(cx+dx, cy+dy, cz+dz, isP, getDrawColor(cx+dx, cy+dy, cz+dz, minX, maxX, minY, maxY, 0), matTypes[0]);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2431,6 +2458,14 @@ function placeBrushVoxels(pos, isP) {
                 return false;
             };
 
+            // Calculate total bounds for gradient application
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            points.forEach(p => {
+                const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE);
+                minX = Math.min(minX, gx); maxX = Math.max(maxX, gx);
+                minY = Math.min(minY, gy); maxY = Math.max(maxY, gy);
+            });
+
             candidates.forEach(hash => {
                 const gx = (hash % 65536) - 32768;
                 const gy = (Math.floor(hash / 65536) % 65536) - 32768;
@@ -2439,7 +2474,7 @@ function placeBrushVoxels(pos, isP) {
                 
                 if (isInsideStroke(pos)) {
                     if (brushVolume === 'solid' || brushSize === 1) {
-                        setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, 0, 0, 0, 0, 0), matTypes[0]);
+                        setVoxel(gx, gy, gz, isPainting, getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0), matTypes[0]);
                     } else {
                         let isShell = false;
                         const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
