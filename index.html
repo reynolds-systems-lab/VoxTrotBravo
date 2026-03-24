@@ -757,11 +757,27 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
         for(let i=0; i<30000; i++) { linePreviewMesh.instanceMatrix.array[i*16]=1; linePreviewMesh.instanceMatrix.array[i*16+5]=1; linePreviewMesh.instanceMatrix.array[i*16+10]=1; linePreviewMesh.instanceMatrix.array[i*16+15]=1;
         }
         worldGroup.add(linePreviewMesh);       
-function updateLinePreviewFromPoints(points, isPainting) {
+function updateLinePreviewFromPoints(points, isPainting, arcUp = new THREE.Vector3(0,1,0)) {
             let instCount = 0;
             const r = brushSize - 1, rSq = (r + 0.1) * (r + 0.1);
-            const isInside = (dx, dy, dz) => brushShape === 'sphere' ?
-            (dx*dx + dy*dy + dz*dz <= rSq) : (Math.abs(dx) <= r && Math.abs(dy) <= r && Math.abs(dz) <= r);
+            
+            // Vectors for oriented square logic
+            const segDir = new THREE.Vector3();
+            const uAxis = new THREE.Vector3();
+            const vAxis = new THREE.Vector3();
+            const distVec = new THREE.Vector3();
+
+            const isInside = (dx, dy, dz, cx, cy, cz) => {
+                if (brushShape === 'sphere') return (dx*dx + dy*dy + dz*dz <= rSq);
+                
+                // For square profiles, we need to find the segment orientation
+                // In the previewer, we approximate using the closest segment direction
+                // (Optimized: we assume the nearest point in the 'points' array is sufficient)
+                distVec.set(dx, dy, dz);
+                const dU = Math.abs(distVec.dot(uAxis));
+                const dV = Math.abs(distVec.dot(vAxis));
+                return (dU <= r + 0.001 && dV <= r + 0.001);
+            };
             fillVisited.clear();
             
             // NEW: Track the last voxel evaluated to prevent millions of redundant calculations
@@ -1936,7 +1952,7 @@ function handleRightMenuClick(cx, cy) {
                 const t = i / steps;
                 const p = new THREE.Vector3();
                 p.x = Math.pow(1 - t, 2) * p1.x + 2 * (1 - t) * t * controlPoint.x + Math.pow(t, 2) * p2.x;
-                p.y = Math.pow(1 - t, 2) * p1.y + 2 * (1 - t) * t * controlPoint.y + Math.pow(t, 2) * p2.z; // Using z here as per original code bug/choice
+                p.y = Math.pow(1 - t, 2) * p1.y + 2 * (1 - t) * t * controlPoint.y + Math.pow(t, 2) * p2.y;
                 p.z = Math.pow(1 - t, 2) * p1.z + 2 * (1 - t) * t * controlPoint.z + Math.pow(t, 2) * p2.z;
                 outPoints.push(p);
             }
@@ -2397,14 +2413,23 @@ function placeBrushVoxels(pos, isP) {
             const r = (brushSize - 1) * VOXEL_SIZE;
             const candidates = new Set();
             
-            // Gather all candidate voxels
-            points.forEach(p => {
-                const gX = Math.round(p.x / VOXEL_SIZE), gY = Math.round(p.y / VOXEL_SIZE), gZ = Math.round(p.z / VOXEL_SIZE);
-                const radSteps = brushSize + 1;
-                for(let x=-radSteps; x<=radSteps; x++) 
-                for(let y=-radSteps; y<=radSteps; y++) 
-                for(let z=-radSteps; z<=radSteps; z++) candidates.add(`${gX+x},${gY+y},${gZ+z}`);
-            });
+            // Densified candidate gathering
+            for (let i = 0; i < points.length - 1; i++) {
+                const A = points[i], B = points[i+1];
+                const dist = A.distanceTo(B);
+                const steps = Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.5)));
+                for (let s = 0; s <= steps; s++) {
+                    tempPos.lerpVectors(A, B, s / steps);
+                    const gX = Math.round(tempPos.x / VOXEL_SIZE);
+                    const gY = Math.round(tempPos.y / VOXEL_SIZE);
+                    const gZ = Math.round(tempPos.z / VOXEL_SIZE);
+                    const radSteps = brushSize;
+                    for(let x=-radSteps; x<=radSteps; x++) 
+                        for(let y=-radSteps; y<=radSteps; y++) 
+                            for(let z=-radSteps; z<=radSteps; z++) 
+                                candidates.add(`${gX+x},${gY+y},${gZ+z}`);
+                }
+            }
 
             // Local variables for orientation-based square profile
             const segmentDir = new THREE.Vector3();
@@ -3497,10 +3522,12 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     hideAllPreviews();
                     if (lineType === 'arc') {
                         const arcPoints = [];
-                        calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, arcPoints);
-                        updateLinePreviewFromPoints(arcPoints, true);
+                        const up = calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, arcPoints);
+                        updateLinePreviewFromPoints(arcPoints, true, up);
                     } else {
-                        updateLinePreviewMesh(leftTargetLocal, rightTargetLocal, true);
+                        // For straight lines, use right controller orientation
+                        const up = new THREE.Vector3(0,1,0).applyQuaternion(xrRight.quaternion);
+                        updateLinePreviewFromPoints([leftTargetLocal, rightTargetLocal], true, up);
                     }
                     linePreviewMesh.visible = true;
                 } else if (!isDrawing && !isErasing && linePreviewMesh) {
