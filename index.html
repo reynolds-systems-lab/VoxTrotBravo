@@ -1908,26 +1908,40 @@ function handleRightMenuClick(cx, cy) {
 
 
 
-        function getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY) {
+        function getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ) {
             const slot = activeMatSlot;
             const cA = slotColors[slot][0];
             const cB = slotColors[slot][1];
             
             if (lineColorMode === 'wild') {
-                // Wild Mode: World-space trig patterns for a psychedelic, shifting look
-                const freq = 0.3; // Adjust frequency for pattern density
-                const pattern = Math.sin(gx * freq) * Math.cos(gy * freq) * Math.sin(gz * freq);
-                const t = (pattern + 1) / 2; 
+                // Wild Mode: Spherical world-space interference pattern
+                // This creates the "round checker" look you like.
+                const freq = 0.4; 
+                const dist = Math.sqrt(gx*gx + gy*gy + gz*gz);
+                const pattern = Math.sin(gx * freq) * Math.cos(gy * freq) * Math.sin(gz * freq) + Math.sin(dist * freq * 0.5);
+                const t = THREE.MathUtils.clamp((pattern + 1) / 2, 0, 1);
                 return tempColorForDraw[slot].copy(cA).lerp(cB, t);
             }
             
             if (lineColorMode === 'gradient') {
-                // Forced Local Gradient: Interpolates between Color A and B based on the stroke's bounding box
-                let t = (maxX > minX) ? (gx - minX) / (maxX - minX) : 0.5;
-                return tempColorForDraw[slot].copy(cA).lerp(cB, t);
+                // Coherent Directional Gradient
+                const dx = maxX - minX;
+                const dy = maxY - minY;
+                const dz = maxZ - minZ;
+                
+                let t = 0.5;
+                // Avoid "random" jitter by checking if the stroke has actual volume
+                if (dx + dy + dz > 0) {
+                    // Automatically pick the longest axis for the gradient transition
+                    if (dx >= dy && dx >= dz) t = (gx - minX) / dx;
+                    else if (dy >= dx && dy >= dz) t = (gy - minY) / dy;
+                    else t = (gz - minZ) / dz;
+                }
+                
+                return tempColorForDraw[slot].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
             }
             
-            // Standard: Uses the global material/color logic (Solid, Grad-H, etc.)
+            // Standard: Falls back to the standard palette logic
             return getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slot);
         }
 
@@ -2394,7 +2408,11 @@ function placeBrushVoxels(pos, isP) {
                                 const hash = (cx+dx+32768) + (cy+dy+32768)*65536 + (cz+dz+32768)*4294967296;
                                 if (!fillVisited.has(hash)) {
                                     fillVisited.add(hash);
-                                    const finalColor = getLineToolColor(cx+dx, cy+dy, cz+dz, minX, maxX, minY, maxY);
+                                    // Bounding Box context for Sheet Mode (calculated at the start of drawSheetQuad)
+                                    const minZ = Math.round(Math.min(contextStart.z, contextEnd.z)/VOXEL_SIZE);
+                                    const maxZ = Math.round(Math.max(contextStart.z, contextEnd.z)/VOXEL_SIZE);
+                                    
+                                    const finalColor = getLineToolColor(cx+dx, cy+dy, cz+dz, minX, maxX, minY, maxY, minZ, maxZ);
                                     setVoxel(cx+dx, cy+dy, cz+dz, isP, finalColor, matTypes[0]);
                                 }
                             }
@@ -2495,12 +2513,13 @@ function placeBrushVoxels(pos, isP) {
                 return false;
             };
 
-            // Calculate total bounds for gradient application
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            // Calculate total bounds (X, Y, and Z) for gradient application
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
             points.forEach(p => {
-                const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE);
+                const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
                 minX = Math.min(minX, gx); maxX = Math.max(maxX, gx);
                 minY = Math.min(minY, gy); maxY = Math.max(maxY, gy);
+                minZ = Math.min(minZ, gz); maxZ = Math.max(maxZ, gz);
             });
 
             candidates.forEach(hash => {
@@ -2510,10 +2529,12 @@ function placeBrushVoxels(pos, isP) {
                 const pos = new THREE.Vector3(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
                 
                 if (isInsideStroke(pos)) {
-                    const finalColor = getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY);
+                    // Pass the full 3D bounding box to the color helper
+                    const finalColor = getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ);
                     if (brushVolume === 'solid' || brushSize === 1) {
                         setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[0]);
                     } else {
+
                         let isShell = false;
                         const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
                         for(let n of neighbors) {
