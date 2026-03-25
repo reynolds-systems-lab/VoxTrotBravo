@@ -878,6 +878,8 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
                 
                 pivotGroup.children.forEach((m, idx) => { if (idx < 8) { m.position.set(-pCX, -pCY, -pCZ); m.updateMatrix(); } });
                 const bMesh = pivotGroup.children[8]; tempPos.set(pCX, pCY, pCZ); bMesh.position.copy(selBoxMesh.position).sub(tempPos); bMesh.scale.copy(selBoxMesh.scale); bMesh.updateMatrix();
+                // Ensure clones follow the visibility rules of the main selection box (hide in paint/draw)
+                bMesh.visible = selBoxMesh.visible;
                 pivotGroup.rotation.set(THREE.MathUtils.degToRad(copyStepRotX * step), THREE.MathUtils.degToRad(copyStepRotY * step), THREE.MathUtils.degToRad(copyStepRotZ * step), 'XYZ');
                 const stScale = Math.pow(copyStepScale, step); pivotGroup.scale.set(stScale, stScale, stScale); pivotGroup.updateMatrix();
                 g.position.set(tgtCX, tgtCY, tgtCZ); g.scale.set(sx, sy, sz); g.rotation.set(0, polarAngle, 0, 'XYZ');
@@ -1471,7 +1473,11 @@ if (cy >= 60 && cy <= 90) {
         }
         updateRotatedSelection(); 
         if (typeof updatePreviews === 'function') updatePreviews();
-    } else if (cx >= 417 && cx <= 497) isSettingPivot = !isSettingPivot;
+    } else if (cx >= 417 && cx <= 497) {
+        isSettingPivot = !isSettingPivot;
+        // Refresh visuals to immediately show/hide the box and pivot sphere when toggling mode
+        updateSelectionVisuals();
+    }
     if (newM !== transformMode) {
         transformMode = newM;
         // Refresh selection visuals to immediately show/hide the wireframe based on mode
@@ -2091,8 +2097,10 @@ function handleRightMenuClick(cx, cy) {
                 selBoxMesh.position.set((minX+maxX)/2*VOXEL_SIZE, (minY+maxY)/2*VOXEL_SIZE, (minZ+maxZ)/2*VOXEL_SIZE); 
                 selBoxMesh.scale.set((maxX-minX+1.1)*VOXEL_SIZE, (maxY-minY+1.1)*VOXEL_SIZE, (maxZ-minZ+1.1)*VOXEL_SIZE); 
                 selBoxMesh.updateMatrix(); 
-                // Hide wireframe in Draw/Paint modes as the selection itself provides sufficient feedback
-                selBoxMesh.visible = (transformMode !== 'draw' && transformMode !== 'paint');
+                // Hide wireframe and pivot in Draw/Paint modes as the selection itself provides sufficient feedback
+                // We show them if we are currently adjusting the pivot point location via 'Set Pivot'
+                selBoxMesh.visible = (transformMode !== 'draw' && transformMode !== 'paint') || isSettingPivot;
+                pivotIndicator.visible = selBoxMesh.visible;
                 selectionGroup.visible = true; 
             } else selectionGroup.visible = false;
         }
@@ -2121,6 +2129,7 @@ function handleRightMenuClick(cx, cy) {
             isSettingPivot = false;
 
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
             // FIX: Removed setVoxelCore(..., false, null) here to keep world voxels visible until transformed
             for(let i=0; i<baseSelectionCount; i++) { const v=baseSelection[i]; minX=Math.min(minX, v.x); maxX=Math.max(maxX, v.x); minY=Math.min(minY, v.y); maxY=Math.max(maxY, v.y); minZ=Math.min(minZ, v.z); maxZ=Math.max(maxZ, v.z); }
             hasSelection = true; selectionGroup.position.set(0,0,0); selectionCenter.set((minX+maxX)/2, (minY+maxY)/2, (minZ+maxZ)/2);
