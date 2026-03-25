@@ -482,7 +482,7 @@
             shader.fragmentShader = `uniform float uIntensity;\n` + shader.fragmentShader;
             shader.fragmentShader = shader.fragmentShader.replace(
                 '#include <color_fragment>',
-                '#include <color_fragment>\ndiffuseColor.rgb *= uIntensity;'
+                '#include <color_fragment>\nreflectedLight.indirectDiffuse *= uIntensity;'
             );
         };
 
@@ -1756,62 +1756,93 @@ function handleRightMenuClick(cx, cy) {
 
         function updateGlobalMenuTexture() {
             globalMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; globalMenuCtx.fillRect(0, 0, 512, 512);
-            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Global Settings`, 256, 40);
+            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Global Settings`, 256, 35);
             
-            // Added: Intensity Slider UI
-            drawSlider(globalMenuCtx, 40, 70, 432, 45, "Emissive Intensity", emissiveIntensity, 0, 2.0, "Intensity: %v");
+            // Row 1: Intensity Slider
+            drawSlider(globalMenuCtx, 40, 60, 432, 40, "Emissive Intensity", emissiveIntensity, 0, 2.0, "Intensity: %v");
 
-            // Shifted existing buttons down to accommodate slider
-            drawButton(globalMenuCtx, 40, 130, 200, 50, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
-            drawButton(globalMenuCtx, 272, 70, 200, 50, `Clear Inside: ${clearInterior ? 'ON' : 'OFF'}`, clearInterior);
-            drawButton(globalMenuCtx, 40, 140, 138, 50, `MX: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
-            drawButton(globalMenuCtx, 187, 140, 138, 50, `MY: ${mirrorY ? 'ON' : 'OFF'}`, mirrorY);
-            drawButton(globalMenuCtx, 334, 140, 138, 50, `MZ: ${mirrorZ ? 'ON' : 'OFF'}`, mirrorZ);
-            drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false); drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
+            // Row 2: V-Lock and Clear Interior
+            drawButton(globalMenuCtx, 40, 115, 200, 45, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
+            drawButton(globalMenuCtx, 272, 115, 200, 45, `Clear Inside: ${clearInterior ? 'ON' : 'OFF'}`, clearInterior);
             
-            drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
-        drawButton(globalMenuCtx, 40, 330, 200, 45, `Render: ${renderMode === 'performance' ? 'PERF' : 'STD'}`, renderMode === 'performance');
+            // Row 3: Symmetry Mirrors
+            drawButton(globalMenuCtx, 40, 175, 138, 45, `MX: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
+            drawButton(globalMenuCtx, 187, 175, 138, 45, `MY: ${mirrorY ? 'ON' : 'OFF'}`, mirrorY);
+            drawButton(globalMenuCtx, 334, 175, 138, 45, `MZ: ${mirrorZ ? 'ON' : 'OFF'}`, mirrorZ);
+            
+            // Row 4: Polar Symmetry
+            drawButton(globalMenuCtx, 40, 235, 50, 45, '-', false); 
+            drawButton(globalMenuCtx, 100, 235, 312, 45, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); 
+            drawButton(globalMenuCtx, 422, 235, 50, 45, '+', false);
+            
+            // Row 5: Draw From Center and Render Mode
+            drawButton(globalMenuCtx, 40, 295, 210, 45, `Center Draw: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
+            drawButton(globalMenuCtx, 262, 295, 210, 45, `Mode: ${renderMode === 'performance' ? 'PERF' : 'STD'}`, renderMode === 'performance');
 
-            drawButton(globalMenuCtx, 40, 390, 200, 45, 'Export: BOXES', exportMode === 'boxes'); 
-            drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
-            drawButton(globalMenuCtx, 40, 450, 432, 50, 'EXPORT TO .OBJ', false);
+            // Row 6: Export Type
+            drawButton(globalMenuCtx, 40, 355, 210, 45, 'Exp: BOXES', exportMode === 'boxes'); 
+            drawButton(globalMenuCtx, 262, 355, 210, 45, 'Exp: MESH', exportMode === 'mesh');
+            
+            // Bottom Row: Final Export
+            drawButton(globalMenuCtx, 40, 425, 432, 55, 'EXPORT TO .OBJ', false);
             
             globalMenuTexture.needsUpdate = true;
         }
-
         function handleGlobalMenuClick(cx, cy) {
-            // Added: Slider Logic
-            if (cy >= 70 && cy <= 115) {
+            // Row 1: Intensity Slider
+            if (cy >= 60 && cy <= 100) {
                 const pct = Math.max(0, Math.min(1, (cx - 40) / 432));
                 emissiveIntensity = pct * 2.0; 
-                // This updates both standard and performance materials simultaneously
                 emissiveUniforms.uIntensity.value = emissiveIntensity;
             }
 
+            // Row 2: V-Lock and Clear Interior
+            if (cy >= 115 && cy <= 160) { 
+                if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock; 
+                if (cx >= 272 && cx <= 472) clearInterior = !clearInterior; 
+            }
 
-            // Updated: Shifted original button logic down to match UI
-            if (cy >= 130 && cy <= 180) { if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock; if (cx >= 272 && cx <= 472) clearInterior = !clearInterior; }
-            if (cy >= 140 && cy <= 190) { if (cx >= 40 && cx <= 178) { mirrorX = !mirrorX; updateActiveSymmetries(); } if (cx >= 187 && cx <= 325) { mirrorY = !mirrorY; updateActiveSymmetries(); } if (cx >= 334 && cx <= 472) { mirrorZ = !mirrorZ; updateActiveSymmetries(); } }
-            if (cy >= 210 && cy <= 260) { if (cx >= 40 && cx <= 90) polarSymmetry = Math.max(1, polarSymmetry - 1); if (cx >= 422 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1); if (cx >= 100 && cx <= 412) polarSymmetry = polarSymmetry === 1 ? 4 : 1; updatePolarArrays(); }
+            // Row 3: Mirrors
+            if (cy >= 175 && cy <= 220) { 
+                if (cx >= 40 && cx <= 178) { mirrorX = !mirrorX; updateActiveSymmetries(); } 
+                if (cx >= 187 && cx <= 325) { mirrorY = !mirrorY; updateActiveSymmetries(); } 
+                if (cx >= 334 && cx <= 472) { mirrorZ = !mirrorZ; updateActiveSymmetries(); } 
+            }
+
+            // Row 4: Polar Symmetry
+            if (cy >= 235 && cy <= 280) { 
+                if (cx >= 40 && cx <= 90) polarSymmetry = Math.max(1, polarSymmetry - 1); 
+                if (cx >= 422 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1); 
+                if (cx >= 100 && cx <= 412) polarSymmetry = polarSymmetry === 1 ? 4 : 1; 
+                updatePolarArrays(); 
+            }
             
-            if (cy >= 270 && cy <= 315) drawFromCenter = !drawFromCenter;
-        if (cy >= 330 && cy <= 375) {
-            if (cx >= 40 && cx <= 240) {
-                renderMode = renderMode === 'standard' ? 'performance' : 'standard';
-                chunks.forEach(chunk => {
-                    for (let i = 0; i < 4; i++) {
-                        const layer = chunk.layers[i];
-                        if (layer && layer.count > 0) {
-                            layer.mesh.visible = (renderMode === 'standard');
-                            layer.pointsMesh.visible = (renderMode === 'performance');
+            // Row 5: Draw From Center and Render Mode
+            if (cy >= 295 && cy <= 340) {
+                if (cx >= 40 && cx <= 250) drawFromCenter = !drawFromCenter;
+                if (cx >= 262 && cx <= 472) {
+                    renderMode = renderMode === 'standard' ? 'performance' : 'standard';
+                    chunks.forEach(chunk => {
+                        for (let i = 0; i < 4; i++) {
+                            const layer = chunk.layers[i];
+                            if (layer && layer.count > 0) {
+                                layer.mesh.visible = (renderMode === 'standard');
+                                layer.pointsMesh.visible = (renderMode === 'performance');
+                            }
                         }
-                    }
-                });
-            } // <-- Added missing brace to close the "Render" button logic
-            if (hasSelection) updatePreviews();
-        }
-            if (cy >= 390 && cy <= 435) { if (cx >= 40 && cx <= 240) exportMode = 'boxes'; if (cx >= 272 && cx <= 472) exportMode = 'mesh'; }
-            if (cy >= 450 && cy <= 500 && cx >= 40 && cx <= 472) exportToOBJ();
+                    });
+                }
+                if (hasSelection) updatePreviews();
+            }
+
+            // Row 6: Export Mode
+            if (cy >= 355 && cy <= 400) { 
+                if (cx >= 40 && cx <= 250) exportMode = 'boxes'; 
+                if (cx >= 262 && cx <= 472) exportMode = 'mesh'; 
+            }
+
+            // Bottom: Export Action
+            if (cy >= 425 && cy <= 480 && cx >= 40 && cx <= 472) exportToOBJ();
 
             globalMenuNeedsUpdate = true;
         }
