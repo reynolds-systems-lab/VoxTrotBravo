@@ -473,19 +473,21 @@
         const matSolid = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.1, depthFunc: THREE.LessEqualDepth }); 
         const matGlass = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false, depthFunc: THREE.LessEqualDepth }); 
         
-        // Fixed: Added shader injection for intensity control
+        // Setup shared intensity object for both standard and performance materials
+        const emissiveUniforms = { uIntensity: { value: emissiveIntensity } };
+
         const matEmission = new THREE.MeshBasicMaterial({ vertexColors: true }); 
         matEmission.onBeforeCompile = (shader) => {
-            shader.uniforms.uIntensity = { value: emissiveIntensity };
+            shader.uniforms.uIntensity = emissiveUniforms.uIntensity;
             shader.fragmentShader = `uniform float uIntensity;\n` + shader.fragmentShader;
             shader.fragmentShader = shader.fragmentShader.replace(
-                'vec4 diffuseColor = vec4( diffuse, opacity );',
-                'vec4 diffuseColor = vec4( diffuse * uIntensity, opacity );'
+                '#include <color_fragment>',
+                '#include <color_fragment>\ndiffuseColor.rgb *= uIntensity;'
             );
-            matEmission.userData.shader = shader;
         };
 
         const matMetal = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 1.0, depthFunc: THREE.LessEqualDepth });
+
 
         
         const voxelMaterials = [matSolid, matGlass, matEmission, matMetal];
@@ -504,8 +506,19 @@
         const ptSize = VOXEL_SIZE * 1.15;
         const ptSolid = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
         const ptGlass = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, transparent: true, opacity: 0.4, depthWrite: false, depthFunc: THREE.LessEqualDepth });
+        
         const ptEmission = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
+        ptEmission.onBeforeCompile = (shader) => {
+            shader.uniforms.uIntensity = emissiveUniforms.uIntensity;
+            shader.fragmentShader = `uniform float uIntensity;\n` + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                '#include <color_fragment>\ndiffuseColor.rgb *= uIntensity;'
+            );
+        };
+
         const ptMetal = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
+
         const perfMaterials = [ptSolid, ptGlass, ptEmission, ptMetal];
 
         class ChunkLayer {
@@ -1770,11 +1783,11 @@ function handleRightMenuClick(cx, cy) {
             // Added: Slider Logic
             if (cy >= 70 && cy <= 115) {
                 const pct = Math.max(0, Math.min(1, (cx - 40) / 432));
-                emissiveIntensity = pct * 2.0; // Scale 0.0 to 2.0
-                if (matEmission.userData.shader) {
-                    matEmission.userData.shader.uniforms.uIntensity.value = emissiveIntensity;
-                }
+                emissiveIntensity = pct * 2.0; 
+                // This updates both standard and performance materials simultaneously
+                emissiveUniforms.uIntensity.value = emissiveIntensity;
             }
+
 
             // Updated: Shifted original button logic down to match UI
             if (cy >= 130 && cy <= 180) { if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock; if (cx >= 272 && cx <= 472) clearInterior = !clearInterior; }
