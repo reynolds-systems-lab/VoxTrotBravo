@@ -80,10 +80,11 @@
     <script type="importmap">
         {
             "imports": {
-            "three": "[https://cdn.jsdelivr.net/npm/three@0.173.0/build/three.webgpu.js](https://cdn.jsdelivr.net/npm/three@0.173.0/build/three.webgpu.js)",
-            "three/addons/": "[https://cdn.jsdelivr.net/npm/three@0.173.0/examples/jsm/](https://cdn.jsdelivr.net/npm/three@0.173.0/examples/jsm/)"
-
+                "three": "[https://cdn.jsdelivr.net/npm/three@0.173.0/build/three.webgpu.js](https://cdn.jsdelivr.net/npm/three@0.173.0/build/three.webgpu.js)",
+                "three/addons/": "[https://cdn.jsdelivr.net/npm/three@0.173.0/examples/jsm/](https://cdn.jsdelivr.net/npm/three@0.173.0/examples/jsm/)"
             }
+        }
+    </script>
         }
     </script>
 </head>
@@ -373,6 +374,9 @@
         const SEL_DIRS = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1, 1,1,0, -1,-1,0, 1,-1,0, -1,1,0, 1,0,1, -1,0,-1, 1,0,-1, -1,0,1, 0,1,1, 0,-1,-1, 0,1,-1, 0,-1,1, 1,1,1, -1,-1,-1, 1,-1,1, -1,1,-1, 1,1,-1, -1,-1,1, 1,-1,-1, -1,1,1];
 
         // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+
         const renderer = new THREE.WebGPURenderer({ 
             antialias: true, 
         });
