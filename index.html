@@ -85,8 +85,6 @@
             }
         }
     </script>
-        }
-    </script>
 </head>
 <body>
     <div id="loading-overlay">
@@ -380,19 +378,26 @@
         const renderer = new THREE.WebGPURenderer({ 
             antialias: true, 
         });
-        await renderer.init(); // Essential for WebGPU device handshake
+        
+        // Asynchronous initialization for the GPU device
+        await renderer.init();
+        
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
-        document.body.appendChild(renderer.domElement);
+        // Ensure the canvas is attached to the DOM
+        if (!renderer.domElement.parentElement) {
+            document.body.appendChild(renderer.domElement);
+        }
+        
         document.body.appendChild(VRButton.createButton(renderer, {
             optionalFeatures: ['webgpu', 'local-floor', 'bounded-floor', 'hand-tracking']
         }));
 
-
         // --- Quest 3 PCVR Specific Optimizations ---
         renderer.xr.addEventListener('sessionstart', () => {
+
             const session = renderer.xr.getSession();
             if (session) {
                 if (session.renderState.baseLayer) {
