@@ -164,10 +164,11 @@
         let wireWidth = 1; 
         let wireFill = true; 
 
-    let paintMode = 'brush'; 
-    let exportMode = 'boxes'; 
-    let renderMode = 'standard'; 
-    let isDropperActive = false;
+        let paintMode = 'brush'; 
+        let exportMode = 'boxes'; 
+        let renderMode = 'standard'; 
+        let isDropperActive = false;
+        let emissiveIntensity = 0.7; // Added: Default intensity to prevent blowout 
 
 
 
@@ -471,8 +472,21 @@
         voxelGeometry.deleteAttribute('uv'); 
         const matSolid = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.1, depthFunc: THREE.LessEqualDepth }); 
         const matGlass = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false, depthFunc: THREE.LessEqualDepth }); 
-        const matEmission = new THREE.MeshBasicMaterial(); 
+        
+        // Fixed: Added shader injection for intensity control
+        const matEmission = new THREE.MeshBasicMaterial({ vertexColors: true }); 
+        matEmission.onBeforeCompile = (shader) => {
+            shader.uniforms.uIntensity = { value: emissiveIntensity };
+            shader.fragmentShader = `uniform float uIntensity;\n` + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+                'vec4 diffuseColor = vec4( diffuse, opacity );',
+                'vec4 diffuseColor = vec4( diffuse * uIntensity, opacity );'
+            );
+            matEmission.userData.shader = shader;
+        };
+
         const matMetal = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 1.0, depthFunc: THREE.LessEqualDepth });
+
         
         const voxelMaterials = [matSolid, matGlass, matEmission, matMetal];
         const chunks = new Map(); 
@@ -1730,7 +1744,12 @@ function handleRightMenuClick(cx, cy) {
         function updateGlobalMenuTexture() {
             globalMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; globalMenuCtx.fillRect(0, 0, 512, 512);
             globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Global Settings`, 256, 40);
-            drawButton(globalMenuCtx, 40, 70, 200, 50, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
+            
+            // Added: Intensity Slider UI
+            drawSlider(globalMenuCtx, 40, 70, 432, 45, "Emissive Intensity", emissiveIntensity, 0, 2.0, "Intensity: %v");
+
+            // Shifted existing buttons down to accommodate slider
+            drawButton(globalMenuCtx, 40, 130, 200, 50, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
             drawButton(globalMenuCtx, 272, 70, 200, 50, `Clear Inside: ${clearInterior ? 'ON' : 'OFF'}`, clearInterior);
             drawButton(globalMenuCtx, 40, 140, 138, 50, `MX: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
             drawButton(globalMenuCtx, 187, 140, 138, 50, `MY: ${mirrorY ? 'ON' : 'OFF'}`, mirrorY);
@@ -1748,7 +1767,17 @@ function handleRightMenuClick(cx, cy) {
         }
 
         function handleGlobalMenuClick(cx, cy) {
-            if (cy >= 70 && cy <= 120) { if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock; if (cx >= 272 && cx <= 472) clearInterior = !clearInterior; }
+            // Added: Slider Logic
+            if (cy >= 70 && cy <= 115) {
+                const pct = Math.max(0, Math.min(1, (cx - 40) / 432));
+                emissiveIntensity = pct * 2.0; // Scale 0.0 to 2.0
+                if (matEmission.userData.shader) {
+                    matEmission.userData.shader.uniforms.uIntensity.value = emissiveIntensity;
+                }
+            }
+
+            // Updated: Shifted original button logic down to match UI
+            if (cy >= 130 && cy <= 180) { if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock; if (cx >= 272 && cx <= 472) clearInterior = !clearInterior; }
             if (cy >= 140 && cy <= 190) { if (cx >= 40 && cx <= 178) { mirrorX = !mirrorX; updateActiveSymmetries(); } if (cx >= 187 && cx <= 325) { mirrorY = !mirrorY; updateActiveSymmetries(); } if (cx >= 334 && cx <= 472) { mirrorZ = !mirrorZ; updateActiveSymmetries(); } }
             if (cy >= 210 && cy <= 260) { if (cx >= 40 && cx <= 90) polarSymmetry = Math.max(1, polarSymmetry - 1); if (cx >= 422 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1); if (cx >= 100 && cx <= 412) polarSymmetry = polarSymmetry === 1 ? 4 : 1; updatePolarArrays(); }
             
