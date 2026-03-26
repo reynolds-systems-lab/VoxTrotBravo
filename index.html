@@ -2052,6 +2052,14 @@ function handleRightMenuClick(cx, cy) {
         function recolorVoxel(gx, gy, gz, color, targetM) {
             const m = getVoxelMatAndColor(gx, gy, gz, queryColor);
             if (m !== -1) {
+                // Record change for undo if a stroke is active
+                if (currentStrokeChanges) {
+                    const existingColor = queryColor.clone();
+                    // Only record if state actually changes
+                    if (m !== targetM || !existingColor.equals(color)) {
+                        currentStrokeChanges.push({ gx, gy, gz, prevMat: m, prevColor: existingColor });
+                    }
+                }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
                 chunks.get((gx>>5)+65536+((gy>>5)+65536)*131072+((gz>>5)+65536)*17179869184).addVoxel(gx&31, gy&31, gz&31, gx, gy, gz, color, targetM);
             }
@@ -3353,14 +3361,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         }
 
         function onSelectEnd() {
-            // Commit changes to undo stack
-            if (currentStrokeChanges && currentStrokeChanges.length > 0) {
-                undoStack.push(currentStrokeChanges);
-                if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
-                globalMenuNeedsUpdate = true;
-            }
-            currentStrokeChanges = null;
-
+            // Commit logic moved to bottom of function
             if (this === xrRight) { 
                 if(activeSliderDrag) activeSliderDrag=null;
                 else if(isColorPicking) { isColorPicking=isPaletteMagnified=false; updateColorMenuTexture(); } 
@@ -3413,6 +3414,15 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             }
             hideAllPreviews();
             lockCtx.active = false;
+
+            // Commit changes to undo stack AFTER all tools have finished executing
+            if (currentStrokeChanges && currentStrokeChanges.length > 0) {
+                undoStack.push(currentStrokeChanges);
+                if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+                globalMenuNeedsUpdate = true;
+                leftMenuNeedsUpdate = true;
+            }
+            currentStrokeChanges = null;
         }
 
 
