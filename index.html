@@ -3430,20 +3430,18 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
 
-                    // Real-time Arc Control: Map Right Controller Roll to Bulge and Left Roll to Angle
-                    if (activeTool === 'line' && lineType === 'arc') {
-                        // Extract Roll (Z rotation in YZX order)
+                    // Real-time Arc Control: Unified Right-Hand Orientation Control
+                    if (activeTool === 'line' && lineType === 'arc' && xrRight) {
+                        // Use YZX order to isolate Pitch (X) and Roll (Z) independently from Yaw
                         tempSEuler.setFromQuaternion(xrRight.quaternion, 'YZX');
                         
-                        // Cubic Mapping: Slow change at center, fast change near 90 degrees
-                        // Normalizing by ~1.57 (90 degrees) and applying power of 3
-                        const normalizedRoll = tempSEuler.z / 1.5708;
-                        arcBulge = Math.pow(normalizedRoll, 3) * 4.0; 
+                        // Map Pitch to Bulge: Tilting the controller up/down physically "pulls" the arc depth.
+                        // A 2.0 multiplier offers a natural 1:1 feel for the curve intensity.
+                        arcBulge = tempSEuler.x * 2.0; 
 
-                        if (xrLeft) {
-                            tempSEuler.setFromQuaternion(xrLeft.quaternion, 'YZX');
-                            arcAngleOffset = tempSEuler.z; // Rotate arc plane by left wrist twist
-                        }
+                        // Map Roll to Angle: Twisting the wrist rotates the plane of the arc.
+                        // Moving this from the Left hand to the Right hand allows for one-handed 3D shaping.
+                        arcAngleOffset = tempSEuler.z;
                     }
 
                     if(hasSelection && !isSettingPivot){
