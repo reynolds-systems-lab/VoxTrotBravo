@@ -1922,17 +1922,15 @@ function handleRightMenuClick(cx, cy) {
 
 
 
-        function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slotIndex, pathT = -1) {
+        function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slotIndex, pathT = -1, uT = -1) {
             const mode = colorModes[slotIndex], cA = slotColors[slotIndex][0], cB = slotColors[slotIndex][1];
             if (mode === 'solid') return cA;
             if (mode === 'grad_h' || mode === 'grad_v') {
                 let t = 0;
-                if (pathT !== -1) {
-                    t = pathT;
-                } else if (mode === 'grad_h') {
-                    t = (maxX > minX) ? (gx - minX) / (maxX - minX) : 0;
+                if (mode === 'grad_h') {
+                    t = (uT !== -1) ? uT : ((maxX > minX) ? (gx - minX) / (maxX - minX) : 0);
                 } else {
-                    t = (maxY > minY) ? (gy - minY) / (maxY - minY) : 0;
+                    t = (pathT !== -1) ? pathT : ((maxY > minY) ? (gy - minY) / (maxY - minY) : 0);
                 }
                 return tempColorForDraw[slotIndex].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
             }
@@ -1941,8 +1939,7 @@ function handleRightMenuClick(cx, cy) {
         }
 
 
-
-        function getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, pathT = -1) {
+        function getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, pathT = -1, uT = -1) {
             const slot = activeMatSlot;
             const cA = slotColors[slot][0];
             const cB = slotColors[slot][1];
@@ -1956,21 +1953,20 @@ function handleRightMenuClick(cx, cy) {
             }
             
             if (lineColorMode === 'gradient') {
-                const dx = maxX - minX;
-                const dy = maxY - minY;
-                const dz = maxZ - minZ;
-                let t = (pathT !== -1) ? pathT : 0.5;
-                if (pathT === -1 && dx + dy + dz > 0) {
-                    if (dx >= dy && dx >= dz) t = (gx - minX) / dx;
-                    else if (dy >= dx && dy >= dz) t = (gy - minY) / dy;
-                    else t = (gz - minZ) / dz;
+                let t = (uT !== -1) ? uT : ((pathT !== -1) ? pathT : 0.5);
+                if (uT === -1 && pathT === -1) {
+                    const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+                    if (dx + dy + dz > 0) {
+                        if (dx >= dy && dx >= dz) t = (gx - minX) / dx;
+                        else if (dy >= dx && dy >= dz) t = (gy - minY) / dy;
+                        else t = (gz - minZ) / dz;
+                    }
                 }
                 return tempColorForDraw[slot].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
             }
             
-            return getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slot, pathT);
+            return getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slot, pathT, uT);
         }
-
 
 
         function calculateArcPoints(p1, p2, ctrlL, ctrlR, outPoints, fixedSteps = 0) {
@@ -2450,13 +2446,16 @@ function placeBrushVoxels(pos, isP) {
                                 const hash = (cx+dx+32768) + (cy+dy+32768)*65536 + (cz+dz+32768)*4294967296;
                                 if (!fillVisited.has(hash)) {
                                     fillVisited.add(hash);
-                                    // Bounding Box context for Sheet Mode (calculated at the start of drawSheetQuad)
                                     const minZ = Math.round(Math.min(contextStart.z, contextEnd.z)/VOXEL_SIZE);
                                     const maxZ = Math.round(Math.max(contextStart.z, contextEnd.z)/VOXEL_SIZE);
                                     
-                                    const finalColor = getLineToolColor(cx+dx, cy+dy, cz+dz, minX, maxX, minY, maxY, minZ, maxZ);
+                                    // Use u and v factors from the quad loops for geometry-locked gradients
+                                    const uFactor = u / stepsU;
+                                    const vFactor = v / stepsV; 
+                                    const finalColor = getLineToolColor(cx+dx, cy+dy, cz+dz, minX, maxX, minY, maxY, minZ, maxZ, vFactor, uFactor);
                                     setVoxel(cx+dx, cy+dy, cz+dz, isP, finalColor, matTypes[0]);
                                 }
+
                             }
                         }
                     }
