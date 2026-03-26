@@ -3430,17 +3430,29 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
 
-                    // Real-time Arc Control: Unified Right-Hand Orientation Control
+                    // Real-time Arc Control: Segment-Relative Orientation (Conflict-Free)
                     if (activeTool === 'line' && lineType === 'arc' && xrRight) {
-                        // Use YZX order to isolate Pitch (X) and Roll (Z) independently from Yaw
-                        tempSEuler.setFromQuaternion(xrRight.quaternion, 'YZX');
+                        const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
+                        const pEnd = rightTargetLocal;
                         
-                        // Map Pitch to Bulge: Tilting the controller up/down physically "pulls" the arc depth.
-                        // A 2.0 multiplier offers a natural 1:1 feel for the curve intensity.
-                        arcBulge = tempSEuler.x * 2.0; 
+                        // 1. Define the line axis direction in world-ish space
+                        const lineDir = new THREE.Vector3().subVectors(pEnd, pStart).normalize();
+                        
+                        // 2. Create a rotation that aligns World-Forward (0,0,-1) to our current line direction
+                        // This allows us to find the orientation of the wrist *relative* to the line.
+                        const lookMat = new THREE.Matrix4().lookAt(pStart, pEnd, new THREE.Vector3(0, 1, 0));
+                        const lineQuat = new THREE.Quaternion().setFromRotationMatrix(lookMat);
+                        
+                        // 3. Transform the Right Controller's orientation into this local Line Space
+                        // This isolates "Pitch" as bending and "Roll" as rotating the arc plane.
+                        const relativeQuat = xrRight.quaternion.clone().premultiply(lineQuat.invert());
+                        tempSEuler.setFromQuaternion(relativeQuat, 'YZX');
+                        
+                        // Bulge: How much the wrist is tilted up/down relative to the actual line axis.
+                        arcBulge = tempSEuler.x * 2.5; 
 
-                        // Map Roll to Angle: Twisting the wrist rotates the plane of the arc.
-                        // Moving this from the Left hand to the Right hand allows for one-handed 3D shaping.
+                        // Angle Offset: How much the wrist is twisted relative to the line axis.
+                        // This is now independent of the hand's position in the room.
                         arcAngleOffset = tempSEuler.z;
                     }
 
