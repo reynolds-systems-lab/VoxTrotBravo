@@ -3530,13 +3530,14 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                             const lookMat = new THREE.Matrix4().lookAt(pStart, pEnd, upVec);
                             const lineQuat = new THREE.Quaternion().setFromRotationMatrix(lookMat);
                             
-                            // 2. Map Controller Orientation to Line Space
-                            const relativeQuat = xrRight.quaternion.clone().premultiply(lineQuat.invert());
-                            tempSEuler.setFromQuaternion(relativeQuat, 'YZX');
+                           // 2. Map Controller Orientation to Line Space via Vector Projection (Stabilized)
+                            const ctrlUp = new THREE.Vector3(0, 1, 0).applyQuaternion(xrRight.quaternion);
+                            const side = new THREE.Vector3().crossVectors(upVec, lineDir).normalize();
+                            const projUp = ctrlUp.clone().projectOnPlane(side).normalize();
                             
-                            // 3. Bulge follows wrist Pitch. Multiplier dampens sensitivity for precision.
-                            arcBulge = tempSEuler.x * 2.2; 
-                            arcAngleOffset = 0; 
+                            // 3. Bulge follows the angle between projected controller "Up" and the line reference "Up"
+                            arcBulge = Math.atan2(projUp.dot(lineDir), projUp.dot(upVec)) * 2.2;
+                            arcAngleOffset = 0;  
                         }
                     }
 
