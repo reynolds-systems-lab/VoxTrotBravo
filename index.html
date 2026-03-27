@@ -1988,14 +1988,8 @@ function handleRightMenuClick(cx, cy) {
             const diff = new THREE.Vector3().subVectors(p2, p1);
             const dist = diff.length();
             
-            const upL = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrlL.quaternion);
-            const upR = new THREE.Vector3(0, 1, 0).applyQuaternion(ctrlR.quaternion);
-            const avgUp = new THREE.Vector3().addVectors(upL, upR).normalize();
-            
-            const lineAxis = new THREE.Vector3().subVectors(p2, p1).normalize();
-            if (lineAxis.lengthSq() > 0.0001) {
-                avgUp.applyAxisAngle(lineAxis, arcAngleOffset);
-            }
+            // Force upright orientation
+            const avgUp = new THREE.Vector3(0, 1, 0);
             
             const controlPoint = mid.clone().addScaledVector(avgUp, dist * 0.5 * arcBulge);
             const steps = fixedSteps > 0 ? fixedSteps : Math.min(100, Math.max(10, Math.ceil(dist / (VOXEL_SIZE * 2))));
@@ -2008,7 +2002,7 @@ function handleRightMenuClick(cx, cy) {
                 p.z = Math.pow(1 - t, 2) * p1.z + 2 * (1 - t) * t * controlPoint.z + Math.pow(t, 2) * p2.z;
                 outPoints.push(p);
             }
-            return avgUp; // Return the Up vector for oriented square calculation
+            return avgUp; 
         }
 
 
@@ -2530,8 +2524,10 @@ function placeBrushVoxels(pos, isP) {
                 arcUp.copy(calculateArcPoints(startPos, endPos, xrLeft, xrRight, points, 32));
             } else {
                 points.push(startPos.clone(), endPos.clone());
-                if (xrRight) arcUp.set(0, 1, 0).applyQuaternion(xrRight.quaternion);
+                // Straight lines are now always upright as well
+                arcUp.set(0, 1, 0);
             }
+
 
         const r = (brushSize - 1) * VOXEL_SIZE;
         const candidates = new Set();
@@ -3505,32 +3501,8 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir,0.05); worldGroup.worldToLocal(rightTargetLocal); 
                     rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
                     cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
-
-                    // Real-time Arc Control: Segment-Relative Orientation (Conflict-Free)
-                    if (activeTool === 'line' && lineType === 'arc' && xrRight) {
-                        const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
-                        const pEnd = rightTargetLocal;
-                        
-                        // 1. Define the line axis direction in world-ish space
-                        const lineDir = new THREE.Vector3().subVectors(pEnd, pStart).normalize();
-                        
-                        // 2. Create a rotation that aligns World-Forward (0,0,-1) to our current line direction
-                        // This allows us to find the orientation of the wrist *relative* to the line.
-                        const lookMat = new THREE.Matrix4().lookAt(pStart, pEnd, new THREE.Vector3(0, 1, 0));
-                        const lineQuat = new THREE.Quaternion().setFromRotationMatrix(lookMat);
-                        
-                        // 3. Transform the Right Controller's orientation into this local Line Space
-                        // This isolates "Pitch" as bending and "Roll" as rotating the arc plane.
-                        const relativeQuat = xrRight.quaternion.clone().premultiply(lineQuat.invert());
-                        tempSEuler.setFromQuaternion(relativeQuat, 'YZX');
-                        
-                        // Bulge: How much the wrist is tilted up/down relative to the actual line axis.
-                        arcBulge = tempSEuler.x * 2.5; 
-
-                        // Angle Offset: How much the wrist is twisted relative to the line axis.
-                        // This is now independent of the hand's position in the room.
-                        arcAngleOffset = tempSEuler.z;
-                    }
+                    // Real-time Arc Control: Removed wrist-tilt manipulation. 
+                    // Bulge and orientation are now controlled via the Tool Options menu and world-up vector.
 
                     if(hasSelection && !isSettingPivot){
                         // Snap to controller tip for brush-style modes (Draw/Paint/Free)
@@ -3710,13 +3682,12 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
 		// --- NEW: Always-On Two-Handed Arc Preview ---
                 if (activeTool === 'line' && lineMode === 'two-hand' && !isDrawing && !isErasing && xrLeft && xrRight) {
                     hideAllPreviews();
+                    const up = new THREE.Vector3(0, 1, 0); // Forced world-up
                     if (lineType === 'arc') {
                         const arcPoints = [];
-                        const up = calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, arcPoints);
+                        calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, arcPoints);
                         updateLinePreviewFromPoints(arcPoints, true, up);
                     } else {
-                        // For straight lines, use right controller orientation
-                        const up = new THREE.Vector3(0,1,0).applyQuaternion(xrRight.quaternion);
                         updateLinePreviewFromPoints([leftTargetLocal, rightTargetLocal], true, up);
                     }
                     linePreviewMesh.visible = true;
