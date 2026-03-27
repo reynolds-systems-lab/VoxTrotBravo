@@ -1555,7 +1555,7 @@ if (cy >= 60 && cy <= 90) {
                         lastArcPoints = []; // Reset point memory when switching
                     }
                 }  
-                else if (cy >= 135 && cy <= 175) { if (cx >= 50 && cx <= 250) lineType = 'straight'; if (cx >= 262 && cx <= 462) lineType = 'arc'; } 
+                else if (cy >= 135 && cy <= 175) { if (cx >= 50 && cx <= 250) { if (lineType !== 'straight') { lineType = 'straight'; lastArcPoints = []; } } if (cx >= 262 && cx <= 462) { if (lineType !== 'arc') { lineType = 'arc'; lastArcPoints = []; } } }  
                 else if (cy >= 180 && cy <= 220) { if (cx >= 50 && cx <= 250) arcControlMode = 'dynamic'; if (cx >= 262 && cx <= 462) arcControlMode = 'manual'; }
                 else if (cy >= 310 && cy <= 350) { 
                     if (lineDrawMode !== 'sheet') {
@@ -3852,14 +3852,17 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                         wirePoints.push(lastArcPoints[0], currentPoints[lastIdx]);
                         wirePoints.push(lastArcPoints[lastIdx], currentPoints[0]);
 
-                        lineWireframeMesh.geometry.setFromPoints(wirePoints);
-                        lineWireframeMesh.material.color.setHex(0x00ffcc); 
+			lineWireframeMesh.geometry.setFromPoints(wirePoints);
+			lineWireframeMesh.geometry.computeBoundingSphere();
+			lineWireframeMesh.material.color.setHex(0x00ffcc);  
                         lineWireframeMesh.visible = true;
                         linePreviewMesh.visible = false; // Hide the heavy voxel preview
                     } else {
-                        // Standard line/arc wireframe preview
-                        updateLinePreviewFromPoints(currentPoints, true, up);
-                        linePreviewMesh.visible = true;
+			// Standard line/arc wireframe preview or initial point-mode rib
+			updateLinePreviewFromPoints(currentPoints, true, up);
+			lineWireframeMesh.geometry.computeBoundingSphere();
+			linePreviewMesh.visible = true;
+
                     }
                 } else if (!isDrawing && !isErasing && linePreviewMesh) {
                     linePreviewMesh.visible = false;
