@@ -3859,15 +3859,14 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                         linePreviewMesh.instanceMatrix.needsUpdate = true;
                         linePreviewMesh.material.color.setHex(0x00ffcc); 
                         linePreviewMesh.visible = true;
-                    }
-                        linePreviewMesh.instanceMatrix.needsUpdate = true;
-                        linePreviewMesh.material.color.setHex(0x00ffcc); // Cyan for the "Ghost" segment
-                        linePreviewMesh.visible = true;
                     } else {
                         // Standard line/arc wireframe preview
                         updateLinePreviewFromPoints(currentPoints, true, up);
                         linePreviewMesh.visible = true;
                     }
+                } else if (!isDrawing && !isErasing && linePreviewMesh) {
+                    linePreviewMesh.visible = false;
+                }
                 } else if (!isDrawing && !isErasing && linePreviewMesh) {
                     linePreviewMesh.visible = false;
                 }
