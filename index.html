@@ -1990,15 +1990,16 @@ function handleRightMenuClick(cx, cy) {
             const lineDir = diff.clone().normalize();
             
             // 1. Calculate a consistent "Up" vector perpendicular to the chord
-            // This ensures symmetry regardless of hand height differences.
+            // Improved Stability: Switch reference Up if the line is vertical to avoid zero-length cross products
             let worldUp = new THREE.Vector3(0, 1, 0);
-            let side = new THREE.Vector3().crossVectors(worldUp, lineDir);
+            if (Math.abs(lineDir.y) > 0.99) worldUp.set(0, 0, 1);
             
-            // Handle vertical chord case where World-Up is parallel to chord
+            let side = new THREE.Vector3().crossVectors(worldUp, lineDir).normalize();
+            
+            // Fallback for extreme cases (e.g. line also parallel to Z)
             if (side.lengthSq() < 0.001) {
-                side.set(0, 0, 1).cross(lineDir);
+                side.set(1, 0, 0).cross(lineDir).normalize();
             }
-            side.normalize();
             
             // The actual bulge direction is perpendicular to both the chord and the side vector
             const bulgeVec = new THREE.Vector3().crossVectors(lineDir, side).normalize();
@@ -3521,15 +3522,20 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                         const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
                         const pEnd = rightTargetLocal;
                         
-                        // 1. Calculate Line Orientation
-                        const lookMat = new THREE.Matrix4().lookAt(pStart, pEnd, new THREE.Vector3(0, 1, 0));
+                        // 1. Calculate Line Orientation with Singularity Guard
+                        const lineDir = new THREE.Vector3().subVectors(pEnd, pStart).normalize();
+                        let upVec = new THREE.Vector3(0, 1, 0);
+                        if (Math.abs(lineDir.y) > 0.95) upVec.set(0, 0, 1); // Use Z-up if line is vertical
+                        
+                        const lookMat = new THREE.Matrix4().lookAt(pStart, pEnd, upVec);
                         const lineQuat = new THREE.Quaternion().setFromRotationMatrix(lookMat);
                         
                         // 2. Map Controller Orientation to Line Space
                         const relativeQuat = xrRight.quaternion.clone().premultiply(lineQuat.invert());
                         tempSEuler.setFromQuaternion(relativeQuat, 'YZX');
                         
-                        // 3. Bulge follows wrist Pitch. Roll (Z) is discarded to keep orientation upright.
+                        // 3. Bulge follows wrist Pitch. 
+                        // The multiplier (2.5) can be tuned for sensitivity.
                         arcBulge = tempSEuler.x * 2.5; 
                         arcAngleOffset = 0; 
                     }
