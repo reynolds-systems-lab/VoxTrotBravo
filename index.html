@@ -1987,20 +1987,24 @@ function handleRightMenuClick(cx, cy) {
             const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
             const diff = new THREE.Vector3().subVectors(p2, p1);
             const dist = diff.length();
-            
-            // 1. Force strictly upright orientation
-            let avgUp = new THREE.Vector3(0, 1, 0);
-            
-            // 2. Handle Vertical Edge Case: If the chord is vertical, "Up" is ambiguous.
-            // We shift the bulge direction to World-Forward so the arc stays visible.
             const lineDir = diff.clone().normalize();
-            if (Math.abs(lineDir.dot(avgUp)) > 0.99) {
-                avgUp.set(0, 0, -1); 
-            }
             
-            // 3. Symmetric Apex: Placing the control point directly above the horizontal midpoint
-            // creates an "Even" arc regardless of controller altitude.
-            const controlPoint = mid.clone().addScaledVector(avgUp, dist * 0.5 * arcBulge);
+            // 1. Calculate a consistent "Up" vector perpendicular to the chord
+            // This ensures symmetry regardless of hand height differences.
+            let worldUp = new THREE.Vector3(0, 1, 0);
+            let side = new THREE.Vector3().crossVectors(worldUp, lineDir);
+            
+            // Handle vertical chord case where World-Up is parallel to chord
+            if (side.lengthSq() < 0.001) {
+                side.set(0, 0, 1).cross(lineDir);
+            }
+            side.normalize();
+            
+            // The actual bulge direction is perpendicular to both the chord and the side vector
+            const bulgeVec = new THREE.Vector3().crossVectors(lineDir, side).normalize();
+            
+            // 2. Symmetric Apex: Placing the control point at the normal offset from the midpoint
+            const controlPoint = mid.clone().addScaledVector(bulgeVec, dist * 0.5 * arcBulge);
             
             const steps = fixedSteps > 0 ? fixedSteps : Math.min(100, Math.max(10, Math.ceil(dist / (VOXEL_SIZE * 2))));
             outPoints.length = 0;
@@ -2013,7 +2017,7 @@ function handleRightMenuClick(cx, cy) {
                 p.z = Math.pow(1 - t, 2) * p1.z + 2 * (1 - t) * t * controlPoint.z + Math.pow(t, 2) * p2.z;
                 outPoints.push(p);
             }
-            return avgUp; 
+            return bulgeVec; 
         }
 
 
@@ -2531,11 +2535,11 @@ function placeBrushVoxels(pos, isP) {
         function executeLineTool(startPos, endPos, isPainting) {
             const points = [];
             let arcUp = new THREE.Vector3(0, 1, 0);
-            if (lineType === 'arc' && lineMode === 'two-hand' && xrLeft && xrRight) {
+            // Updated: Removed 'two-hand' and dual-controller requirement
+            if (lineType === 'arc') {
                 arcUp.copy(calculateArcPoints(startPos, endPos, xrLeft, xrRight, points, 32));
             } else {
                 points.push(startPos.clone(), endPos.clone());
-                // Straight lines are now always upright as well
                 arcUp.set(0, 1, 0);
             }
 
@@ -3578,8 +3582,9 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                             }
                             lastArcPoints = currentPoints.map(p => p.clone());
                         } else if (isDrawing || (lineMode === 'two-hand' && !isErasing)) {
-                            if (lineType === 'arc' && xrLeft && xrRight) {
+                            if (lineType === 'arc') {
                                 const arcPoints = [];
+                                // No longer requires both controllers to show the preview
                                 calculateArcPoints(pStart, pEnd, xrLeft, xrRight, arcPoints);
                                 updateLinePreviewFromPoints(arcPoints, true);
                             } else {
