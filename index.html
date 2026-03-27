@@ -3411,24 +3411,50 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 		else { if(selectMode==='box'){ isDrawing=true; drawStartPos.copy(rightTargetLocal); isPreviewingBox=true; } else if(selectMode==='connected') executeSelectConnected(rightTargetLocal); } }
                 else { isDrawing=true; drawStartPos.copy(rightTargetLocal); if(activeTool==='box')isPreviewingBox=true; if(activeTool==='extrude')isPreviewingExtrude=true; if(activeTool==='quadsphere')isPreviewingSphere=true; if(activeTool==='plane')isPreviewingPlane=true; if(activeTool==='cylinder')isPreviewingCylinder=true; if(activeTool==='triangle')isPreviewingTriangle=true;                     if(activeTool==='icosahedron'){ isDrawing=true; isPreviewingIcosahedron=true; drawStartPos.copy(rightTargetLocal); } 
                     
-                    // --- Point Mode Logic for Sheet ---
+                    // --- Point Mode Logic for Sheet (Right = Draw) ---
                     if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point' && xrLeft && xrRight) {
                         const currentPoints = [];
                         if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
                         else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
 
                         if (lastArcPoints.length === currentPoints.length) {
-                            // If we have a previous point, fill the gap with a voxel quad
-                            drawSheetQuad(lastArcPoints[0], lastArcPoints[lastArcPoints.length-1], currentPoints[0], currentPoints[currentPoints.length-1], true, brushSize);
+                            // Loop through rib segments to fill the entire curved sheet surface
+                            for (let i = 0; i < currentPoints.length - 1; i++) {
+                                drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize);
+                            }
                         }
-                        // Update memory to the new point
                         lastArcPoints = currentPoints.map(p => p.clone());
-                        return; // Exit early to prevent standard "dragging" logic
+                        return; 
                     }
                 }
-            } else if (this === xrLeft) { 
+            } else if (this === xrLeft) {
+                if(activeTool==='select'&&hasSelection) applySelection(); else { 
 
-                if(activeTool==='select'&&hasSelection) applySelection(); else { isErasing=true; drawStartPos.copy(leftTargetLocal); if(activeTool==='box')isPreviewingBox=true; if(activeTool==='extrude')isPreviewingExtrude=true; if(activeTool==='quadsphere')isPreviewingSphere=true; if(activeTool==='plane')isPreviewingPlane=true; if(activeTool==='cylinder')isPreviewingCylinder=true; if(activeTool==='triangle')isPreviewingTriangle=true; if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } }
+                    // --- Point Mode Logic for Sheet Erasing ---
+                    if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point' && xrLeft && xrRight) {
+                        const currentPoints = [];
+                        if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
+                        else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
+
+                        if (lastArcPoints.length === currentPoints.length) {
+                            for (let i = 0; i < currentPoints.length - 1; i++) {
+                                drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], false, brushSize);
+                            }
+                        }
+                        lastArcPoints = currentPoints.map(p => p.clone());
+                        return;
+                    }
+
+                    isErasing=true; 
+                    drawStartPos.copy(leftTargetLocal); 
+                    if(activeTool==='box')isPreviewingBox=true; 
+                    if(activeTool==='extrude')isPreviewingExtrude=true; 
+                    if(activeTool==='quadsphere')isPreviewingSphere=true; 
+                    if(activeTool==='plane')isPreviewingPlane=true; 
+                    if(activeTool==='cylinder')isPreviewingCylinder=true; 
+                    if(activeTool==='triangle')isPreviewingTriangle=true; 
+                    if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } 
+                }
             }
         }
 
@@ -3447,7 +3473,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                             executeLineTool(pStart, rightTargetLocal, true);
                         }
                         linePreviewMesh.visible=false;
-                        lastArcPoints = [];
+                        // ONLY clear memory if NOT in Point Mode
+                        if (lineSheetType !== 'point') lastArcPoints = [];
                     }
 
                     if(activeTool==='box'&&isPreviewingBox){ executeBoxTool(drawStartPos,rightTargetLocal,true); isPreviewingBox=false; boxPreviewMesh.visible=false; } 
@@ -3804,29 +3831,35 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                         currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone());
                     }
                     
-                    // If in Point Mode and we have a starting rib, show the "Ghost Quad"
+                    // If in Point Mode and we have a starting rib, show the "Ghost Sheet"
                     if (lineDrawMode === 'sheet' && lineSheetType === 'point' && lastArcPoints.length === currentPoints.length) {
                         let instCount = 0;
                         const mArr = linePreviewMesh.instanceMatrix.array;
                         
-                        // Visualize the connecting surface between last point and current preview
-                        const pStartL = lastArcPoints[0], pStartR = lastArcPoints[lastArcPoints.length - 1];
-                        const pEndL = currentPoints[0], pEndR = currentPoints[currentPoints.length - 1];
-                        
-                        const stepsV = Math.max(1, Math.ceil(Math.max(pStartL.distanceTo(pEndL), pStartR.distanceTo(pEndR)) / (VOXEL_SIZE * 0.5)));
-                        for (let v = 0; v <= stepsV && instCount < 20000; v++) {
-                            const sideA = new THREE.Vector3().lerpVectors(pStartL, pEndL, v/stepsV);
-                            const sideB = new THREE.Vector3().lerpVectors(pStartR, pEndR, v/stepsV);
-                            const stepsU = Math.max(1, Math.ceil(sideA.distanceTo(sideB) / (VOXEL_SIZE * 0.5)));
-                            for (let u = 0; u <= stepsU && instCount < 20000; u++) {
-                                tempPos.lerpVectors(sideA, sideB, u/stepsU);
-                                mArr[instCount*16+12] = Math.round(tempPos.x / VOXEL_SIZE);
-                                mArr[instCount*16+13] = Math.round(tempPos.y / VOXEL_SIZE);
-                                mArr[instCount*16+14] = Math.round(tempPos.z / VOXEL_SIZE);
-                                instCount++;
+                        // Visualize the full surface between ribs
+                        for (let i = 0; i < currentPoints.length - 1; i++) {
+                            const p1L = lastArcPoints[i], p1R = lastArcPoints[i+1];
+                            const p2L = currentPoints[i], p2R = currentPoints[i+1];
+                            
+                            const stepsV = Math.max(1, Math.ceil(Math.max(p1L.distanceTo(p2L), p1R.distanceTo(p2R)) / (VOXEL_SIZE * 0.5)));
+                            for (let v = 0; v <= stepsV && instCount < 25000; v++) {
+                                const sideA = new THREE.Vector3().lerpVectors(p1L, p2L, v/stepsV);
+                                const sideB = new THREE.Vector3().lerpVectors(p1R, p2R, v/stepsV);
+                                const stepsU = Math.max(1, Math.ceil(sideA.distanceTo(sideB) / (VOXEL_SIZE * 0.5)));
+                                for (let u = 0; u <= stepsU && instCount < 25000; u++) {
+                                    tempPos.lerpVectors(sideA, sideB, u/stepsU);
+                                    mArr[instCount*16+12] = Math.round(tempPos.x / VOXEL_SIZE);
+                                    mArr[instCount*16+13] = Math.round(tempPos.y / VOXEL_SIZE);
+                                    mArr[instCount*16+14] = Math.round(tempPos.z / VOXEL_SIZE);
+                                    instCount++;
+                                }
                             }
                         }
                         linePreviewMesh.count = instCount;
+                        linePreviewMesh.instanceMatrix.needsUpdate = true;
+                        linePreviewMesh.material.color.setHex(0x00ffcc); 
+                        linePreviewMesh.visible = true;
+                    }
                         linePreviewMesh.instanceMatrix.needsUpdate = true;
                         linePreviewMesh.material.color.setHex(0x00ffcc); // Cyan for the "Ghost" segment
                         linePreviewMesh.visible = true;
