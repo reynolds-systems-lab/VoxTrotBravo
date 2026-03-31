@@ -1,0 +1,241 @@
+import bpy
+import bmesh
+
+def get_color_attribute_name(obj):
+    """Finds the name of the active or first color attribute on the object."""
+    if obj.data.color_attributes:
+        return obj.data.color_attributes.active.name if obj.data.color_attributes.active else obj.data.color_attributes[0].name
+    return "Color"
+
+def create_smooth_uber_material(color_attr_name):
+    """
+    Creates a single high-performance Cycles/EEVEE material.
+    Uses attributes to drive PBR properties.
+    """
+    mat_name = "Smooth_Voxel_UberMaterial"
+    mat = bpy.data.materials.get(mat_name)
+    if not mat:
+        mat = bpy.data.materials.new(name=mat_name)
+    
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    # Create Nodes
+    out_node = nodes.new(type='ShaderNodeOutputMaterial')
+    bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+    
+    # Color Attribute (Dynamic Name)
+    color_attr = nodes.new(type='ShaderNodeAttribute')
+    color_attr.attribute_name = color_attr_name
+    
+    # Material Mask Attribute (Manual Name)
+    mask_attr = nodes.new(type='ShaderNodeAttribute')
+    mask_attr.attribute_name = "MatMask"
+
+    # Split Mask (R=Metal, G=Glass, B=Emission)
+    sep = nodes.new(type='ShaderNodeSeparateColor')
+    links.new(mask_attr.outputs['Color'], sep.inputs['Color'])
+
+    # --- Routing ---
+    # 1. Base Color
+    links.new(color_attr.outputs['Color'], bsdf.inputs['Base Color'])
+    
+    # 2. Metallic (Red Channel)
+    links.new(sep.outputs['Red'], bsdf.inputs['Metallic'])
+    
+    # 3. Transmission (Green Channel)
+    # Blender 4.0+ / 5.0 uses 'Transmission Weight'
+    t_attr = 'Transmission Weight' if 'Transmission Weight' in bsdf.inputs else 'Transmission'
+    links.new(sep.outputs['Green'], bsdf.inputs[t_attr])
+    
+    # 4. Emission (Blue Channel)
+    emit_mul = nodes.new(type='ShaderNodeMix')
+    emit_mul.data_type = 'RGBA'
+    emit_mul.blend_type = 'MULTIPLY'
+    emit_mul.inputs['Factor'].default_value = 1.0
+    
+    links.new(color_attr.outputs['Color'], emit_mul.inputs['A'])
+    links.new(sep.outputs['Blue'], emit_mul.inputs['B'])
+    
+    if 'Emission Color' in bsdf.inputs:
+        links.new(emit_mul.outputs['Result'], bsdf.inputs['Emission Color'])
+        bsdf.inputs['Emission Strength'].default_value = 15.0
+    else:
+        links.new(emit_mul.outputs['Result'], bsdf.inputs['Emission'])
+
+    # 5. Roughness tweaks based on mask
+    # We'll make glass and metal smoother automatically
+    rough_mix = nodes.new(type='ShaderNodeMix')
+    rough_mix.data_type = 'FLOAT'
+    rough_mix.blend_type = 'MIX'
+    
+    # FIX: Blender 5.0 use 'MAXIMUM' instead of 'MAX'
+    math_max = nodes.new(type='ShaderNodeMath')
+    math_max.operation = 'MAXIMUM'
+    links.new(sep.outputs['Red'], math_max.inputs[0])
+    links.new(sep.outputs['Green'], math_max.inputs[1])
+    
+    links.new(math_max.outputs['Value'], rough_mix.inputs['Factor'])
+    rough_mix.inputs[2].default_value = 0.5 # Solid Roughness
+    rough_mix.inputs[3].default_value = 0.05 # Metal/Glass Roughness
+    links.new(rough_mix.outputs[0], bsdf.inputs['Roughness'])
+
+    links.new(bsdf.outputs['BSDF'], out_node.inputs['Surface'])
+    
+    # Alpha Setup for Cycles/EEVEE
+    if hasattr(mat, "blend_method"):
+        mat.blend_method = 'HASHED'
+    
+    return mat
+
+def setup_transfer_gn(target_obj, source_obj, color_attr_name):
+    """Sets up a temporary GN tree to project attributes from source to target."""
+    mod = target_obj.modifiers.new(name="AttrTransfer", type='NODES')
+    group = bpy.data.node_groups.new("TransferTree", "GeometryNodeTree")
+    mod.node_group = group
+    
+    # Interface
+    if hasattr(group, "interface"):
+        group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+        group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    else:
+        group.inputs.new('NodeSocketGeometry', "Geometry")
+        group.outputs.new('NodeSocketGeometry', "Geometry")
+        
+    nodes = group.nodes
+    links = group.links
+    
+    in_node = nodes.new('NodeGroupInput')
+    out_node = nodes.new('NodeGroupOutput')
+    
+    # Sample logic
+    obj_info = nodes.new('GeometryNodeObjectInfo')
+    obj_info.inputs['Object'].default_value = source_obj
+    obj_info.transform_space = 'RELATIVE'
+    
+    sample_nearest = nodes.new('GeometryNodeSampleNearest')
+    sample_idx = nodes.new('GeometryNodeSampleIndex')
+    sample_idx.data_type = 'FLOAT_COLOR'
+    
+    # Store Color
+    get_col = nodes.new('GeometryNodeInputNamedAttribute')
+    get_col.data_type = 'FLOAT_COLOR'
+    get_col.inputs['Name'].default_value = color_attr_name
+    
+    store_col = nodes.new('GeometryNodeStoreNamedAttribute')
+    store_col.data_type = 'FLOAT_COLOR'
+    store_col.domain = 'POINT'
+    store_col.inputs['Name'].default_value = color_attr_name
+    
+    # Store Mask
+    sample_idx_mask = nodes.new('GeometryNodeSampleIndex')
+    sample_idx_mask.data_type = 'FLOAT_COLOR'
+    
+    get_mask = nodes.new('GeometryNodeInputNamedAttribute')
+    get_mask.data_type = 'FLOAT_COLOR'
+    get_mask.inputs['Name'].default_value = "MatMask"
+    
+    store_mask = nodes.new('GeometryNodeStoreNamedAttribute')
+    store_mask.data_type = 'FLOAT_COLOR'
+    store_mask.domain = 'POINT'
+    store_mask.inputs['Name'].default_value = "MatMask"
+    
+    # Links
+    links.new(obj_info.outputs['Geometry'], sample_nearest.inputs['Geometry'])
+    links.new(sample_nearest.outputs['Index'], sample_idx.inputs['Index'])
+    links.new(obj_info.outputs['Geometry'], sample_idx.inputs['Geometry'])
+    links.new(get_col.outputs['Attribute'], sample_idx.inputs['Value'])
+    
+    links.new(in_node.outputs[0], store_col.inputs['Geometry'])
+    links.new(sample_idx.outputs['Value'], store_col.inputs['Value'])
+    
+    links.new(sample_nearest.outputs['Index'], sample_idx_mask.inputs['Index'])
+    links.new(obj_info.outputs['Geometry'], sample_idx_mask.inputs['Geometry'])
+    links.new(get_mask.outputs['Attribute'], sample_idx_mask.inputs['Value'])
+    
+    links.new(store_col.outputs['Geometry'], store_mask.inputs['Geometry'])
+    links.new(sample_idx_mask.outputs['Value'], store_mask.inputs['Value'])
+    
+    links.new(store_mask.outputs['Geometry'], out_node.inputs[0])
+
+def convert_voxels_to_smooth():
+    selected = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+    if not selected:
+        print("Error: Select the voxel mesh.")
+        return
+
+    # 1. Source Prep
+    bpy.context.view_layer.objects.active = selected[0]
+    if len(selected) > 1:
+        bpy.ops.object.join()
+    
+    source_obj = bpy.context.active_object
+    source_obj.name = "Voxel_Source"
+    
+    color_attr_name = get_color_attribute_name(source_obj)
+    print(f"Detected color attribute: {color_attr_name}")
+
+    # Bake Material Mask into Source (POINT domain for better interpolation)
+    if "MatMask" not in source_obj.data.attributes:
+        source_obj.data.attributes.new(name="MatMask", type='FLOAT_COLOR', domain='POINT')
+
+    # Mapping based on original material names
+    # We use vertex domain to ensure the smooth sampler gets interpolated values
+    for poly in source_obj.data.polygons:
+        mat_name = source_obj.data.materials[poly.material_index].name
+        mask = (0,0,0,1)
+        if "Metal" in mat_name: mask = (1,0,0,1)
+        elif "Glass" in mat_name: mask = (0,1,0,1)
+        elif "Emission" in mat_name: mask = (0,0,1,1)
+        for v_idx in poly.vertices:
+            source_obj.data.attributes['MatMask'].data[v_idx].color = mask
+
+    # Get Voxel Size
+    bm = bmesh.new()
+    bm.from_mesh(source_obj.data)
+    avg_edge = sum(e.calc_length() for e in bm.edges) / len(bm.edges) if bm.edges else 0.05
+    bm.free()
+
+    # 2. Target Creation
+    bpy.ops.object.duplicate()
+    target_obj = bpy.context.active_object
+    target_obj.name = "Smooth_Voxel_Mesh"
+
+    # Remesh + Smooth
+    # Voxel size slightly smaller than average edge for crispness, then smooth heavily
+    remesh = target_obj.modifiers.new(name="Remesh", type='REMESH')
+    remesh.mode = 'VOXEL'
+    remesh.voxel_size = avg_edge * 0.8
+    remesh.adaptivity = 0.0
+    
+    smooth = target_obj.modifiers.new(name="Smooth", type='SMOOTH')
+    smooth.iterations = 40 # Increased iterations for better "melting"
+    smooth.factor = 0.8
+    
+    # Apply geometry changes
+    bpy.ops.object.modifier_apply(modifier="Remesh")
+    bpy.ops.object.modifier_apply(modifier="Smooth")
+
+    # 3. Data Transfer (The Robust GN Way)
+    setup_transfer_gn(target_obj, source_obj, color_attr_name)
+    bpy.ops.object.modifier_apply(modifier="AttrTransfer")
+
+    # 4. Final Shading
+    target_obj.data.materials.clear()
+    uber_mat = create_smooth_uber_material(color_attr_name)
+    target_obj.data.materials.append(uber_mat)
+    
+    bpy.ops.object.shade_smooth()
+    
+    source_obj.hide_viewport = True
+    source_obj.hide_render = True
+    
+    # Force redraw of viewport for Cycles
+    bpy.context.view_layer.update()
+    
+    print("Smoothing complete. PBR and Emissive attributes successfully projected.")
+
+if __name__ == "__main__":
+    convert_voxels_to_smooth()
