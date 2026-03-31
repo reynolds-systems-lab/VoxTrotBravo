@@ -1,29 +1,30 @@
 <!-- 
-    Rob Reynolds Portfolio & VoxTrotBravo Hub
-    A humble workbench for a designer, artist, and builder.
+    Rob Reynolds | Portfolio & Technical Hub
+    Dedicated to Digital Craft, Physical Building, and Spatial Engines.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rob Reynolds | Designer • Artist • Builder</title>
+    <title>Rob Reynolds | Systems & Structures</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@300;400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@300;400;600;700&display=swap');
         
         :root {
-            --bg: #080808;
-            --grid: rgba(255, 255, 255, 0.04);
+            --bg: #0a0a0a;
+            --grid: rgba(255, 255, 255, 0.03);
+            --accent: #10b981; /* Emerald 500 */
         }
 
         body {
             background-color: var(--bg);
-            color: #a3a3a3;
+            color: #999;
             font-family: 'JetBrains Mono', monospace;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -33,7 +34,7 @@
             background-image: 
                 linear-gradient(to right, var(--grid) 1px, transparent 1px),
                 linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
-            background-size: 25px 25px;
+            background-size: 30px 30px;
         }
 
         .normal-text {
@@ -48,22 +49,40 @@
         }
 
         .fade-in {
-            animation: fadeIn 0.6s ease-out forwards;
+            animation: fadeIn 0.4s ease-out forwards;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
-        .no-scroll {
-            overflow: hidden;
-        }
+        .no-scroll { overflow: hidden; }
 
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #333; }
-        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        ::-webkit-scrollbar-thumb { background: #222; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
+
+        .code-block {
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: none;
+        }
+        
+        .nav-link {
+            position: relative;
+            transition: color 0.2s;
+        }
+        .nav-link.active { color: white; }
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: white;
+        }
     </style>
 </head>
 <body>
@@ -72,338 +91,275 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const Icon = ({ name, size = 20, className = "" }) => {
+        const Icon = ({ name, size = 18, className = "" }) => {
             return <i data-lucide={name} style={{ width: size, height: size }} className={`inline-block ${className}`}></i>;
         };
 
-        const DIGITAL_SYSTEMS = [
-            {
-                id: 'voxtrot',
-                title: "VoxTrotBravo",
-                category: "Building Tool",
-                description: "A spatial engine built for 3D sketching. Performance-tuned to manage upwards of a million dynamic voxels in real-time. Tested successfully at 29M units.",
-                tags: ["VR", "Three.js", "Spatial"],
-                color: "text-emerald-400",
-                img: "images/vox-tower1-thumb.webp"
-            }
-        ];
-
-        const PHYSICAL_BUILDINGS = [
-            { 
-                id: 'campground-tower', 
-                title: "Campground Tower", 
-                description: "A site-specific physical build exploring height and stability. Traditional timber joinery designed to integrate with the landscape.", 
-                icon: "tower-control", 
-                material: "Timber / Concrete", 
-                img: "images/builds-hexa1-thumb.webp" 
-            },
-            { 
-                id: 'memory-lane', 
-                title: "Memory Lane", 
-                description: "An interactive historical structure celebrating 50 years of music and community heritage for the Winnipeg Folk Festival.", 
-                icon: "map", 
-                material: "Cedar / Integrated Tech", 
-                img: "images/builds-memory1-thumb.webp",
-                link: "https://www.winnipegfolkfestival.ca/memory-lane/"
-            },
-            { 
-                id: 'tops', 
-                title: "Spinning Tops", 
-                description: "Lathe-turned kinetic objects. Small exercises in balance, center of gravity, and momentum using exotic hardwoods.", 
-                icon: "wind", 
-                material: "Maple / Walnut", 
-                img: "images/builds-tops1-thumb.webp" 
-            },
-            { 
-                id: 'instruments', 
-                title: "Instrument Design", 
-                description: "Lutherie work exploring tension and resonance. Building the tools that make the music.", 
-                icon: "music", 
-                material: "Maple / Walnut", 
-                img: "images/vox-logo1-thumb.webp" 
-            }
-        ];
-
-        const VOXTROT_ART = [
-            { id: 'v1', title: "Symmetry Flourish", year: "2024", type: "Voxel Art", thumb: "images/vox-flour1-thumb.webp", full: "images/vox-flour1-full.webp" },
-            { id: 'v2', title: "Geometric Flow", year: "2023", type: "VR Render", thumb: "images/vox-fan1-thumb.webp", full: "images/vox-fan1-full.webp" },
-            { id: 'v3', title: "Light & Glass", year: "2023", type: "Material Study", thumb: "images/vox-spiglo1-thumb.webp", full: "images/vox-spiglo1-full.webp" },
-            { id: 'v4', title: "The Cathedral", year: "2024", type: "Voxel Architecture", thumb: "images/vox-deco1-thumb.webp", full: "images/vox-deco1-full.webp" },
-            { id: 'v5', title: "Luminescent Tower", year: "2024", type: "Stress Test", thumb: "images/vox-tower1-thumb.webp", full: "images/vox-tower1-full.webp" },
-            { id: 'v6', title: "Dodecahedron Bug", year: "2023", type: "Form Study", thumb: "images/vox-bug1-thumb.webp", full: "images/vox-bug1-full.webp" },
-            { id: 'v7', title: "Neon Symmetry", year: "2024", type: "Light Study", thumb: "images/vox-neon1-thumb.webp", full: "images/vox-neon1-full.webp" },
-            { id: 'v8', title: "Stairway Study", year: "2023", type: "Verticality", thumb: "images/vox-stairway1-thumb.webp", full: "images/vox-stairway1-full.webp" },
-            { id: 'v9', title: "Voxel Residence", year: "2024", type: "Design Study", thumb: "images/vox-house1-thumb.webp", full: "images/vox-house1-full.webp" },
-            { id: 'v10', title: "Arc Logic", year: "2024", type: "Bezier Study", thumb: "images/vox-arcs1-thumb.webp", full: "images/vox-arcs1-full.webp" },
-            { id: 'v11', title: "Circligit", year: "2023", type: "Form Study", thumb: "images/vox-circligit-thumb.webp", full: "images/vox-circligit-full.webp" },
-            { id: 'v12', title: "The Egg I", year: "2023", type: "Volume Study", thumb: "images/vox-egg1-thumb.webp", full: "images/vox-egg1-full.webp" },
-            { id: 'v13', title: "The Egg II", year: "2023", type: "Volume Study", thumb: "images/vox-egg2-thumb.webp", full: "images/vox-egg2-full.webp" },
-            { id: 'v14', title: "Forest Study I", year: "2024", type: "Landscape", thumb: "images/vox-forest1-thumb.webp", full: "images/vox-forest1-full.webp" },
-            { id: 'v15', title: "Forest Study II", year: "2024", type: "Landscape", thumb: "images/vox-forest2-thumb.webp", full: "images/vox-forest2-full.webp" },
-            { id: 'v16', title: "Hex Pavillion", year: "2023", type: "Architecture", thumb: "images/vox-hex1-thumb.webp", full: "images/vox-hex1-full.webp" },
-            { id: 'v17', title: "Voxel Hut", year: "2024", type: "Shelter Study", thumb: "images/vox-hut1-thumb.webp", full: "images/vox-hut1-full.webp" },
-            { id: 'v18', title: "Ico Form", year: "2023", type: "Platonic", thumb: "images/vox-ico1-thumb.webp", full: "images/vox-ico1-full.webp" },
-            { id: 'v19', title: "Voxel Lamp", year: "2023", type: "Emission Study", thumb: "images/vox-lamp1-thumb.webp", full: "images/vox-lamp1-full.webp" },
-            { id: 'v20', title: "Pattern Field", year: "2023", type: "Generative", thumb: "images/vox-patern1-thumb.webp", full: "images/vox-patern1-full.webp" },
-            { id: 'v21', title: "Test Sequence", year: "2023", type: "Feature Test", thumb: "images/vox-test1-thub.webp", full: "images/vox-test1-full.webp" },
-            { id: 'v22', title: "Wee Form I", year: "2024", type: "Small Scale", thumb: "images/vox-wee1-thumb.webp", full: "images/vox-wee1-full.webp" },
-            { id: 'v23', title: "Wee Form II", year: "2024", type: "Small Scale", thumb: "images/vox-wee2-thumb.webp", full: "images/vox-wee2-full.webp" }
-        ];
-
-        const EXTERNAL_ART = [
-            { id: 'e1', title: "Architectural Twist", year: "2024", type: "Gravity Sketch / Blender", thumb: "images/grsk-twist1-thumb.webp", full: "images/grsk-twist1-full.webp" },
-            { id: 'e2', title: "Procedural City", year: "2023", type: "Gravity Sketch / Blender", thumb: "images/grsk-newton1-thumb.webp", full: "images/grsk-newton1-full.webp" },
-            { id: 'e3', title: "Brick Logic I", year: "2023", type: "SketchUp / Blender", thumb: "images/grsk-brick-thumb.webp", full: "images/grsk-brick-full.webp" },
-            { id: 'e4', title: "Brick Logic II", year: "2023", type: "SketchUp / Blender", thumb: "images/grsk-brick2-thumb.webp", full: "images/grsk-brick2-full.webp" },
-            { id: 'e5', title: "Spatial Self", year: "2023", type: "Gravity Sketch", thumb: "images/grsk-self1-thumb.webp", full: "images/grsk-self1-full.webp" }
-        ];
+        // --- Data Definitions ---
 
         const BLENDER_SCRIPTS = [
             {
-                id: 'large-optimizer',
-                title: "Large Model Optimizer (>3M Voxels)",
-                description: "Blender Python script optimized for massive datasets. Streamlines geometry and vertex color data to prevent viewport lag with high-voxel counts.",
-                code: `# Blender Script: Large Model Optimizer\n# Optimized for 3,000,000+ Voxel Imports\nimport bpy\n\n# Replace this line with your actual Large Model logic\nprint("Optimizing Large Model Data...")`
+                id: 'standard',
+                title: "Standard PBR Mapping",
+                description: "Cleans up multi-material OBJ imports. Configures full PBR node setups including Subsurface Scattering, Micro-surface Bump, and Beveled Glass for all VoxTrot material types.",
+                code: `import bpy\n\ndef process_voxel_mesh():\n    \"\"\"\n    Cleans up the multi-material imported OBJ generated by 'VoxTrotBravo'.\n    Updated for Blender 5.0+ API and EEVEE Next / Cycles node structures.\n    Upgraded with full PBR (Physically Based Rendering) node setups including\n    Subsurface Scattering, Micro-surface Bump, and Beveled Glass.\n    \"\"\"\n    \n    selected_objects = [o for o in bpy.context.selected_objects if o.type == 'MESH']\n    \n    if not selected_objects:\n        print(\"Error: Please select the imported Voxel OBJ mesh(es) first.\")\n        return\n\n    print(f\"Starting cleanup and PBR material mapping on {len(selected_objects)} selected object(s)... text-left\")\n\n    # Join objects if multiple are imported (Blender OBJ importer splits by material groups)\n    bpy.context.view_layer.objects.active = selected_objects[0]\n    if len(selected_objects) > 1:\n        bpy.ops.object.join()\n        \n    obj = bpy.context.active_object\n\n    # --- 1. Geometry Processing (Base Cleanup Only) ---\n    bpy.context.view_layer.objects.active = obj\n    \n    # Determine if this was exported as Mesh (Triangles) or Boxes (Quads) dynamically\n    is_mesh_mode = False\n    if len(obj.data.polygons) > 0:\n        if len(obj.data.polygons[0].vertices) == 3:\n            is_mesh_mode = True\n            \n    if is_mesh_mode:\n        print(\"Mesh mode detected. Merging vertices using optimized C-level operator.\")\n        bpy.ops.object.mode_set(mode='EDIT')\n        bpy.ops.mesh.select_all(action='SELECT')\n        bpy.ops.mesh.remove_doubles(threshold=0.001)\n        bpy.ops.object.mode_set(mode='OBJECT')\n    else:\n        print(\"Boxes mode detected. Leaving geometry as distinct un-merged voxel blocks.\")\n        \n    # OPTIMIZATION: Use C-level 'foreach_set' to apply flat shading to the main grid instantly\n    poly_count = len(obj.data.polygons)\n    if poly_count > 0:\n        obj.data.polygons.foreach_set('use_smooth', [False] * poly_count)\n\n    # --- Enable Shadow Caustics (Cycles 3.2+) ---\n    try:\n        obj.is_caustics_caster = True\n        obj.is_caustics_receiver = True\n    except AttributeError:\n        pass\n\n    # --- 2. Material Mapping based on OBJ groupings ---\n    for mat in obj.data.materials:\n        if not mat: continue\n        \n        print(f\"Processing PBR material group: {mat.name}\")\n        mat.use_nodes = True\n        nodes = mat.node_tree.nodes\n        links = mat.node_tree.links\n\n        # Clear existing nodes\n        nodes.clear()\n\n        # Build Standard Core Nodes\n        out_node = nodes.new(type='ShaderNodeOutputMaterial')\n        out_node.location = (600, 0)\n\n        bsdf_node = nodes.new(type='ShaderNodeBsdfPrincipled')\n        bsdf_node.location = (200, 0)\n\n        attr_node = nodes.new(type='ShaderNodeAttribute')\n        attr_node.location = (-150, 200)\n        \n        # Pull standard vertex color naming\n        color_attrs = obj.data.color_attributes\n        attr_node.attribute_name = color_attrs[0].name if color_attrs else \"Color\"\n\n        # Standard linking\n        links.new(bsdf_node.outputs['BSDF'], out_node.inputs['Surface'])\n\n        # Contextual Material Routing (Blender 4.0 / 5.0+ Principled BSDF structure)\n        if \"Solid\" in mat.name:\n            # 1. Base Color\n            links.new(attr_node.outputs['Color'], bsdf_node.inputs['Base Color'])\n            \n            # 2. Plastic/Resin Sheen (PBR Roughness)\n            bsdf_node.inputs['Roughness'].default_value = 0.35 \n            \n            # 3. Subsurface Scattering (Vital for Photorealism in Voxels)\n            if 'Subsurface Weight' in bsdf_node.inputs:\n                bsdf_node.inputs['Subsurface Weight'].default_value = 0.15\n            elif 'Subsurface' in bsdf_node.inputs:\n                bsdf_node.inputs['Subsurface'].default_value = 0.15\n                \n            # 4. Micro-surface Detail (Plastic Grain)\n            noise_node = nodes.new(type='ShaderNodeTexNoise')\n            noise_node.location = (-550, -100)\n            noise_node.inputs['Scale'].default_value = 250.0 # Fine grain\n            noise_node.inputs['Detail'].default_value = 2.0\n            \n            bump_node = nodes.new(type='ShaderNodeBump')\n            bump_node.location = (-350, -100)\n            bump_node.inputs['Strength'].default_value = 0.04 # Subtle depth\n            bump_node.inputs['Distance'].default_value = 0.1\n            links.new(noise_node.outputs['Fac'], bump_node.inputs['Height'])\n            \n            # 5. Bevel (Soft Edges)\n            bevel_node = nodes.new(type='ShaderNodeBevel')\n            bevel_node.location = (-150, -100)\n            bevel_node.samples = 6\n            bevel_node.inputs['Radius'].default_value = 0.008 # Realistic edge rounding\n            \n            # 6. Stack the Normals: Micro-Bump -> Bevel -> Principled BSDF\n            links.new(bump_node.outputs['Normal'], bevel_node.inputs['Normal'])\n            links.new(bevel_node.outputs['Normal'], bsdf_node.inputs['Normal'])\n\n        elif \"Glass\" in mat.name:\n            # 1. Base Color & Real Glass Properties\n            links.new(attr_node.outputs['Color'], bsdf_node.inputs['Base Color'])\n            bsdf_node.inputs['Roughness'].default_value = 0.08 # Clean, slightly frosted finish\n            \n            if 'IOR' in bsdf_node.inputs:\n                bsdf_node.inputs['IOR'].default_value = 1.45 # Standard for glass/acrylic\n            \n            if 'Transmission Weight' in bsdf_node.inputs:\n                bsdf_node.inputs['Transmission Weight'].default_value = 1.0\n            elif 'Transmission' in bsdf_node.inputs:\n                bsdf_node.inputs['Transmission'].default_value = 1.0\n                \n            # 2. Beveled Edges for Glass (Crucial for edge-catching light reflections)\n            bevel_node = nodes.new(type='ShaderNodeBevel')\n            bevel_node.location = (-150, -100)\n            bevel_node.samples = 6\n            bevel_node.inputs['Radius'].default_value = 0.005\n            links.new(bevel_node.outputs['Normal'], bsdf_node.inputs['Normal'])\n                \n            # Legacy/EEVEE compatibility adjustments\n            try:\n                mat.blend_method = 'BLEND'\n                mat.shadow_method = 'HASHED' \n            except AttributeError:\n                pass \n\n        elif \"Emission\" in mat.name:\n            # Set Base Color to black so the geometry acts strictly as a pure light emitter\n            bsdf_node.inputs['Base Color'].default_value = (0, 0, 0, 1) \n            \n            # Blender 4.0+ separated Emission Color and Strength\n            if 'Emission Color' in bsdf_node.inputs:\n                links.new(attr_node.outputs['Color'], bsdf_node.inputs['Emission Color'])\n                if 'Emission Strength' in bsdf_node.inputs:\n                    bsdf_node.inputs['Emission Strength'].default_value = 10.0\n            else:\n                links.new(attr_node.outputs['Color'], bsdf_node.inputs['Emission'])\n\n    # --- 3. Viewport Update ---\n    for area in bpy.context.screen.areas:\n        if area.type == 'VIEW_3D':\n            for space in area.spaces:\n                if space.type == 'VIEW_3D':\n                    space.shading.type = 'MATERIAL'\n\n    # Ensure context updates to reflect shader modifications instantly\n    bpy.context.view_layer.update()\n    \n    print(f\"Success! Optimized {obj.name} with PBR-Ready node trees. Render in Cycles for best results!\")\n\nif __name__ == \"__main__\":\n    process_voxel_mesh()`
             },
             {
-                id: 'high-quality',
-                title: "Best Quality Material Assignor",
-                description: "Best for smaller models. Automatically sets up advanced Cycles nodes for Emission, Metal, and Glass materials based on object naming.",
-                code: `# Blender Script: High Fidelity Materials\n# Best for detailed, small-scale renders\nimport bpy\n\n# Replace this line with your actual Material logic\nprint("Assigning High Fidelity Materials...")`
+                id: 'jumbo',
+                title: "Massive Voxel Optimizer",
+                description: "Designed for datasets exceeding 10M+ voxels. Uses data-level updates instead of operators and conditionally skips heavy merging to prevent system crashes.",
+                code: `import bpy\nimport time\n\ndef process_massive_voxel_mesh():\n    \"\"\"\n    High-Performance Voxel Cleanup for Blender 5.0+\n    Designed for datasets exceeding 10M+ voxels.\n    - Uses 'Data-Level' updates instead of 'Operator-Level' (UI) calls.\n    - Conditionally skips memory-heavy merging for extreme counts.\n    - Simplified PBR tree to prevent Cycles kernel crashes.\n    - Support for Solid, Glass, Emission, and Metal material types.\n    \"\"\"\n    \n    # 1. Performance Thresholds\n    # If poly count exceeds this, we skip \"Remove Doubles\" to prevent RAM crashes\n    MERGE_THRESHOLD = 2000000 \n    # If poly count exceeds this, we skip the Bevel node (expensive render-time effect)\n    BEVEL_THRESHOLD = 5000000 \n\n    selected_objects = [o for o in bpy.context.selected_objects if o.type == 'MESH']\n    \n    if not selected_objects:\n        print(\"Error: No Mesh objects selected. Please select your imported OBJ.\")\n        return\n\n    start_time = time.time()\n    print(f\"--- Starting High-Performance Process on {len(selected_objects)} objects ---\")\n\n    # Join objects using the most efficient context\n    if len(selected_objects) > 1:\n        print(f\"Joining {len(selected_objects)} parts into one mesh...\")\n        bpy.context.view_layer.objects.active = selected_objects[0]\n        bpy.ops.object.join()\n        \n    obj = bpy.context.active_object\n    poly_count = len(obj.data.polygons)\n    print(f\"Total Polygon Count: {poly_count:,}\")\n\n    # --- 2. Optimized Geometry Processing ---\n    # We avoid Edit Mode operators (bpy.ops.mesh.*) where possible for massive meshes\n    \n    if poly_count < MERGE_THRESHOLD:\n        print(\"Model size within merge limits. Cleaning up geometry...\")\n        bpy.ops.object.mode_set(mode='EDIT')\n        bpy.ops.mesh.remove_doubles(threshold=0.0001)\n        bpy.ops.object.mode_set(mode='OBJECT')\n    else:\n        print(\"WARNING: Poly count too high for merging. Skipping 'Remove Doubles' to save RAM.\")\n\n    # Optimized Flat Shading (Fastest way to set shading in Blender 5.0)\n    obj.data.polygons.foreach_set('use_smooth', [False] * poly_count)\n\n    # --- 3. Memory-Efficient PBR Material Setup ---\n    # We reuse a single Material tree structure where possible\n    \n    for mat in obj.data.materials:\n        if not mat: continue\n        \n        print(f\"Optimizing material: {mat.name}\")\n        mat.use_nodes = True\n        nodes = mat.node_tree.nodes\n        links = mat.node_tree.links\n        nodes.clear()\n\n        # Core Node Creation\n        out_node = nodes.new('ShaderNodeOutputMaterial')\n        out_node.location = (400, 0)\n\n        bsdf = nodes.new('ShaderNodeBsdfPrincipled')\n        bsdf.location = (0, 0)\n        links.new(bsdf.outputs['BSDF'], out_node.inputs['Surface'])\n\n        # Vertex Color Access (Essential for VoxTrotBravo imports)\n        attr = nodes.new('ShaderNodeAttribute')\n        attr.location = (-300, 100)\n        \n        # In Blender 5.0, color attributes are standard\n        color_attr = obj.data.color_attributes.active\n        attr.attribute_name = color_attr.name if color_attr else \"Color\"\n        links.new(attr.outputs['Color'], bsdf.inputs['Base Color'])\n\n        # Material Logic based on Material Name (Matching VoxTrotBravo Export Types)\n        if \"Solid\" in mat.name:\n            bsdf.inputs['Roughness'].default_value = 0.4\n            \n            if poly_count < BEVEL_THRESHOLD:\n                if 'Subsurface Weight' in bsdf.inputs:\n                    bsdf.inputs['Subsurface Weight'].default_value = 0.05\n                \n                # Add Bevel for subtle edge highlights\n                bevel = nodes.new('ShaderNodeBevel')\n                bevel.location = (-300, -200)\n                bevel.samples = 4\n                bevel.inputs['Radius'].default_value = 0.005\n                links.new(bevel.outputs['Normal'], bsdf.inputs['Normal'])\n\n        elif \"Metal\" in mat.name:\n            bsdf.inputs['Metallic'].default_value = 1.0\n            bsdf.inputs['Roughness'].default_value = 0.2\n\n        elif \"Glass\" in mat.name:\n            if 'Transmission Weight' in bsdf.inputs:\n                bsdf.inputs['Transmission Weight'].default_value = 1.0\n            bsdf.inputs['Roughness'].default_value = 0.05\n            bsdf.inputs['IOR'].default_value = 1.45\n            \n            # Legacy/Compatibility adjustments for Viewport Transparency\n            try:\n                mat.blend_method = 'HASHED'\n                # shadow_method is removed in Blender 4.2+ (EEVEE Next)\n                if bpy.app.version < (4, 2, 0):\n                    mat.shadow_method = 'HASHED'\n            except AttributeError:\n                pass\n\n        elif \"Emission\" in mat.name:\n            bsdf.inputs['Base Color'].default_value = (0, 0, 0, 1)\n            links.new(attr.outputs['Color'], bsdf.inputs['Emission Color'])\n            if 'Emission Strength' in bsdf.inputs:\n                bsdf.inputs['Emission Strength'].default_value = 10.0\n\n    # --- 4. Cycles Performance & Viewport Setup ---\n    bpy.context.scene.render.engine = 'CYCLES'\n    \n    # Fast BVH Build setup\n    if hasattr(bpy.context.scene.cycles, \"debug_use_spatial_splits\"):\n        bpy.context.scene.cycles.debug_use_spatial_splits = False\n        \n    # Corrected: Disable Caustics (Properties are found in obj.cycles)\n    try:\n        obj.cycles.is_caustics_caster = False\n        obj.cycles.is_caustics_receiver = False\n    except AttributeError:\n        # Fallback if Cycles properties aren't initialized or available\n        pass\n\n    # Force Viewport to show Material colors so user sees result instantly\n    for area in bpy.context.screen.areas:\n        if area.type == 'VIEW_3D':\n            for space in area.spaces:\n                if space.type == 'VIEW_3D':\n                    space.shading.type = 'MATERIAL'\n\n    end_time = time.time()\n    print(f\"--- SUCCESS: Processed {poly_count:,} polygons in {round(end_time - start_time, 2)}s ---\")\n\nif __name__ == \"__main__\":\n    process_massive_voxel_mesh()`
             },
             {
-                id: 'mesh-converter',
-                title: "Voxel-to-Smooth Mesh Converter",
-                description: "Automates the process of remeshing and smoothing voxel geometry while preserving vertex color data for a clean, organic look.",
-                code: `# Blender Script: Voxel-to-Smooth Converter\nimport bpy\n\n# Replace this line with your actual Smoothing logic\nprint("Converting Voxel Data to Smooth Mesh...")`
+                id: 'smooth',
+                title: "Voxel-to-Smooth Remesher",
+                description: "Automates the process of remeshing and smoothing while preserving vertex attributes via Geometry Nodes projection. Includes an UberMaterial for mask-driven PBR.",
+                code: `import bpy\nimport bmesh\n\ndef get_color_attribute_name(obj):\n    \"\"\"Finds the name of the active or first color attribute on the object.\"\"\"\n    if obj.data.color_attributes:\n        return obj.data.color_attributes.active.name if obj.data.color_attributes.active else obj.data.color_attributes[0].name\n    return \"Color\"\n\ndef create_smooth_uber_material(color_attr_name):\n    \"\"\"\n    Creates a single high-performance Cycles/EEVEE material.\n    Uses attributes to drive PBR properties.\n    \"\"\"\n    mat_name = \"Smooth_Voxel_UberMaterial\"\n    mat = bpy.data.materials.get(mat_name)\n    if not mat:\n        mat = bpy.data.materials.new(name=mat_name)\n    \n    mat.use_nodes = True\n    nodes = mat.node_tree.nodes\n    links = mat.node_tree.links\n    nodes.clear()\n\n    # Create Nodes\n    out_node = nodes.new(type='ShaderNodeOutputMaterial')\n    bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')\n    \n    # Color Attribute (Dynamic Name)\n    color_attr = nodes.new(type='ShaderNodeAttribute')\n    color_attr.attribute_name = color_attr_name\n    \n    # Material Mask Attribute (Manual Name)\n    mask_attr = nodes.new(type='ShaderNodeAttribute')\n    mask_attr.attribute_name = \"MatMask\"\n\n    # Split Mask (R=Metal, G=Glass, B=Emission)\n    sep = nodes.new(type='ShaderNodeSeparateColor')\n    links.new(mask_attr.outputs['Color'], sep.inputs['Color'])\n\n    # --- Routing ---\n    # 1. Base Color\n    links.new(color_attr.outputs['Color'], bsdf.inputs['Base Color'])\n    \n    # 2. Metallic (Red Channel)\n    links.new(sep.outputs['Red'], bsdf.inputs['Metallic'])\n    \n    # 3. Transmission (Green Channel)\n    # Blender 4.0+ / 5.0 uses 'Transmission Weight'\n    t_attr = 'Transmission Weight' if 'Transmission Weight' in bsdf.inputs else 'Transmission'\n    links.new(sep.outputs['Green'], bsdf.inputs[t_attr])\n    \n    # 4. Emission (Blue Channel)\n    emit_mul = nodes.new(type='ShaderNodeMix')\n    emit_mul.data_type = 'RGBA'\n    emit_mul.blend_type = 'MULTIPLY'\n    emit_mul.inputs['Factor'].default_value = 1.0\n    \n    links.new(color_attr.outputs['Color'], emit_mul.inputs['A'])\n    links.new(sep.outputs['Blue'], emit_mul.inputs['B'])\n    \n    if 'Emission Color' in bsdf.inputs:\n        links.new(emit_mul.outputs['Result'], bsdf.inputs['Emission Color'])\n        bsdf.inputs['Emission Strength'].default_value = 15.0\n    else:\n        links.new(emit_mul.outputs['Result'], bsdf.inputs['Emission'])\n\n    # 5. Roughness tweaks based on mask\n    rough_mix = nodes.new(type='ShaderNodeMix')\n    rough_mix.data_type = 'FLOAT'\n    rough_mix.blend_type = 'MIX'\n    \n    math_max = nodes.new(type='ShaderNodeMath')\n    math_max.operation = 'MAXIMUM'\n    links.new(sep.outputs['Red'], math_max.inputs[0])\n    links.new(sep.outputs['Green'], math_max.inputs[1])\n    \n    links.new(math_max.outputs['Value'], rough_mix.inputs['Factor'])\n    rough_mix.inputs[2].default_value = 0.5 # Solid Roughness\n    rough_mix.inputs[3].default_value = 0.05 # Metal/Glass Roughness\n    links.new(rough_mix.outputs[0], bsdf.inputs['Roughness'])\n\n    links.new(bsdf.outputs['BSDF'], out_node.inputs['Surface'])\n    \n    return mat\n\ndef convert_voxels_to_smooth():\n    selected = [o for o in bpy.context.selected_objects if o.type == 'MESH']\n    if not selected: return\n\n    # 1. Source Prep\n    bpy.context.view_layer.objects.active = selected[0]\n    if len(selected) > 1: bpy.ops.object.join()\n    \n    source_obj = bpy.context.active_object\n    color_attr_name = get_color_attribute_name(source_obj)\n\n    # 2. Target Creation\n    bpy.ops.object.duplicate()\n    target_obj = bpy.context.active_object\n\n    remesh = target_obj.modifiers.new(name=\"Remesh\", type='REMESH')\n    remesh.mode = 'VOXEL'\n    remesh.voxel_size = 0.04\n    \n    smooth = target_obj.modifiers.new(name=\"Smooth\", type='SMOOTH')\n    smooth.iterations = 40\n    \n    # Apply geometry changes\n    bpy.ops.object.modifier_apply(modifier=\"Remesh\")\n    bpy.ops.object.modifier_apply(modifier=\"Smooth\")\n\n    # 4. Final Shading\n    target_obj.data.materials.clear()\n    uber_mat = create_smooth_uber_material(color_attr_name)\n    target_obj.data.materials.append(uber_mat)\n    \n    bpy.ops.object.shade_smooth()\n    print(\"Smoothing complete.\")\n\nif __name__ == \"__main__\":\n    convert_voxels_to_smooth()`
             }
         ];
 
-        const App = () => {
-            const [view, setView] = useState('home');
-            const [time, setTime] = useState(new Date().toLocaleTimeString());
-            const [lightbox, setLightbox] = useState(null);
+        const PHYSICAL_PROJECTS = [
+            { id: 'p1', title: "Timber Tower", material: "Rough-Sawn Cedar", img: "images/builds-hexa1-thumb.webp" },
+            { id: 'p2', title: "Hex Pavillion Site", material: "Timber / Concrete", img: "images/builds-hexa2-thumb.webp" },
+            { id: 'p3', title: "Symmetry Assembly", material: "Joinery Study", img: "images/builds-hexa3-thumb.webp" },
+            { id: 'p4', title: "Memory Lane Entrance", material: "Historical Structure", img: "images/builds-memory1-thumb.webp" },
+            { id: 'p5', title: "Integrated Cedar Ceiling", material: "Cedar / Integrated Tech", img: "images/builds-memory2-thumb.webp" },
+            { id: 'p6', title: "Lathe Kinematics", material: "Turned Hardwoods", img: "images/builds-tops1-thumb.webp" }
+        ];
 
-            useEffect(() => {
-                const timer = setInterval(() => setTime(new Date().toLocaleTimeString()), 1000);
-                lucide.createIcons();
-                return () => clearInterval(timer);
-            }, [view, lightbox]);
+        const GALLERY = [
+            { id: 'g1', title: "Symmetry Flourish", type: "Voxel Art", thumb: "images/vox-flour1-thumb.webp", full: "images/vox-flour1-full.webp" },
+            { id: 'g2', title: "Geometric Flow", type: "VR Render", thumb: "images/vox-fan1-thumb.webp", full: "images/vox-fan1-full.webp" },
+            { id: 'g3', title: "The Cathedral", type: "Voxel Architecture", thumb: "images/vox-deco1-thumb.webp", full: "images/vox-deco1-full.webp" },
+            { id: 'g4', title: "Neon Symmetry", type: "Light Study", thumb: "images/vox-neon1-thumb.webp", full: "images/vox-neon1-full.webp" },
+            { id: 'g5', title: "Volume Study (Egg)", type: "Ellipsoid", thumb: "images/vox-egg1-thumb.webp", full: "images/vox-egg1-full.webp" },
+            { id: 'g6', title: "Bezier Arc Logic", type: "Mesh Generation", thumb: "images/vox-arcs1-thumb.webp", full: "images/vox-arcs1-full.webp" },
+            { id: 'g7', title: "Massive Stress Test", type: "29M Voxels", thumb: "images/vox-tower1-thumb.webp", full: "images/vox-tower1-full.webp" },
+            { id: 'g8', title: "Dodecahedron Bug", type: "Form Study", thumb: "images/vox-bug1-thumb.webp", full: "images/vox-bug1-full.webp" },
+            { id: 'g9', title: "Circligit", type: "Procedural Form", thumb: "images/vox-circligit-thumb.webp", full: "images/vox-circligit-full.webp" },
+            { id: 'g10', title: "Deco Pavillion", type: "Architecture", thumb: "images/vox-deco2-thumb.webp", full: "images/vox-deco2-full.webp" },
+            { id: 'g11', title: "The Egg II", type: "Wireframe Shell", thumb: "images/vox-egg2-thumb.webp", full: "images/vox-egg2-full.webp" },
+            { id: 'g12', title: "Forest Study", type: "Landscape", thumb: "images/vox-forest1-thumb.webp", full: "images/vox-forest1-full.webp" },
+            { id: 'g13', title: "Voxel Residence", type: "Residential Study", thumb: "images/vox-house1-thumb.webp", full: "images/vox-house1-full.webp" },
+            { id: 'g14', title: "Ico Platonic", type: "Geometric Solid", thumb: "images/vox-ico1-thumb.webp", full: "images/vox-ico1-full.webp" },
+            { id: 'g15', title: "Luminescent Lamp", type: "Emission Study", thumb: "images/vox-lamp1-thumb.webp", full: "images/vox-lamp1-full.webp" },
+            { id: 'g16', title: "Magic Pavilion", type: "Generative", thumb: "images/vox-magic1-thumb.webp", full: "images/vox-magic1-full.webp" },
+            { id: 'g17', title: "Stairway Study", type: "Verticality", thumb: "images/vox-stairway1-thumb.webp", full: "images/vox-stairway1-full.webp" },
+            { id: 'g18', title: "Test Sequence", type: "Feature Test", thumb: "images/vox-test1-thub.webp", full: "images/vox-test1-full.webp" },
+            { id: 'g19', title: "Wee Form Study", type: "Small Scale", thumb: "images/vox-wee1-thumb.webp", full: "images/vox-wee1-full.webp" },
+            { id: 'g20', title: "Architectural Twist", type: "External Tool", thumb: "images/grsk-twist1-thumb.webp", full: "images/grsk-twist1-full.webp" },
+            { id: 'g21', title: "Procedural City", type: "External Tool", thumb: "images/grsk-newton1-thumb.webp", full: "images/grsk-newton1-full.webp" },
+            { id: 'g22', title: "Brick Logic", type: "External Tool", thumb: "images/grsk-brick-thumb.webp", full: "images/grsk-brick-full.webp" }
+        ];
 
-            useEffect(() => {
-                if (lightbox) document.body.classList.add('no-scroll');
-                else document.body.classList.remove('no-scroll');
-            }, [lightbox]);
+        // --- View Components ---
 
-            const navigate = (v) => {
-                setView(v);
-                window.scrollTo(0, 0);
+        const Nav = ({ current, setView }) => (
+            <nav className="fixed top-0 w-full z-50 bg-[#0a0a0a]/90 border-b border-white/5 backdrop-blur-sm px-6 h-14 flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                    <span className="text-white font-bold text-xs tracking-tighter cursor-pointer" onClick={() => setView('home')}>REYNOLDS_HUB</span>
+                    <div className="h-4 w-px bg-white/10 hidden sm:block"></div>
+                    <div className="flex items-center gap-6">
+                        {['home', 'engine', 'archive', 'art'].map(v => (
+                            <button 
+                                key={v} 
+                                onClick={() => setView(v)}
+                                className={`text-[10px] font-black tracking-widest nav-link ${current === v ? 'active' : 'text-neutral-600 hover:text-white'}`}
+                            >
+                                {v.toUpperCase()}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div className="hidden md:flex items-center gap-4">
+                    <a href="engine.html" className="bg-white text-black h-8 px-4 flex items-center text-[9px] font-black hover:bg-neutral-200 transition-colors">LAUNCH_ENGINE</a>
+                </div>
+            </nav>
+        );
+
+        const HomeView = ({ setView }) => (
+            <div className="space-y-12 py-10 fade-in">
+                <section className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
+                    <div className="lg:col-span-8 space-y-6">
+                        <h1 className="text-6xl md:text-9xl font-black tracking-tighter text-white leading-[0.85] uppercase">
+                            Systems & <br /> Structures
+                        </h1>
+                        <p className="normal-text text-neutral-500 text-lg max-w-xl">
+                            A repository of technical tools and physical builds. Research focused on voxel geometry, spatial design, and material craft.
+                        </p>
+                    </div>
+                    <div className="lg:col-span-4 flex flex-col gap-2">
+                        <button onClick={() => setView('engine')} className="border border-white/10 p-6 flex justify-between items-center group hover:bg-white/5 transition-all text-left">
+                            <span className="text-[10px] font-black">Spatial Engine Documentation</span>
+                            <Icon name="arrow-right" size={14} className="text-neutral-700 group-hover:text-white" />
+                        </button>
+                        <button onClick={() => setView('art')} className="border border-white/10 p-6 flex justify-between items-center group hover:bg-white/5 transition-all text-left">
+                            <span className="text-[10px] font-black">Visual Output Archive</span>
+                            <Icon name="arrow-right" size={14} className="text-neutral-700 group-hover:text-white" />
+                        </button>
+                    </div>
+                </section>
+
+                <section className="border-t border-white/5 pt-12">
+                    <div className="aspect-[21/9] bg-neutral-900 border border-white/5 relative overflow-hidden group cursor-pointer" onClick={() => setView('engine')}>
+                        <img src="images/vox-tower1-full.webp" className="w-full h-full object-cover opacity-20 grayscale group-hover:opacity-40 transition-all duration-1000" />
+                        <div className="absolute inset-0 p-10 flex flex-col justify-end text-left">
+                            <span className="text-[10px] font-black text-emerald-500 mb-2">VOXTROTBRAVO // CORE ENGINE</span>
+                            <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">Spatial Building System</h2>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        );
+
+        const EngineView = () => {
+            const [activeScript, setActiveScript] = useState(BLENDER_SCRIPTS[0]);
+            
+            const copyCode = (code) => {
+                const el = document.createElement('textarea');
+                el.value = code;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
             };
 
             return (
-                <div className="min-h-screen blueprint pb-20">
-                    <nav className="fixed top-0 w-full z-50 bg-[#080808]/95 border-b border-white/10 px-6 h-16 flex items-center justify-between">
-                        <div className="flex items-center gap-4 cursor-pointer group" onClick={() => navigate('home')}>
-                            <div className="w-8 h-8 border border-white/20 flex items-center justify-center text-white font-black italic group-hover:bg-white group-hover:text-black transition-all text-xs">R</div>
-                            <div className="hidden sm:flex flex-col leading-none">
-                                <span className="text-white font-bold text-[11px]">Rob Reynolds</span>
-                                <span className="text-[8px] text-neutral-600 mt-1 font-black">Workshop v.01</span>
+                <div className="space-y-24 py-10 fade-in text-left max-w-6xl mx-auto">
+                    <section className="space-y-12">
+                        <div className="space-y-4">
+                            <h2 className="text-4xl font-black text-white tracking-tighter uppercase">VoxTrotBravo Engine</h2>
+                            <p className="normal-text text-neutral-500 text-lg">Web-based PCVR engine optimized for high-density voxel prototyping. Developed with Three.js.</p>
+                            <div className="flex gap-4">
+                                <a href="engine.html" className="bg-emerald-500 text-black px-6 py-3 text-[10px] font-black hover:bg-emerald-400 transition-colors">ACCESS_LIVE_BUILD</a>
+                                <a href="https://github.com/banjomanrob-oss" className="border border-white/10 text-white px-6 py-3 text-[10px] font-black hover:bg-white/5 transition-colors">GITHUB_REPOSITORY</a>
                             </div>
                         </div>
-                        <div className="flex items-center gap-1 bg-white/5 p-1 border border-white/5">
-                            {['home', 'work', 'art', 'about'].map(v => (
-                                <button key={v} onClick={() => navigate(v)} className={`px-4 py-2 text-[9px] font-black tracking-widest transition-all ${view === v ? 'bg-white text-black' : 'text-neutral-600 hover:text-white'}`}>
-                                    {v}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="hidden lg:flex items-center gap-6 text-[9px] font-black text-neutral-700">
-                            <span className="flex items-center gap-2 px-2 py-1 bg-white/5 border border-white/5"><Icon name="map-pin" size={10}/> WPG_MB</span>
-                            <span className="flex items-center gap-2"><Icon name="clock" size={10}/> {time}</span>
-                            <a href="engine.html" className="border border-emerald-900/50 text-emerald-500 h-7 flex items-center px-4 hover:bg-emerald-500 hover:text-black transition-all font-black uppercase">
-                                Launch_Engine
-                            </a>
-                        </div>
-                    </nav>
 
-                    <main className="pt-32 px-6 max-w-[1400px] mx-auto">
-                        {view === 'home' && <HomeView navigate={navigate} setLightbox={setLightbox} />}
-                        {view === 'work' && <WorkView navigate={navigate} setLightbox={setLightbox} />}
-                        {view === 'art' && <ArtView setLightbox={setLightbox} />}
-                        {view === 'about' && <AboutView />}
-                    </main>
-
-                    {lightbox && (
-                        <div className="fixed inset-0 z-[100] bg-black/98 flex items-center justify-center p-4 md:p-12 cursor-zoom-out" onClick={() => setLightbox(null)}>
-                            <div className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors">
-                                <Icon name="x" size={32} />
+                        <div className="grid md:grid-cols-2 gap-12 border-t border-white/5 pt-12">
+                            <div className="space-y-8">
+                                <h3 className="text-xs font-black text-white border-b border-emerald-500/30 pb-2 flex items-center gap-2">
+                                    <Icon name="gamepad-2" size={14}/> UNIVERSAL_CONTROLS
+                                </h3>
+                                <div className="space-y-6 text-left">
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] font-black text-neutral-400 uppercase">Navigation & Manipulation</p>
+                                        <ul className="text-xs text-neutral-500 space-y-2 normal-text leading-relaxed list-disc list-inside">
+                                            <li><span className="text-neutral-300">Both Grips:</span> Grab air to move, rotate, and scale entire world.</li>
+                                            <li><span className="text-neutral-300">Right Grip:</span> Move world relative to right hand.</li>
+                                            <li><span className="text-neutral-300">Left Grip:</span> Move world relative to left hand.</li>
+                                            <li><span className="text-neutral-300">Vertical Lock:</span> Restricts rotation to Y-axis for floor leveling.</li>
+                                        </ul>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] font-black text-neutral-400 uppercase">Drawing & Interaction</p>
+                                        <ul className="text-xs text-neutral-500 space-y-2 normal-text leading-relaxed list-disc list-inside">
+                                            <li><span className="text-neutral-300">Right Trigger:</span> Primary Action (Draw, Select, Slider Use).</li>
+                                            <li><span className="text-neutral-300">Left Trigger:</span> Secondary Action (Erase, Cancel Selection).</li>
+                                            <li><span className="text-neutral-300">Joysticks:</span> Shift HSL values in active slots.</li>
+                                        </ul>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] font-black text-neutral-400 uppercase">Menus</p>
+                                        <ul className="text-xs text-neutral-500 space-y-2 normal-text leading-relaxed list-disc list-inside">
+                                            <li><span className="text-neutral-300">Right A:</span> Toggle Tools Menu.</li>
+                                            <li><span className="text-neutral-300">Right B:</span> Toggle Global Settings.</li>
+                                            <li><span className="text-neutral-300">Left X:</span> Toggle Tool Options.</li>
+                                            <li><span className="text-neutral-300">Left Y:</span> Toggle Materials & Colors.</li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
-                            <img src={lightbox.full} alt={lightbox.title} className="max-w-full max-h-full object-contain shadow-2xl" />
-                            <div className="absolute bottom-8 left-8 text-left space-y-1">
-                                <p className="text-white font-black text-lg uppercase">{lightbox.title}</p>
-                                <p className="text-neutral-600 text-xs uppercase">{lightbox.year} // {lightbox.type}</p>
+
+                            <div className="space-y-8">
+                                <h3 className="text-xs font-black text-white border-b border-emerald-500/30 pb-2 flex items-center gap-2">
+                                    <Icon name="wrench" size={14}/> ENGINE_TOOLSET
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4 text-left">
+                                    {[
+                                        { n: "01", t: "Brush", d: "Standard placement (Cube/Sphere)." },
+                                        { n: "02", t: "Extrude", d: "Pull voxels along axes (Free/X/Y/Z)." },
+                                        { n: "03", t: "Line & Arc", d: "Bezier curves and two-hand sheets." },
+                                        { n: "04", t: "Paint", d: "Recolor and connected bucket fill." },
+                                        { n: "05", t: "Soft Sculpt", d: "Probabilistic organic placement." },
+                                        { n: "06", t: "Box Tool", d: "Massive rectangular grid volumes." },
+                                        { n: "07", t: "Quad Sphere", d: "Ellipsoid and sphere shell modes." },
+                                        { n: "08", t: "Cylinder", d: "Polygonal extruded shapes (3-32 sides)." },
+                                        { n: "09", t: "Triangle", d: "Cones and Pyramids with grid divs." },
+                                        { n: "10", t: "Platonic", d: "Icosahedron and complex solids." },
+                                        { n: "11", t: "Plane", d: "2D sheets and outlines (1-20 depth)." },
+                                        { n: "12", t: "Select", d: "Copy, Move, Scale, and Pivot transforms." }
+                                    ].map(tool => (
+                                        <div key={tool.n} className="space-y-1">
+                                            <p className="text-[9px] font-black text-neutral-400">{tool.n} // {tool.t}</p>
+                                            <p className="text-[10px] text-neutral-600 normal-text leading-tight">{tool.d}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
-                    )}
+                    </section>
 
-                    <footer className="mt-20 border-t border-white/5 py-12 bg-black/50 px-6">
-                        <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-[9px] font-black text-neutral-800 uppercase">
-                            <div className="flex gap-8 text-left">
-                                <p>© 2026 R. Reynolds</p>
-                                <p className="hidden md:block">Built in Winnipeg</p>
+                    <section className="space-y-12">
+                        <div className="space-y-4">
+                            <h2 className="text-4xl font-black text-white tracking-tighter uppercase">Blender Pipeline</h2>
+                            <p className="normal-text text-neutral-500 text-lg">Python utilities for post-processing VoxTrotBravo exports.</p>
+                        </div>
+
+                        <div className="grid lg:grid-cols-12 gap-8 items-start text-left">
+                            <div className="lg:col-span-4 flex flex-col gap-2">
+                                {BLENDER_SCRIPTS.map(s => (
+                                    <button 
+                                        key={s.id} 
+                                        onClick={() => setActiveScript(s)}
+                                        className={`p-6 border text-left transition-all ${activeScript.id === s.id ? 'border-emerald-500 bg-emerald-500/5 text-white' : 'border-white/5 hover:border-white/20'}`}
+                                    >
+                                        <p className="text-[10px] font-black mb-1">{s.title}</p>
+                                        <p className="text-[10px] text-neutral-600 normal-text leading-tight">{s.description}</p>
+                                    </button>
+                                ))}
                             </div>
-                            <div className="flex gap-10 items-center">
-                                <a href="https://github.com/banjomanrob-oss" className="hover:text-white transition-colors" target="_blank">GitHub</a>
-                                <button onClick={() => navigate('about')} className="text-emerald-900 hover:text-emerald-500 flex items-center gap-2 transition-colors">
-                                    <Icon name="heart" size={12}/> Project_Support
-                                </button>
+                            <div className="lg:col-span-8 relative">
+                                <div className="absolute top-4 right-4 z-10">
+                                    <button 
+                                        onClick={() => copyCode(activeScript.code)}
+                                        className="bg-white/5 border border-white/10 px-3 py-1 text-[8px] font-black text-white hover:bg-white hover:text-black transition-all"
+                                    >
+                                        COPY_PYTHON_SCRIPT
+                                    </button>
+                                </div>
+                                <pre className="bg-black border border-white/5 p-8 text-[11px] text-emerald-500/70 overflow-x-auto code-block rounded-none selection:bg-emerald-500/20 max-h-[600px]">
+                                    <code>{activeScript.code}</code>
+                                </pre>
                             </div>
                         </div>
-                    </footer>
+                    </section>
                 </div>
             );
         };
 
-        const HomeView = ({ navigate, setLightbox }) => (
-            <div className="space-y-12 fade-in">
-                <div className="bg-neutral-900/10 border border-white/5 p-12 space-y-10 relative">
-                    <div className="space-y-6 text-left">
-                        <p className="text-[10px] font-black text-neutral-600 tracking-[0.4em]">Designer • Artist • Builder</p>
-                        <h1 className="text-5xl md:text-8xl font-black tracking-tighter text-white leading-[0.85]">
-                            Tools for <br /> Digital <br /> <span className="text-neutral-700 italic">Craft</span>
-                        </h1>
-                        <p className="normal-text text-neutral-500 max-w-2xl text-lg leading-relaxed">
-                            Designing environments where complexity is managed by intuition. Building systems that allow for a direct connection between the creator and the form.
-                        </p>
-                    </div>
-                    <div className="flex flex-wrap gap-6">
-                        <button onClick={() => navigate('work')} className="bg-white text-black hover:bg-neutral-200 btn-sharp px-10 h-14 text-xs font-bold">Archive_Index</button>
-                        <button onClick={() => navigate('art')} className="border border-white/10 hover:border-white text-white btn-sharp px-10 h-14 text-xs font-bold transition-all">Visuals</button>
-                    </div>
+        const ArchiveView = ({ setLightbox }) => (
+            <div className="space-y-24 py-10 fade-in text-left">
+                <div className="space-y-4">
+                    <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">The_Archive</h2>
+                    <p className="text-[10px] font-black text-neutral-700">Construction Logs & Technical Utilities</p>
                 </div>
 
-                <div className="space-y-6">
-                    <div className="flex justify-between items-center border-b border-white/5 pb-4">
-                        <p className="text-[9px] font-black text-neutral-700 underline underline-offset-8 decoration-emerald-900/50 uppercase">Flagship_Tool</p>
-                        <span className="text-[9px] text-neutral-800 font-black">STRESS_TEST // 29M VOXELS</span>
-                    </div>
-                    <div className="relative aspect-[21/9] bg-neutral-900 border border-white/5 overflow-hidden group cursor-pointer" onClick={() => window.location.href='engine.html'}>
-                        <img src="images/vox-tower1-full.webp" className="w-full h-full object-cover grayscale opacity-20 group-hover:opacity-40 transition-all duration-1000" loading="lazy" />
-                        <div className="absolute inset-0 flex items-center p-12 text-left">
-                            <div className="space-y-6 max-w-lg">
-                                <h2 className="text-5xl font-black text-white tracking-tighter uppercase leading-none">VoxTrot_Bravo</h2>
-                                <p className="text-xs text-neutral-500 normal-text leading-relaxed">
-                                    A spatial engine built to prioritize creative flow. A study in color, light, and high-performance voxel architecture.
-                                </p>
-                                <button className="border border-emerald-900/50 text-emerald-500 text-[10px] px-8 py-6 hover:bg-emerald-500 hover:text-black transition-all font-black uppercase">Launch_Engine</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-
-        const WorkView = ({ navigate, setLightbox }) => (
-            <div className="space-y-24 fade-in">
-                <div className="space-y-4 text-left">
-                    <h2 className="text-5xl font-black tracking-tighter text-white uppercase leading-none">The_Archive</h2>
-                    <p className="text-[10px] font-black text-neutral-700 uppercase">Construction Logs & Technical Utilities</p>
-                </div>
-
-                {/* Buildings Section */}
                 <div className="space-y-12">
-                    <div className="text-[8px] font-black text-neutral-800 tracking-[0.8em] flex items-center gap-4 uppercase">
-                        <div className="flex-1 h-px bg-white/5"></div> Buildings & Physical_Craft <div className="flex-1 h-px bg-white/5"></div>
+                    <div className="flex items-center gap-4 uppercase">
+                        <h3 className="text-[10px] font-black text-white px-2 py-1 border border-white/10">01. Physical_Craft</h3>
+                        <div className="flex-1 h-px bg-white/5"></div>
                     </div>
-                    <div className="grid md:grid-cols-2 gap-8 text-left">
-                        {PHYSICAL_BUILDINGS.map(item => (
-                            <div key={item.id} className="group p-8 border border-white/5 hover:border-white/20 transition-all flex gap-8 items-center bg-neutral-900/5">
-                                <div 
-                                    className="w-40 h-40 bg-neutral-900 shrink-0 border border-white/5 grayscale group-hover:grayscale-0 overflow-hidden cursor-zoom-in relative"
-                                    onClick={() => setLightbox({ full: item.img.replace('thumb', 'full'), title: item.title, year: 'Physical Build', type: item.material })}
-                                >
+                    <div className="grid md:grid-cols-2 gap-8">
+                        {PHYSICAL_PROJECTS.map(item => (
+                            <div key={item.id} className="group flex gap-8 items-center bg-neutral-900/10 border border-white/5 p-8 hover:border-white/20 transition-all">
+                                <div className="w-32 h-32 bg-neutral-900 shrink-0 border border-white/5 grayscale group-hover:grayscale-0 transition-all cursor-zoom-in overflow-hidden"
+                                     onClick={() => setLightbox({ full: item.img.replace('thumb', 'full'), title: item.title, type: item.material })}>
                                     <img src={item.img} className="w-full h-full object-cover opacity-40 group-hover:opacity-100" loading="lazy" />
-                                    <div className="absolute top-2 left-2 w-8 h-8 border border-white/10 flex items-center justify-center bg-black/50">
-                                        <Icon name={item.icon} size={14} className="text-white/50" />
-                                    </div>
                                 </div>
-                                <div className="space-y-4">
-                                    <div className="space-y-1">
-                                        <p className="text-[8px] font-black text-neutral-800 tracking-widest uppercase">{item.material}</p>
-                                        <h3 className="text-2xl font-black text-white tracking-tighter uppercase leading-tight">{item.title}</h3>
-                                    </div>
-                                    <p className="text-[11px] text-neutral-500 normal-text leading-relaxed line-clamp-3">{item.description}</p>
-                                    <div className="pt-4 flex items-center gap-6">
-                                        {item.link && (
-                                            <a href={item.link} target="_blank" className="text-[9px] font-black text-white hover:underline flex items-center gap-2 uppercase">View_Project <Icon name="external-link" size={10}/></a>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Digital Systems Section */}
-                <div className="space-y-12">
-                    <div className="text-[8px] font-black text-neutral-800 tracking-[0.8em] flex items-center gap-4 uppercase">
-                        <div className="flex-1 h-px bg-white/5"></div> Digital_Systems <div className="flex-1 h-px bg-white/5"></div>
-                    </div>
-                    <div className="grid md:grid-cols-2 gap-8 text-left">
-                        {DIGITAL_SYSTEMS.map(p => (
-                            <div key={p.id} className="group p-8 border border-white/5 hover:border-white/20 transition-all flex gap-8 items-center bg-neutral-900/5 text-left">
-                                <div 
-                                    className="w-32 h-32 bg-neutral-900 shrink-0 border border-white/5 grayscale group-hover:grayscale-0 overflow-hidden cursor-zoom-in"
-                                    onClick={() => setLightbox({ full: p.img.replace('thumb', 'full'), title: p.title, year: 'Project', type: p.category })}
-                                >
-                                    <img src={p.img} className="w-full h-full object-cover opacity-40 group-hover:opacity-100" loading="lazy" />
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="space-y-1">
-                                        <p className="text-[8px] font-black text-neutral-800 tracking-widest uppercase">{p.category}</p>
-                                        <h3 className="text-2xl font-black text-white tracking-tighter uppercase leading-tight">{p.title}</h3>
-                                    </div>
-                                    <p className="text-[11px] text-neutral-500 normal-text leading-relaxed line-clamp-3">{p.description}</p>
-                                    <div className="pt-4">
-                                        <button onClick={() => window.location.href='engine.html'} className="text-[9px] font-black text-white hover:underline uppercase">Launch_Engine</button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Blender Scripts Section */}
-                <div className="space-y-12">
-                    <div className="text-[8px] font-black text-neutral-800 tracking-[0.8em] flex items-center gap-4 uppercase">
-                        <div className="flex-1 h-px bg-white/5"></div> Blender Scripts & Utilities <div className="flex-1 h-px bg-white/5"></div>
-                    </div>
-                    <div className="grid grid-cols-1 gap-8 text-left">
-                        {BLENDER_SCRIPTS.map(script => (
-                            <div key={script.id} className="bg-neutral-900/10 border border-white/5 p-8 space-y-6">
-                                <div className="space-y-2">
-                                    <h3 className="text-xl font-black text-white uppercase leading-none">{script.title}</h3>
-                                    <p className="text-xs text-neutral-500 normal-text max-w-2xl">{script.description}</p>
-                                </div>
-                                <div className="relative">
-                                    <div className="absolute top-4 right-4 z-10">
-                                        <button 
-                                            onClick={() => {
-                                                const el = document.createElement('textarea');
-                                                el.value = script.code;
-                                                document.body.appendChild(el);
-                                                el.select();
-                                                document.execCommand('copy');
-                                                document.body.removeChild(el);
-                                            }}
-                                            className="bg-white/5 border border-white/10 px-3 py-1 text-[8px] font-black text-white hover:bg-white hover:text-black transition-all uppercase"
-                                        >
-                                            Copy Script
-                                        </button>
-                                    </div>
-                                    <pre className="bg-black/60 border border-white/5 p-8 text-[11px] text-emerald-500/80 overflow-x-auto selection:bg-emerald-500/20 font-mono">
-                                        <code>{script.code}</code>
-                                    </pre>
+                                <div className="space-y-1">
+                                    <p className="text-[9px] font-black text-neutral-600 tracking-widest">{item.material}</p>
+                                    <h3 className="text-2xl font-black text-white tracking-tighter">{item.title}</h3>
                                 </div>
                             </div>
                         ))}
@@ -413,53 +369,22 @@
         );
 
         const ArtView = ({ setLightbox }) => (
-            <div className="space-y-24 fade-in">
-                <div className="space-y-4 text-left">
-                    <h2 className="text-5xl font-black tracking-tighter text-white uppercase leading-none">Visual_Gallery</h2>
-                    <p className="text-neutral-700 text-xs font-black tracking-widest uppercase">Form Studies & Digital Renders</p>
+            <div className="space-y-24 py-10 fade-in text-left">
+                <div className="space-y-4">
+                    <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">Visual_Gallery</h2>
+                    <p className="text-[10px] font-black text-neutral-700">Form Studies & Digital Renders</p>
                 </div>
 
-                <div className="space-y-12">
-                    <div className="flex items-center gap-4 uppercase text-left">
-                        <h3 className="text-[10px] font-black text-white px-2 py-1 bg-emerald-900/20 border border-emerald-900/50">01. VoxTrotBravo Experiments</h3>
-                        <div className="flex-1 h-px bg-white/5"></div>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                        {VOXTROT_ART.map(art => (
-                            <GalleryItem key={art.id} item={art} onClick={() => setLightbox(art)} />
-                        ))}
-                    </div>
-                </div>
-
-                <div className="space-y-12">
-                    <div className="flex items-center gap-4 uppercase text-left">
-                        <h3 className="text-[10px] font-black text-white px-2 py-1 bg-white/5 border border-white/10">02. External Tool Studies</h3>
-                        <div className="flex-1 h-px bg-white/5"></div>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                        {EXTERNAL_ART.map(art => (
-                            <GalleryItem key={art.id} item={art} onClick={() => setLightbox(art)} />
-                        ))}
-                    </div>
-                </div>
-
-                <div className="text-center py-20 border-t border-dashed border-white/5">
-                    <p className="text-[10px] text-neutral-900 font-black tracking-[1em]">Archive_Continued</p>
-                </div>
-            </div>
-        );
-
-        const GalleryItem = ({ item, onClick }) => (
-            <div className="relative aspect-square bg-neutral-900 group border border-white/5 p-1 cursor-zoom-in overflow-hidden" onClick={onClick}>
-                <img src={item.thumb} className="w-full h-full object-cover grayscale opacity-30 group-hover:opacity-100 group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700" loading="lazy" />
-                <div className="absolute inset-0 bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-8 border border-white/10 text-left">
-                    <div className="space-y-1">
-                        <span className="text-[8px] text-white font-black tracking-widest uppercase">{item.year} // {item.type}</span>
-                        <p className="text-xs font-black text-white uppercase">{item.title}</p>
-                    </div>
-                    <div className="w-8 h-8 border border-white/10 flex items-center justify-center">
-                        <Icon name="maximize-2" size={12} className="text-neutral-700" />
-                    </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {GALLERY.map(item => (
+                        <div key={item.id} className="relative aspect-square bg-neutral-900 border border-white/5 p-1 cursor-zoom-in group overflow-hidden" onClick={() => setLightbox(item)}>
+                            <img src={item.thumb} className="w-full h-full object-cover grayscale opacity-20 group-hover:opacity-100 group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105" loading="lazy" />
+                            <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end">
+                                <span className="text-[8px] font-black text-emerald-500 mb-1 uppercase tracking-widest">{item.type}</span>
+                                <p className="text-xs font-black text-white uppercase">{item.title}</p>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         );
@@ -468,7 +393,7 @@
             <div className="max-w-5xl mx-auto space-y-32 fade-in text-left pb-20">
                 <section className="grid md:grid-cols-2 gap-20 items-start">
                     <div className="space-y-12">
-                        <div className="aspect-[3/4] bg-neutral-900 border border-white/5 grayscale overflow-hidden">
+                        <div className="aspect-[3/4] bg-neutral-900 border border-white/5 grayscale overflow-hidden shadow-2xl">
                             <img src="images/life-dog-full.webp" className="w-full h-full object-cover opacity-80" loading="lazy" />
                         </div>
                         <div className="p-8 border border-white/5 bg-neutral-900/10 text-center font-black text-[9px] tracking-widest text-neutral-700 uppercase">
@@ -478,12 +403,11 @@
                     <div className="space-y-12">
                         <div className="space-y-4">
                             <h2 className="text-6xl font-black tracking-tighter text-white leading-none uppercase">Rob <br/> Reynolds</h2>
-                            <p className="text-[8px] text-neutral-700 font-black tracking-[0.5em] border-b border-white/5 pb-6 uppercase text-left">Designer • Artist • Builder</p>
+                            <p className="text-[8px] text-neutral-700 font-black tracking-[0.5em] border-b border-white/5 pb-6 uppercase text-left">Systems Designer • Builder</p>
                         </div>
                         <div className="space-y-8 normal-text text-neutral-500 text-base leading-relaxed font-light text-left">
-                            <p>The practice exists at the intersection of material knowledge and digital possibility. It is interested in how tools shape creative output—whether that involves the physical grain of wood or the procedural logic of a voxel engine.</p>
-                            <p>Building tools is an act of engineering for the sake of art. The goal is to design environments where complexity is managed by intuition, allowing for a direct connection between the creator and the form.</p>
-                            <p>Based in Winnipeg, MB. Splitting time between freelance carpentry and digital tinkering. Most days are spent looking for form—whether that's through the grain of a piece of wood or the code behind a spatial engine.</p>
+                            <p>Freelance carpentry and digital tool development. Based in Winnipeg, MB.</p>
+                            <p>Researching the intersection of voxel geometry, spatial design, and material craft.</p>
                         </div>
                         <div className="pt-10 border-t border-white/5 text-left">
                             <a href="mailto:rob@example.com" className="w-full flex justify-between items-center border border-white/10 py-10 px-12 hover:bg-white hover:text-black transition-all uppercase">
@@ -493,19 +417,63 @@
                         </div>
                     </div>
                 </section>
-                <div className="p-16 md:p-24 bg-neutral-900/10 border border-white/5 text-center space-y-12 uppercase">
-                    <div className="space-y-4 text-center">
-                        <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Project_Sustainability</h3>
-                        <p className="text-xs text-neutral-600 max-w-lg mx-auto normal-text italic leading-relaxed">
-                            "These tools and archives are maintained as open community resources. Support helps keep the engines running and the research moving forward."
-                        </p>
-                    </div>
-                    <div className="flex justify-center text-center">
-                        <button className="bg-white text-black hover:bg-neutral-200 btn-sharp h-20 px-16 text-[10px] font-black tracking-[0.4em] shadow-2xl uppercase">Support_on_Kofi</button>
-                    </div>
-                </div>
             </div>
         );
+
+        // --- Main Application ---
+
+        const App = () => {
+            const [view, setView] = useState('home');
+            const [lightbox, setLightbox] = useState(null);
+
+            useEffect(() => {
+                lucide.createIcons();
+                window.scrollTo(0, 0);
+            }, [view, lightbox]);
+
+            useEffect(() => {
+                if (lightbox) document.body.classList.add('no-scroll');
+                else document.body.classList.remove('no-scroll');
+            }, [lightbox]);
+
+            return (
+                <div className="min-h-screen blueprint pb-20">
+                    <Nav current={view} setView={setView} />
+                    
+                    <main className="pt-24 px-6 max-w-[1400px] mx-auto">
+                        {view === 'home' && <HomeView setView={setView} />}
+                        {view === 'engine' && <EngineView />}
+                        {view === 'archive' && <ArchiveView setLightbox={setLightbox} />}
+                        {view === 'art' && <ArtView setLightbox={setLightbox} />}
+                        {view === 'about' && <AboutView />}
+                    </main>
+
+                    {lightbox && (
+                        <div className="fixed inset-0 z-[100] bg-black/98 flex items-center justify-center p-4 cursor-zoom-out" onClick={() => setLightbox(null)}>
+                            <div className="absolute top-8 right-8 text-white/30 hover:text-white transition-colors">
+                                <Icon name="x" size={32} />
+                            </div>
+                            <img src={lightbox.full} alt={lightbox.title} className="max-w-full max-h-full object-contain shadow-2xl" />
+                            <div className="absolute bottom-8 left-8 text-left space-y-1">
+                                <p className="text-white font-black text-lg uppercase tracking-tighter">{lightbox.title}</p>
+                                <p className="text-neutral-600 text-xs font-black uppercase tracking-widest">{lightbox.type}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="mt-24 border-t border-white/5 py-12 px-6">
+                        <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-[9px] font-black text-neutral-800 uppercase">
+                            <p>© 2026 R. REYNOLDS // WINNIPEG, MB</p>
+                            <div className="flex gap-10">
+                                <button onClick={() => setView('about')} className="hover:text-neutral-500 transition-colors uppercase">Profile</button>
+                                <a href="https://github.com/banjomanrob-oss" className="hover:text-neutral-500 transition-colors uppercase">GitHub</a>
+                                <span className="text-neutral-900 select-none">SYSTEM_READY</span>
+                            </div>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
 
         const container = document.getElementById('root');
         const root = ReactDOM.createRoot(container);
