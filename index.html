@@ -213,7 +213,7 @@
 
                 <section className="border-t border-white/5 pt-12">
                     <div className="aspect-[21/9] bg-neutral-900 border border-white/5 relative overflow-hidden group cursor-pointer" onClick={() => setView('engine')}>
-                        <img src="images/vox-tower1-full.webp" className="w-full h-full object-cover opacity-20 grayscale group-hover:opacity-100 group-hover:grayscale-0 transition-all duration-1000" />
+                        <img src="images/vox-tower1-full.webp" className="w-full h-full object-cover opacity-20 grayscale group-hover:opacity-100 group-hover:grayscale-0 hover:brightness-125 transition-all duration-1000" />
                         <div className="absolute inset-0 p-10 flex flex-col justify-end text-left">
                             <span className="text-[10px] font-black text-emerald-500 mb-2">VOXTROTBRAVO // CORE ENGINE</span>
                             <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">Spatial Building System</h2>
@@ -240,9 +240,12 @@
                 <div className="space-y-24 py-10 fade-in text-left max-w-6xl mx-auto">
                     <section className="space-y-12">
                         <div className="space-y-4">
-                            <h2 className="text-4xl font-black text-white tracking-tighter uppercase">VoxTrotBravo Engine</h2>
-                            <p className="normal-text text-neutral-500 text-lg">Web-based PCVR engine optimized for high-density voxel prototyping. Developed with Three.js.</p>
-                            <div className="flex gap-4">
+                            <div className="space-y-1">
+                                <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">VoxTrotBravo Engine</h2>
+                                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.2em]">a tool for human generated art and design.</p>
+                            </div>
+                            <p className="normal-text text-neutral-500 text-lg pt-4">Web-based PCVR engine optimized for high-density voxel prototyping. Developed with Three.js.</p>
+                            <div className="flex gap-4 pt-2">
                                 <a href="engine.html" className="bg-emerald-500 text-black px-6 py-3 text-[10px] font-black hover:bg-emerald-400 transition-colors">ACCESS_LIVE_BUILD</a>
                             </div>
                         </div>
@@ -278,13 +281,13 @@
                                     </div>
                                 </div>
 
-                                <h3 className="text-xs font-black text-white border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-tighter pt-4">
-                                    <Icon name="monitor" size={14}/> System Requirements
-                                </h3>
-                                <div className="space-y-4 text-[10px] text-neutral-500 font-bold uppercase">
-                                    <div className="flex gap-4"><span className="text-white w-24 shrink-0">VR Hardware:</span> Meta Quest 3 / Pro (Link/AirLink), Valve Index, Vive.</div>
-                                    <div className="flex gap-4"><span className="text-white w-24 shrink-0">Web Browser:</span> Latest Chrome / Edge (WebXR Support Required).</div>
-                                    <div className="flex gap-4"><span className="text-white w-24 shrink-0">Hardware:</span> Dedicated GPU required for high voxel counts.</div>
+                                <div className="space-y-4 pt-4 border-t border-white/5">
+                                    <h3 className="text-xs font-black text-white flex items-center gap-2 uppercase tracking-tighter">
+                                        <Icon name="info" size={14}/> Usage Philosophy
+                                    </h3>
+                                    <p className="normal-text text-neutral-500 text-xs leading-relaxed italic">
+                                        "Start small and consider how to construct your model in the least number of voxels. The limitations will be apparent as your voxel count increases. I have left out constraints so that I can place that final voxel through the choppy disjointed VR on a massive 29,000,000 voxel model. Above 1,000,000 voxels I usually put it into performance render mode (found in the global menu). Use with caution and inspiration as necessary."
+                                    </p>
                                 </div>
                             </div>
 
@@ -313,6 +316,17 @@
                                         </div>
                                     ))}
                                 </div>
+                                
+                                <div className="pt-4 border-t border-white/5">
+                                    <h3 className="text-xs font-black text-white border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-tighter">
+                                        <Icon name="monitor" size={14}/> System Requirements
+                                    </h3>
+                                    <div className="space-y-4 text-[10px] text-neutral-500 font-bold uppercase mt-4">
+                                        <div className="flex gap-4"><span className="text-white w-24 shrink-0">VR Hardware:</span> Meta Quest 3 / Pro (Link/AirLink), Valve Index, Vive.</div>
+                                        <div className="flex gap-4"><span className="text-white w-24 shrink-0">Web Browser:</span> Latest Chrome / Edge (WebXR Support Required).</div>
+                                        <div className="flex gap-4"><span className="text-white w-24 shrink-0">Hardware:</span> Dedicated GPU required for high voxel counts.</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </section>
@@ -320,7 +334,7 @@
                     <section className="space-y-12">
                         <div className="flex justify-between items-end">
                             <div className="space-y-4">
-                                <h2 className="text-4xl font-black text-white tracking-tighter uppercase text-left">Blender Pipeline</h2>
+                                <h2 className="text-4xl font-black text-white tracking-tighter uppercase text-left leading-none">Blender Pipeline</h2>
                                 <p className="normal-text text-neutral-500 text-lg text-left">Python utilities for post-processing VoxTrotBravo exports.</p>
                             </div>
                             <a href="https://www.blender.org" target="_blank" className="border border-white/10 px-4 py-2 text-[9px] font-black hover:bg-white hover:text-black transition-all uppercase">Get_Blender</a>
@@ -406,7 +420,7 @@
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {items.map(item => (
                         <div key={item.id} className="relative aspect-square bg-neutral-900 border border-white/5 p-1 cursor-zoom-in group overflow-hidden" onClick={() => setLightbox(item)}>
-                            <img src={item.thumb} className="w-full h-full object-cover grayscale opacity-20 group-hover:opacity-100 group-hover:grayscale-0 group-hover:brightness-125 transition-all duration-700 group-hover:scale-105" loading="lazy" />
+                            <img src={item.thumb} className="w-full h-full object-cover grayscale opacity-30 group-hover:opacity-100 group-hover:grayscale-0 group-hover:brightness-125 transition-all duration-700 group-hover:scale-105" loading="lazy" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end">
                                 <span className="text-[8px] font-black text-emerald-500 mb-1 uppercase tracking-widest">{item.type}</span>
                                 <p className="text-xs font-black text-white uppercase">{item.title}</p>
@@ -451,7 +465,7 @@
             <div className="max-w-5xl mx-auto space-y-32 fade-in text-left pb-20">
                 <section className="grid md:grid-cols-2 gap-20 items-start">
                     <div className="space-y-12">
-                        <div className="aspect-[3/4] bg-neutral-900 border border-white/5 grayscale hover:grayscale-0 hover:brightness-110 transition-all duration-700 overflow-hidden shadow-2xl group">
+                        <div className="aspect-[3/4] bg-neutral-900 border border-white/5 grayscale hover:grayscale-0 hover:brightness-125 transition-all duration-700 overflow-hidden shadow-2xl group">
                             <img src="images/life-dog-full.webp" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" loading="lazy" />
                         </div>
                         <div className="p-8 border border-white/5 bg-neutral-900/10 text-center font-black text-[9px] tracking-widest text-neutral-700 uppercase">
