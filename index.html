@@ -119,12 +119,33 @@
         ];
 
         const PHYSICAL_PROJECTS = [
-            { id: 'p1', title: "Timber Tower", material: "Rough-Sawn Cedar", img: "images/builds-hexa1-thumb.webp" },
-            { id: 'p2', title: "Hex Pavillion Site", material: "Timber / Concrete", img: "images/builds-hexa2-thumb.webp" },
-            { id: 'p3', title: "Symmetry Assembly", material: "Joinery Study", img: "images/builds-hexa3-thumb.webp" },
-            { id: 'p4', title: "Memory Lane Entrance", material: "Historical Structure", img: "images/builds-memory1-thumb.webp" },
-            { id: 'p5', title: "Integrated Cedar Ceiling", material: "Cedar / Integrated Tech", img: "images/builds-memory2-thumb.webp" },
-            { id: 'p6', title: "Lathe Kinematics", material: "Turned Hardwoods", img: "images/builds-tops1-thumb.webp" }
+            {
+                id: 'hexadecagon-tower',
+                title: "The Hexadecagon Tower",
+                role: "Lead Designer & Builder",
+                material: "Milled Pine & Fir // Integrated LED Core",
+                description: "A monumental 16-sided (hexadecagon) timber tower serving as a key landmark and social gathering point at the Winnipeg Folk Festival. This three-storey structure features complex compound-angle joinery and custom-sequenced internal light sculpture, designed to function as both a spatial wayfinding beacon and an immersive light installation.",
+                hero: "images/builds-hexa1-thumb.webp",
+                gallery: ["images/builds-hexa2-thumb.webp", "images/builds-hexa3-thumb.webp"]
+            },
+            {
+                id: 'memory-lane',
+                title: "The Silhouette Canopy // Memory Lane",
+                role: "Lead Designer & Builder",
+                material: "Repurposed Hydro Poles // Milled Site Timber",
+                description: "A site-specific sustainable walkway installation at Birds Hill Park. Mimicking the organic layering of a forest canopy, the structure is built from repurposed utility poles and trees fallen on-site. The ceiling plane is composed of hundreds of unique, CNC-cut silhouettes that modulate light to cast shifting shadows, providing space for commemorative plaques and community reflection.",
+                hero: "images/builds-memory2-thumb.webp",
+                gallery: ["images/builds-memory1-thumb.webp"]
+            },
+            {
+                id: 'lathe-kinematics',
+                title: "Lathe Kinematics",
+                role: "Designer & Fabricator",
+                material: "Hand-Turned Hardwoods",
+                description: "A precision study of rotational symmetry and mass distribution. These hand-turned hardwood spinning tops explore the intersection of classical wood-turning craft and kinematic equilibrium, focusing on the tactile quality of material balance.",
+                hero: "images/builds-tops1-thumb.webp",
+                gallery: []
+            }
         ];
 
         const GALLERY = [
@@ -185,7 +206,7 @@
                             Systems & <br /> Structures
                         </h1>
                         <p className="normal-text text-neutral-500 text-lg max-w-xl text-left">
-                            A repository of technical tools and physical builds. Research focused on voxel geometry, spatial design, and material craft.
+                            Lead Designer & Builder specializing in voxel-based spatial engines and monumental timber installations.
                         </p>
                     </div>
                     <div className="lg:col-span-4 flex flex-col gap-2">
@@ -193,8 +214,8 @@
                             <span className="text-[10px] font-black">Spatial Engine Documentation</span>
                             <Icon name="arrow-right" size={14} className="text-neutral-700 group-hover:text-white" />
                         </button>
-                        <button onClick={() => setView('art')} className="border border-white/10 p-6 flex justify-between items-center group hover:bg-white/5 transition-all text-left">
-                            <span className="text-[10px] font-black">Visual Output Archive</span>
+                        <button onClick={() => setView('archive')} className="border border-white/10 p-6 flex justify-between items-center group hover:bg-white/5 transition-all text-left">
+                            <span className="text-[10px] font-black">Physical Build Archive</span>
                             <Icon name="arrow-right" size={14} className="text-neutral-700 group-hover:text-white" />
                         </button>
                     </div>
@@ -351,28 +372,38 @@
             <div className="space-y-24 py-10 fade-in text-left">
                 <div className="space-y-4">
                     <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">The_Archive</h2>
-                    <p className="text-[10px] font-black text-neutral-700 uppercase">Construction Logs & Technical Utilities</p>
+                    <p className="text-[10px] font-black text-neutral-700 uppercase">Design & Fabrication Log // Winnipeg, MB</p>
                 </div>
 
-                <div className="space-y-12">
-                    <div className="flex items-center gap-4 uppercase">
-                        <h3 className="text-[10px] font-black text-white px-2 py-1 border border-white/10">01. Physical_Craft</h3>
-                        <div className="flex-1 h-px bg-white/5"></div>
-                    </div>
-                    <div className="grid md:grid-cols-2 gap-8">
-                        {PHYSICAL_PROJECTS.map(item => (
-                            <div key={item.id} className="group flex gap-8 items-center bg-neutral-900/10 border border-white/5 p-8 hover:border-white/20 transition-all">
-                                <div className="w-32 h-32 bg-neutral-900 shrink-0 border border-white/5 grayscale group-hover:grayscale-0 transition-all cursor-zoom-in overflow-hidden"
-                                     onClick={() => setLightbox({ full: item.img.replace('thumb', 'full'), title: item.title, type: item.material })}>
-                                    <img src={item.img} className="w-full h-full object-cover opacity-40 group-hover:opacity-100" loading="lazy" />
+                <div className="space-y-32">
+                    {PHYSICAL_PROJECTS.map(project => (
+                        <div key={project.id} className="grid lg:grid-cols-12 gap-12 border-t border-white/5 pt-12">
+                            <div className="lg:col-span-5 space-y-6">
+                                <div className="space-y-2">
+                                    <span className="text-[9px] font-black text-emerald-500 tracking-[0.3em]">{project.role.toUpperCase()}</span>
+                                    <h3 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">{project.title}</h3>
                                 </div>
-                                <div className="space-y-1">
-                                    <p className="text-[9px] font-black text-neutral-600 tracking-widest uppercase">{item.material}</p>
-                                    <h3 className="text-2xl font-black text-white tracking-tighter uppercase">{item.title}</h3>
+                                <div className="space-y-4 normal-text text-neutral-500 text-sm leading-relaxed font-light">
+                                    <p className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest border-b border-white/5 pb-2">Material: {project.material}</p>
+                                    <p>{project.description}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    {project.gallery.map((img, idx) => (
+                                        <div key={idx} className="w-20 h-20 bg-neutral-900 border border-white/5 cursor-zoom-in grayscale hover:grayscale-0 transition-all overflow-hidden" 
+                                             onClick={() => setLightbox({ full: img.replace('thumb', 'full'), title: `${project.title} - View ${idx + 2}`, type: project.material })}>
+                                            <img src={img} className="w-full h-full object-cover" />
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                        ))}
-                    </div>
+                            <div className="lg:col-span-7">
+                                <div className="aspect-[16/9] bg-neutral-900 border border-white/5 grayscale hover:grayscale-0 transition-all duration-700 cursor-zoom-in group overflow-hidden"
+                                     onClick={() => setLightbox({ full: project.hero.replace('thumb', 'full'), title: project.title, type: project.material })}>
+                                    <img src={project.hero} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" loading="lazy" />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         );
@@ -412,11 +443,11 @@
                     <div className="space-y-12">
                         <div className="space-y-4 text-left">
                             <h2 className="text-6xl font-black tracking-tighter text-white leading-none uppercase">Rob <br/> Reynolds</h2>
-                            <p className="text-[8px] text-neutral-700 font-black tracking-[0.5em] border-b border-white/5 pb-6 uppercase">Systems Designer • Builder</p>
+                            <p className="text-[8px] text-neutral-700 font-black tracking-[0.5em] border-b border-white/5 pb-6 uppercase">Lead Designer • Builder • Programmer</p>
                         </div>
                         <div className="space-y-8 normal-text text-neutral-500 text-base leading-relaxed font-light text-left">
-                            <p>Freelance carpentry and digital tool development. Based in Winnipeg, MB.</p>
-                            <p>Researching the intersection of voxel geometry, spatial design, and material craft.</p>
+                            <p>Freelance lead designer and builder based in Winnipeg, MB. I specialize in the intersection of digital spatial engines and high-precision physical fabrication.</p>
+                            <p>My work spans from developing high-performance WebXR voxel engines to the structural engineering and construction of large-scale timber installations. I research how digital tools can better inform physical craft, and vice-versa.</p>
                         </div>
                         <div className="pt-10 border-t border-white/5 text-left">
                             <a href="mailto:reynoldssystemslab@gmail.com" className="w-full flex justify-between items-center border border-white/10 py-10 px-12 hover:bg-white hover:text-black transition-all uppercase">
