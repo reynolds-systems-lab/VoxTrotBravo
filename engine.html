@@ -132,10 +132,11 @@
 
         let totalActiveVoxels = 0;
         
-        // --- Undo System State ---
+        // --- Undo/Redo System State ---
         const undoStack = [];
-        const MAX_UNDO_STEPS = 10;
-        let currentStrokeChanges = null; // Holds changes for the active operation
+        const redoStack = []; // Added redo stack
+        const MAX_UNDO_STEPS = 10; // History limit maintained at 10
+        let currentStrokeChanges = null; 
         
         let activeTool = 'brush'; 
         let extrudeAxis = 'free';
@@ -1794,12 +1795,14 @@ function handleRightMenuClick(cx, cy) {
             drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false); drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
             
             drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
-            drawButton(globalMenuCtx, 40, 330, 200, 45, `Render: ${renderMode === 'performance' ? 'PERF' : 'STD'}`, renderMode === 'performance');
-            drawButton(globalMenuCtx, 272, 330, 200, 45, `UNDO (${undoStack.length})`, false);
+            drawButton(globalMenuCtx, 40, 330, 140, 45, renderMode === 'performance' ? 'PERF' : 'STD', renderMode === 'performance');
+            drawButton(globalMenuCtx, 187, 330, 140, 45, `UNDO (${undoStack.length})`, false);
+            drawButton(globalMenuCtx, 334, 330, 140, 45, `REDO (${redoStack.length})`, false);
 
             drawButton(globalMenuCtx, 40, 390, 200, 45, 'Export: BOXES', exportMode === 'boxes');
             drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
-            drawButton(globalMenuCtx, 40, 450, 432, 50, 'EXPORT TO .OBJ', false);
+            drawButton(globalMenuCtx, 40, 450, 280, 50, 'EXPORT .OBJ', false);
+            drawButton(globalMenuCtx, 330, 450, 142, 50, 'EXIT VR', false);
             
             globalMenuTexture.needsUpdate = true;
         }
@@ -1811,7 +1814,7 @@ function handleRightMenuClick(cx, cy) {
             
             if (cy >= 270 && cy <= 315) drawFromCenter = !drawFromCenter;
             if (cy >= 330 && cy <= 375) {
-                if (cx >= 40 && cx <= 240) {
+                if (cx >= 40 && cx <= 180) {
                     renderMode = renderMode === 'standard' ? 'performance' : 'standard';
                     chunks.forEach(chunk => {
                         for (let i = 0; i < 4; i++) {
@@ -1823,11 +1826,19 @@ function handleRightMenuClick(cx, cy) {
                         }
                     });
                 }
-                if (cx >= 272 && cx <= 472) performUndo();
+                if (cx >= 187 && cx <= 327) performUndo();
+                if (cx >= 334 && cx <= 474) performRedo();
                 if (hasSelection) updatePreviews();
             }
             if (cy >= 390 && cy <= 435) { if (cx >= 40 && cx <= 240) exportMode = 'boxes'; if (cx >= 272 && cx <= 472) exportMode = 'mesh'; }
-            if (cy >= 450 && cy <= 500 && cx >= 40 && cx <= 472) exportToOBJ();
+            if (cy >= 450 && cy <= 500) {
+                if (cx >= 40 && cx <= 320) exportToOBJ();
+                if (cx >= 330 && cx <= 472) {
+                    const session = renderer.xr.getSession();
+                    if (session) session.end().catch(console.warn);
+                }
+            }
+
 
             globalMenuNeedsUpdate = true;
         }
@@ -2094,8 +2105,15 @@ function handleRightMenuClick(cx, cy) {
                 
                 // Only record if state actually changes
                 if (prevMat !== targetMat || (isP && !prevColor.equals(color))) {
-                    currentStrokeChanges.push({ gx, gy, gz, prevMat, prevColor: prevMat !== -1 ? prevColor.clone() : null });
+                    currentStrokeChanges.push({ 
+                        gx, gy, gz, 
+                        prevMat, 
+                        prevColor: prevMat !== -1 ? prevColor.clone() : null,
+                        nextMat: targetMat,
+                        nextColor: isP ? color.clone() : null
+                    });
                 }
+
             }
 
             let chunk = chunks.get(k);
@@ -2109,9 +2127,15 @@ function handleRightMenuClick(cx, cy) {
                 if (currentStrokeChanges) {
                     const existingColor = queryColor.clone();
                     // Only record if state actually changes
-                    if (m !== targetM || !existingColor.equals(color)) {
-                        currentStrokeChanges.push({ gx, gy, gz, prevMat: m, prevColor: existingColor });
-                    }
+                if (m !== targetM || !existingColor.equals(color)) {
+                    currentStrokeChanges.push({ 
+                        gx, gy, gz, 
+                        prevMat: m, 
+                        prevColor: existingColor,
+                        nextMat: targetM,
+                        nextColor: color.clone()
+                    });
+                }
                 }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
                 chunks.get((gx>>5)+65536+((gy>>5)+65536)*131072+((gz>>5)+65536)*17179869184).addVoxel(gx&31, gy&31, gz&31, gx, gy, gz, color, targetM);
@@ -3310,28 +3334,40 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
         function performUndo() {
             if (undoStack.length === 0) return;
-            const lastStep = undoStack.pop();
+            const step = undoStack.pop();
+            redoStack.push(step); // Move step to redo stack
             
-            // Temporary disable recording to avoid recursive undo recording
             const tempStroke = currentStrokeChanges;
             currentStrokeChanges = null;
             
-            // Apply changes in reverse to handle overlapping modifications in a single stroke correctly
-            for (let i = lastStep.length - 1; i >= 0; i--) {
-                const change = lastStep[i];
-                if (change.prevMat === -1) {
-                    // It was air, so remove it
-                    setVoxelCore(change.gx, change.gy, change.gz, false, null);
-                } else {
-                    // It was a voxel, restore color and material
-                    setVoxelCore(change.gx, change.gy, change.gz, true, change.prevColor, change.prevMat);
-                }
+            for (let i = step.length - 1; i >= 0; i--) {
+                const c = step[i];
+                if (c.prevMat === -1) setVoxelCore(c.gx, c.gy, c.gz, false, null);
+                else setVoxelCore(c.gx, c.gy, c.gz, true, c.prevColor, c.prevMat);
             }
             
             currentStrokeChanges = tempStroke;
-            globalMenuNeedsUpdate = true;
-            leftMenuNeedsUpdate = true;
+            globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
         }
+
+        function performRedo() {
+            if (redoStack.length === 0) return;
+            const step = redoStack.pop();
+            undoStack.push(step); // Move step back to undo stack
+            
+            const tempStroke = currentStrokeChanges;
+            currentStrokeChanges = null;
+            
+            for (let i = 0; i < step.length; i++) {
+                const c = step[i];
+                if (c.nextMat === -1) setVoxelCore(c.gx, c.gy, c.gz, false, null);
+                else setVoxelCore(c.gx, c.gy, c.gz, true, c.nextColor, c.nextMat);
+            }
+            
+            currentStrokeChanges = tempStroke;
+            globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
+        }
+
 
 
 
@@ -3535,9 +3571,11 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             if (currentStrokeChanges && currentStrokeChanges.length > 0) {
                 undoStack.push(currentStrokeChanges);
                 if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+                redoStack.length = 0; // Clear redo history on new action
                 globalMenuNeedsUpdate = true;
                 leftMenuNeedsUpdate = true;
             }
+
             currentStrokeChanges = null;
         }
 
