@@ -133,7 +133,7 @@
                 title: "Memory Lane // Silhouette Canopy",
                 role: "Lead Designer & Builder",
                 material: "Repurposed Hydro Poles // Milled Site Timber",
-                description: "A major installation at Birds Hill Park constructed from repurposed utility poles and site-fallen timber. The structure features a dense, organic ceiling plane where every silhouette cutout was manually crafted by the crew rather than via CNC. This manual process allowed for unique variation across hundreds of interlocking forms that modulate natural light to create a shifting forest-canopy effect.",
+                description: "A major installation at Birds Hill Park constructed from repurposed utility poles and site-fallen timber. The structure features a dense, organic ceiling plane where every silhouette cutout was manually crafted by the crew. This hands-on process allowed for unique variation across hundreds of interlocking forms that modulate natural light to create a shifting forest-canopy effect.",
                 hero: "images/builds-memory2-thumb.webp",
                 gallery: ["images/builds-memory1-thumb.webp"]
             },
@@ -178,16 +178,16 @@
         const Nav = ({ current, setView }) => (
             <nav className="fixed top-0 w-full z-50 bg-[#0a0a0a]/90 border-b border-white/5 backdrop-blur-sm px-6 h-14 flex items-center justify-between">
                 <div className="flex items-center gap-6">
-                    <span className="text-white font-bold text-xs tracking-tighter cursor-pointer" onClick={() => setView('home')}>REYNOLDS_HUB</span>
+                    <span className="text-white font-bold text-xs tracking-tighter cursor-pointer" onClick={() => setView('home')}>reynolds-systems-lab</span>
                     <div className="h-4 w-px bg-white/10 hidden sm:block"></div>
                     <div className="flex items-center gap-6">
-                        {['home', 'engine', 'archive', 'art'].map(v => (
+                        {['home', 'engine', 'archive', 'art', 'about'].map(v => (
                             <button 
                                 key={v} 
                                 onClick={() => setView(v)}
                                 className={`text-[10px] font-black tracking-widest nav-link ${current === v ? 'active' : 'text-neutral-600 hover:text-white'}`}
                             >
-                                {v.toUpperCase()}
+                                {v === 'about' ? 'PROFILE' : v.toUpperCase()}
                             </button>
                         ))}
                     </div>
