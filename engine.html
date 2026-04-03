@@ -137,6 +137,7 @@
         const redoStack = []; // Added redo stack
         const MAX_UNDO_STEPS = 10; // History limit maintained at 10
         let currentStrokeChanges = null; 
+        let currentStrokeVoxelTracker = null;
         
         let activeTool = 'brush'; 
         let extrudeAxis = 'free';
@@ -2105,13 +2106,24 @@ function handleRightMenuClick(cx, cy) {
                 
                 // Only record if state actually changes
                 if (prevMat !== targetMat || (isP && !prevColor.equals(color))) {
-                    currentStrokeChanges.push({ 
-                        gx, gy, gz, 
-                        prevMat, 
-                        prevColor: prevMat !== -1 ? prevColor.clone() : null,
-                        nextMat: targetMat,
-                        nextColor: isP ? color.clone() : null
-                    });
+                    const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
+                    const existingIdx = currentStrokeVoxelTracker.get(vHash);
+
+                    if (existingIdx === undefined) {
+                        const idx = currentStrokeChanges.length;
+                        currentStrokeVoxelTracker.set(vHash, idx);
+                        currentStrokeChanges.push({ 
+                            gx, gy, gz, 
+                            prevMat, 
+                            prevColor: prevMat !== -1 ? prevColor.clone() : null,
+                            nextMat: targetMat,
+                            nextColor: isP ? color.clone() : null
+                        });
+                    } else {
+                        const record = currentStrokeChanges[existingIdx];
+                        record.nextMat = targetMat;
+                        record.nextColor = isP ? color.clone() : null;
+                    }
                 }
 
             }
@@ -2124,23 +2136,35 @@ function handleRightMenuClick(cx, cy) {
             const m = getVoxelMatAndColor(gx, gy, gz, queryColor);
             if (m !== -1) {
                 // Record change for undo if a stroke is active
-                if (currentStrokeChanges) {
+                if (currentStrokeChanges && currentStrokeVoxelTracker) {
                     const existingColor = queryColor.clone();
                     // Only record if state actually changes
-                if (m !== targetM || !existingColor.equals(color)) {
-                    currentStrokeChanges.push({ 
-                        gx, gy, gz, 
-                        prevMat: m, 
-                        prevColor: existingColor,
-                        nextMat: targetM,
-                        nextColor: color.clone()
-                    });
-                }
+                    if (m !== targetM || !existingColor.equals(color)) {
+                        const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
+                        const existingIdx = currentStrokeVoxelTracker.get(vHash);
+
+                        if (existingIdx === undefined) {
+                            const idx = currentStrokeChanges.length;
+                            currentStrokeVoxelTracker.set(vHash, idx);
+                            currentStrokeChanges.push({ 
+                                gx, gy, gz, 
+                                prevMat: m, 
+                                prevColor: existingColor,
+                                nextMat: targetM,
+                                nextColor: color.clone()
+                            });
+                        } else {
+                            const record = currentStrokeChanges[existingIdx];
+                            record.nextMat = targetMat;
+                            record.nextColor = color.clone();
+                        }
+                    }
                 }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
                 chunks.get((gx>>5)+65536+((gy>>5)+65536)*131072+((gz>>5)+65536)*17179869184).addVoxel(gx&31, gy&31, gz&31, gx, gy, gz, color, targetM);
             }
         }
+
 
         function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
             const targetSyms = (isDrawing || isErasing) && lockCtx.active ? lockCtx.symmetries : activeSymmetries;
@@ -3375,6 +3399,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         function onSelectStart() {
             menuClickActive = false; // Reset on every press
             currentStrokeChanges = []; // Start recording changes for this action
+            currentStrokeVoxelTracker = new Map();
             if (this === xrRight) {  
                 if (leftMenuHovered && leftMenuMesh.visible) {
                     menuClickActive = true;
@@ -3473,10 +3498,14 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                             if (currentStrokeChanges && currentStrokeChanges.length > 0) {
                                 undoStack.push(currentStrokeChanges);
                                 if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+                                redoStack.length = 0;
+                                globalMenuNeedsUpdate = true;
+                                leftMenuNeedsUpdate = true;
                             }
                         }
                         lastArcPoints = currentPoints.map(p => p.clone());
                         currentStrokeChanges = null; // Clean up so onSelectEnd doesn't double-commit
+                        currentStrokeVoxelTracker = null;
                         return; 
                     }
                 }
@@ -3493,12 +3522,21 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                             for (let i = 0; i < currentPoints.length - 1; i++) {
                                 drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], false, brushSize);
                             }
+                            if (currentStrokeChanges && currentStrokeChanges.length > 0) {
+                                undoStack.push(currentStrokeChanges);
+                                if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+                                redoStack.length = 0;
+                                globalMenuNeedsUpdate = true;
+                                leftMenuNeedsUpdate = true;
+                            }
                         }
                         lastArcPoints = currentPoints.map(p => p.clone());
+                        currentStrokeChanges = null;
+                        currentStrokeVoxelTracker = null;
                         return;
                     }
 
-                    isErasing=true; 
+                    isErasing=true;  
                     drawStartPos.copy(leftTargetLocal); 
                     if(activeTool==='box')isPreviewingBox=true; 
                     if(activeTool==='extrude')isPreviewingExtrude=true; 
@@ -3550,7 +3588,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         executeLineTool(pStart, leftTargetLocal, false);
                     }
                     linePreviewMesh.visible=false;
-                    lastArcPoints = [];
+                    if (lineSheetType !== 'point') lastArcPoints = [];
                 }
 
 
@@ -3577,7 +3615,9 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             }
 
             currentStrokeChanges = null;
+            currentStrokeVoxelTracker = null;
         }
+
 
 
 controller0.addEventListener('selectstart', onSelectStart); controller1.addEventListener('selectstart', onSelectStart);
