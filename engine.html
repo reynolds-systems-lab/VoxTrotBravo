@@ -2153,11 +2153,12 @@ function handleRightMenuClick(cx, cy) {
                                 nextMat: targetM,
                                 nextColor: color.clone()
                             });
-                        } else {
-                            const record = currentStrokeChanges[existingIdx];
-                            record.nextMat = targetMat;
-                            record.nextColor = color.clone();
-                        }
+                            } else {
+                                const record = currentStrokeChanges[existingIdx];
+                                record.nextMat = targetM;
+                                record.nextColor = color.clone();
+                            }
+
                     }
                 }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
@@ -2532,7 +2533,7 @@ function placeBrushVoxels(pos, isP) {
             const isInside = (dx,dy,dz) => brushShape==='sphere'?(dx*dx+dy*dy+dz*dz<=rSq):(Math.abs(dx)<=r&&Math.abs(dy)<=r&&Math.abs(dz)<=r);
             for (let dx=-r; dx<=r; dx++) for (let dy=-r; dy<=r; dy++) for (let dz=-r; dz<=r; dz++) {
                 if(!isInside(dx,dy,dz)) continue;
-                if(brushVolume==='shell'&&r>0) { const sur = !isInside(dx+1,dy,dz)||!isInside(dx-1,dy,dz)||!isInside(dx,dy+1,dz)||!isInside(dx,dy-1)||!isInside(dx,dy,dz+1)||!isInside(dx,dy-1); if(!sur) continue; }
+                if(brushVolume==='shell'&&r>0) { const sur = !isInside(dx+1,dy,dz)||!isInside(dx-1,dy,dz)||!isInside(dx,dy+1,dz)||!isInside(dx,dy-1,dz)||!isInside(dx,dy,dz+1)||!isInside(dx,dy,dz-1); if(!sur) continue; }
                 recolorVoxelSet(cGx+dx, cGy+dy, cGz+dz, getDrawColor(cGx+dx, cGy+dy, cGz+dz, cGx-r, cGx+r, cGy-r, cGy+r, 0));
             }
         }
@@ -3491,19 +3492,26 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
                         else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
 
-                        if (lastArcPoints.length === currentPoints.length) {
+                        if (lastArcPoints.length > 0 && lastArcPoints.length === currentPoints.length) {
                             for (let i = 0; i < currentPoints.length - 1; i++) {
                                 drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize);
                             }
-                            // Commit the discrete point operation to the undo stack
-                            if (currentStrokeChanges && currentStrokeChanges.length > 0) {
-                                undoStack.push(currentStrokeChanges);
-                                if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
-                                redoStack.length = 0;
-                                globalMenuNeedsUpdate = true;
-                                leftMenuNeedsUpdate = true;
+                        } else {
+                            // Draw the initial starting rib
+                            for (let i = 0; i < currentPoints.length - 1; i++) {
+                                drawLineVoxels(currentPoints[i], currentPoints[i+1], true);
                             }
                         }
+                        
+                        // Commit the discrete point operation to the undo stack
+                        if (currentStrokeChanges && currentStrokeChanges.length > 0) {
+                            undoStack.push(currentStrokeChanges);
+                            if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+                            redoStack.length = 0;
+                            globalMenuNeedsUpdate = true;
+                            leftMenuNeedsUpdate = true;
+                        }
+                        
                         lastArcPoints = currentPoints.map(p => p.clone());
                         currentStrokeChanges = null; // Clean up so onSelectEnd doesn't double-commit
                         currentStrokeVoxelTracker = null;
@@ -3909,13 +3917,14 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                     const currentPoints = [];
                     
                     if (lineType === 'arc') {
-                        calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints);
+                        const fixedSteps = (lineDrawMode === 'sheet' && lineSheetType === 'point' && lastArcPoints.length > 0) ? lastArcPoints.length - 1 : 0;
+                        calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, fixedSteps);
                     } else {
                         currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone());
                     }
                     
                     // If in Point Mode and we have a starting rib, show a lightweight Wireframe "X" preview
-                    if (lineDrawMode === 'sheet' && lineSheetType === 'point' && lastArcPoints.length === currentPoints.length) {
+                    if (lineDrawMode === 'sheet' && lineSheetType === 'point' && lastArcPoints.length > 0 && lastArcPoints.length === currentPoints.length) {
                         const wirePoints = [];
                         const lastIdx = currentPoints.length - 1;
 
