@@ -1858,7 +1858,7 @@ function handleRightMenuClick(cx, cy) {
             }
 
             const isMesh = exportMode === 'mesh';
-            const fileName = isMesh ? 'vox_mesh.obj' : 'vox_boxes.obj';
+            const fileName = isMesh ? 'vox_mesh.obj' : 'voxtrot.obj';
             
             let fileHandle;
             try {
@@ -3486,6 +3486,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     
                     // --- Point Mode Logic for Sheet (Right = Draw) ---
                     if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point' && xrLeft && xrRight) {
+                        isDrawing=false; // Prevent render loop from triggering continuous extrusion
                         const currentPoints = [];
                         if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
                         else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
@@ -3508,33 +3509,20 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         currentStrokeVoxelTracker = null;
                         return; 
                     }
+
                 }
             } else if (this === xrLeft) {
                 if(activeTool==='select'&&hasSelection) applySelection(); else { 
 
-                    // --- Point Mode Logic for Sheet Erasing ---
-                    if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point' && xrLeft && xrRight) {
-                        const currentPoints = [];
-                        if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
-                        else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
-
-                        if (lastArcPoints.length === currentPoints.length) {
-                            for (let i = 0; i < currentPoints.length - 1; i++) {
-                                drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], false, brushSize);
-                            }
-                            if (currentStrokeChanges && currentStrokeChanges.length > 0) {
-                                undoStack.push(currentStrokeChanges);
-                                if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
-                                redoStack.length = 0;
-                                globalMenuNeedsUpdate = true;
-                                leftMenuNeedsUpdate = true;
-                            }
-                        }
-                        lastArcPoints = currentPoints.map(p => p.clone());
+                    // --- Point Mode Logic for Sheet ---
+                    if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point') {
+                        // Left click ends the current point mode sheet without erasing
+                        lastArcPoints = [];
                         currentStrokeChanges = null;
                         currentStrokeVoxelTracker = null;
-                        return;
+                        return; 
                     }
+
 
                     isErasing=true;  
                     drawStartPos.copy(leftTargetLocal); 
