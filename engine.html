@@ -119,9 +119,9 @@
 
 <button id="export-button-overlay">Export .OBJ (Current Mode)</button>
 
-    <script type="module">
+<script type="module">
         import * as THREE from 'three';
-        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { ARButton } from 'three/addons/webxr/ARButton.js';
 
         document.addEventListener('DOMContentLoaded', () => {
 
@@ -186,11 +186,12 @@
         let wireWidth = 1; 
         let wireFill = true; 
 
-        let paintMode = 'brush'; 
+	let paintMode = 'brush'; 
         let exportMode = 'boxes'; 
         let renderMode = 'standard'; 
         let isDropperActive = false;
         let autoPerfEngaged = false;
+        let passthroughMode = false;
 
 
 
@@ -412,17 +413,18 @@
     
 
 
-        const renderer = new THREE.WebGLRenderer({ 
+	const renderer = new THREE.WebGLRenderer({ 
             canvas: canvas, 
             context: gl, 
-            antialias: false, 
+            antialias: false,
+            alpha: true, 
             powerPreference: "high-performance" 
         });
         renderer.setPixelRatio(1);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
-        document.body.appendChild(VRButton.createButton(renderer));
+        document.body.appendChild(ARButton.createButton(renderer));
 
         // --- Quest 3 PCVR Specific Optimizations ---
         renderer.xr.addEventListener('sessionstart', () => {
@@ -1812,9 +1814,10 @@ function handleRightMenuClick(cx, cy) {
             drawButton(globalMenuCtx, 40, 140, 138, 50, `MX: ${mirrorX ? 'ON' : 'OFF'}`, mirrorX);
             drawButton(globalMenuCtx, 187, 140, 138, 50, `MY: ${mirrorY ? 'ON' : 'OFF'}`, mirrorY);
             drawButton(globalMenuCtx, 334, 140, 138, 50, `MZ: ${mirrorZ ? 'ON' : 'OFF'}`, mirrorZ);
-            drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false); drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
+drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false); drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
             
-            drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
+            drawButton(globalMenuCtx, 40, 270, 210, 45, `Center Draw: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
+            drawButton(globalMenuCtx, 262, 270, 210, 45, `Passthrough: ${passthroughMode ? 'ON' : 'OFF'}`, passthroughMode);
             drawButton(globalMenuCtx, 40, 330, 140, 45, renderMode === 'performance' ? 'PERFORMANCE' : 'STANDARD', renderMode === 'performance');
             drawButton(globalMenuCtx, 187, 330, 140, 45, `UNDO (${undoStack.length})`, false);
             drawButton(globalMenuCtx, 334, 330, 140, 45, `REDO (${redoStack.length})`, false);
@@ -1832,7 +1835,21 @@ function handleRightMenuClick(cx, cy) {
             if (cy >= 140 && cy <= 190) { if (cx >= 40 && cx <= 178) { mirrorX = !mirrorX; updateActiveSymmetries(); } if (cx >= 187 && cx <= 325) { mirrorY = !mirrorY; updateActiveSymmetries(); } if (cx >= 334 && cx <= 472) { mirrorZ = !mirrorZ; updateActiveSymmetries(); } }
             if (cy >= 210 && cy <= 260) { if (cx >= 40 && cx <= 90) polarSymmetry = Math.max(1, polarSymmetry - 1); if (cx >= 422 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1); if (cx >= 100 && cx <= 412) polarSymmetry = polarSymmetry === 1 ? 4 : 1; updatePolarArrays(); }
             
-            if (cy >= 270 && cy <= 315) drawFromCenter = !drawFromCenter;
+	    if (cy >= 270 && cy <= 315) { 
+                if (cx >= 40 && cx <= 250) drawFromCenter = !drawFromCenter;
+                if (cx >= 262 && cx <= 472) {
+                    passthroughMode = !passthroughMode;
+                    if (passthroughMode) {
+                        scene.background = null;
+                        studioMesh.visible = false;
+                        gridHelper.visible = false;
+                    } else {
+                        scene.background = new THREE.Color(0x111111);
+                        studioMesh.visible = true;
+                        gridHelper.visible = true;
+                    }
+                }
+          }
             if (cy >= 330 && cy <= 375) {
                 if (cx >= 40 && cx <= 180) {
                     renderMode = renderMode === 'standard' ? 'performance' : 'standard';
