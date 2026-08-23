@@ -191,6 +191,7 @@
         let renderMode = 'standard'; 
         let isDropperActive = false;
         let autoPerfEngaged = false;
+		let passthroughMode = false;
 
 
 
@@ -416,6 +417,7 @@
             canvas: canvas, 
             context: gl, 
             antialias: false, 
+			alpha: true,
             powerPreference: "high-performance" 
         });
         renderer.setPixelRatio(1);
@@ -1815,6 +1817,7 @@ function handleRightMenuClick(cx, cy) {
             drawButton(globalMenuCtx, 40, 210, 50, 50, '-', false); drawButton(globalMenuCtx, 100, 210, 312, 50, `Polar Symmetry: ${polarSymmetry}`, polarSymmetry > 1); drawButton(globalMenuCtx, 422, 210, 50, 50, '+', false);
             
             drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
+			drawButton(globalMenuCtx, 262, 270, 210, 45, `Passthrough: ${passthroughMode ? 'ON' : 'OFF'}`, passthroughMode);
             drawButton(globalMenuCtx, 40, 330, 140, 45, renderMode === 'performance' ? 'PERFORMANCE' : 'STANDARD', renderMode === 'performance');
             drawButton(globalMenuCtx, 187, 330, 140, 45, `UNDO (${undoStack.length})`, false);
             drawButton(globalMenuCtx, 334, 330, 140, 45, `REDO (${redoStack.length})`, false);
@@ -1829,10 +1832,24 @@ function handleRightMenuClick(cx, cy) {
 
         function handleGlobalMenuClick(cx, cy) {
             if (cy >= 70 && cy <= 120) { if (cx >= 40 && cx <= 240) isVerticalLock = !isVerticalLock; if (cx >= 272 && cx <= 472) clearInterior = !clearInterior; }
-            if (cy >= 140 && cy <= 190) { if (cx >= 40 && cx <= 178) { mirrorX = !mirrorX; updateActiveSymmetries(); } if (cx >= 187 && cx <= 325) { mirrorY = !mirrorY; updateActiveSymmetries(); } if (cx >= 334 && cx <= 472) { mirrorZ = !mirrorZ; updateActiveSymmetries(); } }
+			if (cy >= 140 && cy <= 190) { if (cx >= 40 && cx <= 178) { mirrorX = !mirrorX; updateActiveSymmetries(); } if (cx >= 187 && cx <= 325) { mirrorY = !mirrorY; updateActiveSymmetries(); } if (cx >= 334 && cx <= 472) { mirrorZ = !mirrorZ; updateActiveSymmetries(); } }
             if (cy >= 210 && cy <= 260) { if (cx >= 40 && cx <= 90) polarSymmetry = Math.max(1, polarSymmetry - 1); if (cx >= 422 && cx <= 472) polarSymmetry = Math.min(16, polarSymmetry + 1); if (cx >= 100 && cx <= 412) polarSymmetry = polarSymmetry === 1 ? 4 : 1; updatePolarArrays(); }
             
-            if (cy >= 270 && cy <= 315) drawFromCenter = !drawFromCenter;
+            if (cy >= 270 && cy <= 315) { 
+                if (cx >= 40 && cx <= 250) drawFromCenter = !drawFromCenter;
+                if (cx >= 262 && cx <= 472) {
+                    passthroughMode = !passthroughMode;
+                    if (passthroughMode) {
+                        scene.background = null;
+                        studioMesh.visible = false;
+                        gridHelper.visible = false;
+                    } else {
+                        scene.background = new THREE.Color(0x111111);
+                        studioMesh.visible = true;
+                        gridHelper.visible = true;
+                    }
+                }
+            }
             if (cy >= 330 && cy <= 375) {
                 if (cx >= 40 && cx <= 180) {
                     renderMode = renderMode === 'standard' ? 'performance' : 'standard';
