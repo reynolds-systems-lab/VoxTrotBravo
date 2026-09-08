@@ -359,9 +359,6 @@
         const lastHoveredVoxel = new THREE.Vector3(Infinity, Infinity, Infinity);
 
         // --- Pre-allocated optimization objects ---
-        const dirtyLayers = new Set();
-        const undoScratchColor = new THREE.Color();
-
         const rotR = new THREE.Matrix4();
         const rotR_inv = new THREE.Matrix4();
         const selRotEuler = new THREE.Euler();
@@ -547,12 +544,11 @@
                 const ptsGeo = new THREE.BufferGeometry();
                 ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
                 ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
-                ptsGeo.boundingSphere = this.mesh.boundingSphere.clone();
                 this.pointsMesh = new THREE.Points(ptsGeo, perfMaterials[matType]);
                 this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
                 this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
                 this.pointsMesh.visible = false;
-                this.pointsMesh.geometry.boundingSphere = ptsGeo.boundingSphere;
+                this.pointsMesh.boundingSphere = this.mesh.boundingSphere;
                 worldGroup.add(this.pointsMesh);
 
                 this.voxelToIndex = new Uint16Array(CHUNK_VOL);
@@ -594,16 +590,14 @@
                 const ptsGeo = new THREE.BufferGeometry();
                 ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
                 ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
-                ptsGeo.boundingSphere = oldMesh.boundingSphere.clone();
                 this.pointsMesh = new THREE.Points(ptsGeo, oldPtsMesh.material);
                 this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
                 this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
                 this.pointsMesh.visible = oldPtsMesh.visible;
-                this.pointsMesh.geometry.boundingSphere = ptsGeo.boundingSphere;
+                this.pointsMesh.boundingSphere = oldPtsMesh.boundingSphere;
                 this.pointsMesh.geometry.setDrawRange(0, this.count);
                 worldGroup.remove(oldPtsMesh); worldGroup.add(this.pointsMesh);
                 oldPtsMesh.geometry.dispose();
-
 
                 this.capacity = newCapacity;
             }
@@ -617,7 +611,6 @@
                     if (cArr[idx] !== r || cArr[idx+1] !== g || cArr[idx+2] !== b) {
                         cArr[idx] = r; cArr[idx+1] = g; cArr[idx+2] = b;
                         this.needsUpdate = true;
-                        dirtyLayers.add(this);
                         if (instIdx < this.dirtyMin) this.dirtyMin = instIdx;
                         if (instIdx > this.dirtyMax) this.dirtyMax = instIdx;
                     }
@@ -635,7 +628,6 @@
                     
                     this.count++; this.mesh.count = this.count; totalActiveVoxels++;
                     this.needsUpdate = true;
-                    dirtyLayers.add(this);
                     if (instIdx < this.dirtyMin) this.dirtyMin = instIdx;
                     if (instIdx > this.dirtyMax) this.dirtyMax = instIdx;
                 }
@@ -671,12 +663,10 @@
                     this.voxelToIndex[localIdx] = 65535;
                     this.count--; this.mesh.count = this.count; totalActiveVoxels--; 
                     this.needsUpdate = true;
-                    dirtyLayers.add(this);
                     if (instIdxToRemove < this.dirtyMin) this.dirtyMin = instIdxToRemove;
                     if (instIdxToRemove > this.dirtyMax) this.dirtyMax = instIdxToRemove;
                 }
             }
-
 
             updateBuffers() {
                 if (this.needsUpdate && this.dirtyMin <= this.dirtyMax) {
@@ -904,7 +894,6 @@ function updatePreviews() {
                     const p4 = new THREE.Points(new THREE.BufferGeometry(), perfMaterials[3]); p4.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); p4.geometry.setAttribute('position', selPtsAttrPosMetal); p4.geometry.setAttribute('color', selPtsAttrColMetal);
                     const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat); bMesh.matrixAutoUpdate = false;
                     pivotGroup.add(m1, m2, m3, m4, p1, p2, p3, p4, bMesh);
-                    g.traverse(obj => { obj.frustumCulled = false; });
                     previewContainer.add(g); previewGroups.push(g);
                 }
                 const g = previewGroups[pIdx];
@@ -931,6 +920,7 @@ function updatePreviews() {
 		g.rotation.set(0, polarAngle, 0, 'XYZ');
 		g.updateMatrix();
 		g.updateMatrixWorld(true);
+		g.traverse(obj => { obj.frustumCulled = false; });
 		g.visible = true;
 		pIdx++;
             }
@@ -1876,183 +1866,149 @@ function handleRightMenuClick(cx, cy) {
         let leftMenuNeedsUpdate = true, rightMenuNeedsUpdate = true, colorMenuNeedsUpdate = true, globalMenuNeedsUpdate = true, lastMenuUpdateTime = 0, lastColorJoystickUpdateTime = 0; 
 
         async function exportToOBJ() {
+            if (!window.showSaveFilePicker) {
+                const msg = "Streaming Export not supported. Use Chrome/Edge on Desktop.";
+                console.error(msg);
+                const box = document.createElement('div');
+                box.style = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;color:#ff4444;padding:20px;border:2px solid red;z-index:9999;border-radius:10px;text-align:center;font-family:sans-serif;";
+                box.innerHTML = `<h3>Export Error</h3><p>${msg}</p><button onclick="this.parentElement.remove()">Close</button>`;
+                document.body.appendChild(box);
+                return;
+            }
+
             const isMesh = exportMode === 'mesh';
             const fileName = isMesh ? 'vox_mesh.obj' : 'voxtrot.obj';
+            
+            let fileHandle;
+            try {
+                fileHandle = await window.showSaveFilePicker({
+                    suggestedName: fileName,
+                    types: [{ description: 'OBJ Model', accept: { 'text/plain': ['.obj'] } }],
+                });
+            } catch (e) { return; }
+
+            const writable = await fileHandle.createWritable();
+            const encoder = new TextEncoder();
+            const writer = writable.getWriter();
+
+            // Pre-allocated objects to avoid millions of allocations
+            const vOffset = new THREE.Vector3(); 
+            const calcPos = new THREE.Vector3();
+
+            await writer.write(encoder.encode("# VoxTrotBravo High-Efficiency Export\nmtllib voxel_materials.mtl\no VoxModel\n"));
+
+            const hs = 0.5;
+            const faceVerts = {
+                px: [new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3( hs, hs, hs)],
+                nx: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3(-hs, hs, hs), new THREE.Vector3(-hs, hs,-hs)],
+                py: [new THREE.Vector3(-hs, hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3(-hs, hs,-hs)],
+                ny: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3(-hs,-hs, hs)],
+                pz: [new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3(-hs, hs, hs)],
+                nz: [new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3( hs, hs,-hs)]
+            };
+            const dirs = [{d:[1,0,0],v:faceVerts.px}, {d:[-1,0,0],v:faceVerts.nx}, {d:[0,1,0],v:faceVerts.py}, {d:[0,-1,0],v:faceVerts.ny}, {d:[0,0,1],v:faceVerts.pz}, {d:[0,0,-1],v:faceVerts.nz}];
+            
+            function hasV(gx, gy, gz) { 
+                const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5;
+                const k = (cx+65536)+(cy+65536)*131072+(cz+65536)*17179869184;
+                const c = chunks.get(k); 
+                return c ? c.voxelMatMap[(gx&31)|((gy&31)<<5)|((gz&31)<<10)] !== -1 : false; 
+            }
+
+            let vertexOffset = 1;
+            const vertMap = isMesh ? new Map() : null; 
+            const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission", "Voxel_Metal"];
             const exportBtn = document.getElementById('export-button-overlay');
             const originalText = exportBtn ? exportBtn.innerText : "Export .OBJ";
+            
+            let voxelCounter = 0;
+            let currentChunkString = "";
 
-            let writer = null;
-            const blobParts = [];
-            const encoder = new TextEncoder();
-
-            // Attempt Native File System Access if supported in current security context
-            if (window.showSaveFilePicker) {
-                try {
-                    const fileHandle = await window.showSaveFilePicker({
-                        suggestedName: fileName,
-                        types: [{ description: 'Wavefront OBJ Model', accept: { 'text/plain': ['.obj'], 'model/obj': ['.obj'] } }],
-                    });
-                    const writable = await fileHandle.createWritable();
-                    writer = writable.getWriter();
-                } catch (e) {
-                    // Abort if user dismissed the prompt
-                    if (e.name === 'AbortError') return;
-                    // For SecurityError (in WebXR/file://) or TypeError, fall back to Blob download
-                    console.warn("Native file picker unavailable or blocked; falling back to browser download:", e);
-                    writer = null;
-                }
-            }
-
-            async function writeChunk(str) {
-                if (!str) return;
-                if (writer) {
-                    await writer.write(encoder.encode(str));
-                } else {
-                    blobParts.push(str);
-                }
-            }
-
-            try {
-                if (exportBtn) exportBtn.innerText = "Exporting...";
-
-                // Pre-allocated objects to avoid millions of allocations
-                const vOffset = new THREE.Vector3(); 
-                const calcPos = new THREE.Vector3();
-
-                await writeChunk("# VoxTrotBravo High-Efficiency Export\nmtllib voxel_materials.mtl\no VoxModel\n");
-
-                const hs = 0.5;
-                const faceVerts = {
-                    px: [new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3( hs, hs, hs)],
-                    nx: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3(-hs, hs, hs), new THREE.Vector3(-hs, hs,-hs)],
-                    py: [new THREE.Vector3(-hs, hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3( hs, hs,-hs), new THREE.Vector3(-hs, hs,-hs)],
-                    ny: [new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3(-hs,-hs, hs)],
-                    pz: [new THREE.Vector3(-hs,-hs, hs), new THREE.Vector3( hs,-hs, hs), new THREE.Vector3( hs, hs, hs), new THREE.Vector3(-hs, hs, hs)],
-                    nz: [new THREE.Vector3( hs,-hs,-hs), new THREE.Vector3(-hs,-hs,-hs), new THREE.Vector3(-hs, hs,-hs), new THREE.Vector3( hs, hs,-hs)]
-                };
-                const dirs = [{d:[1,0,0],v:faceVerts.px}, {d:[-1,0,0],v:faceVerts.nx}, {d:[0,1,0],v:faceVerts.py}, {d:[0,-1,0],v:faceVerts.ny}, {d:[0,0,1],v:faceVerts.pz}, {d:[0,0,-1],v:faceVerts.nz}];
+            for (let m = 0; m < 4; m++) {
+                await writer.write(encoder.encode(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`));
                 
-                function hasV(gx, gy, gz) { 
-                    const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5;
-                    const k = (cx+65536)+(cy+65536)*131072+(cz+65536)*17179869184;
-                    const c = chunks.get(k); 
-                    return c ? c.voxelMatMap[(gx&31)|((gy&31)<<5)|((gz&31)<<10)] !== -1 : false; 
-                }
+                for (let [key, chunk] of chunks) {
+                    const layer = chunk.layers[m]; 
+                    if (!layer || layer.count === 0) continue;
 
-                let vertexOffset = 1;
-                const vertMap = isMesh ? new Map() : null; 
-                const matNames = ["Voxel_Solid", "Voxel_Glass", "Voxel_Emission", "Voxel_Metal"];
-                
-                let voxelCounter = 0;
-                let currentChunkString = "";
-                const totalVoxelTarget = Math.max(1, totalActiveVoxels);
+                    for (let i = 0; i < layer.count; i++) {
+                        const localIdx = layer.indexToLocal[i];
+                        if (localIdx === 65535) continue;
 
-                for (let m = 0; m < 4; m++) {
-                    await writeChunk(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`);
-                    
-                    for (let [key, chunk] of chunks) {
-                        const layer = chunk.layers[m]; 
-                        if (!layer || layer.count === 0) continue;
+                        const gx = (chunk.cx * 32) + (localIdx & 31);
+                        const gy = (chunk.cy * 32) + ((localIdx >> 5) & 31);
+                        const gz = (chunk.cz * 32) + (localIdx >> 10);
+                        vOffset.set(gx, gy, gz);
 
-                        for (let i = 0; i < layer.count; i++) {
-                            const localIdx = layer.indexToLocal[i];
-                            if (localIdx === 65535) continue;
+                        layer.mesh.getColorAt(i, tempColor);
+                        // Improved normalization check: verify all channels for 0-255 range
+                        if (tempColor.r > 1.0 || tempColor.g > 1.0 || tempColor.b > 1.0) { 
+                            tempColor.r /= 255; tempColor.g /= 255; tempColor.b /= 255; 
+                        }
+                        
+                        // Dampen emission (material index 2) to prevent "blown out" white renders in Blender.
+                        // This scales the vertex color to 80% intensity, allowing the renderer to handle 
+                        // the actual glow strength via its own shader settings.
+                        if (m === 2) {
+                            const intensityCap = 0.8; 
+                            tempColor.r *= intensityCap; 
+                            tempColor.g *= intensityCap; 
+                            tempColor.b *= intensityCap;
+                        }
+                        
+                        const colorPart = `${tempColor.r.toFixed(3)} ${tempColor.g.toFixed(3)} ${tempColor.b.toFixed(3)}`;
 
-                            const gx = (chunk.cx * 32) + (localIdx & 31);
-                            const gy = (chunk.cy * 32) + ((localIdx >> 5) & 31);
-                            const gz = (chunk.cz * 32) + (localIdx >> 10);
-                            vOffset.set(gx, gy, gz);
 
-                            layer.mesh.getColorAt(i, tempColor);
-                            // Improved normalization check: verify all channels for 0-255 range
-                            if (tempColor.r > 1.0 || tempColor.g > 1.0 || tempColor.b > 1.0) { 
-                                tempColor.r /= 255; tempColor.g /= 255; tempColor.b /= 255; 
-                            }
-                            
-                            // Dampen emission (material index 2) to prevent "blown out" white renders in Blender.
-                            if (m === 2) {
-                                const intensityCap = 0.8; 
-                                tempColor.r *= intensityCap; 
-                                tempColor.g *= intensityCap; 
-                                tempColor.b *= intensityCap;
-                            }
-                            
-                            const colorPart = `${tempColor.r.toFixed(3)} ${tempColor.g.toFixed(3)} ${tempColor.b.toFixed(3)}`;
-
-                            for (let d = 0; d < 6; d++) {
-                                const dir = dirs[d];
-                                if (!hasV(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
-                                    const fIdx = [];
-                                    for (let v = 0; v < 4; v++) {
-                                        calcPos.copy(dir.v[v]).add(vOffset).multiplyScalar(VOXEL_SIZE);
-                                        const fx = calcPos.x.toFixed(4), fy = calcPos.y.toFixed(4), fz = calcPos.z.toFixed(4);
-                                        
-                                        let idx;
-                                        if (isMesh) {
-                                            const h = `${fx}_${fy}_${fz}_${colorPart}`;
-                                            idx = vertMap.get(h);
-                                            if (idx === undefined) {
-                                                idx = vertexOffset++;
-                                                vertMap.set(h, idx);
-                                                currentChunkString += `v ${fx} ${fy} ${fz} ${colorPart}\n`;
-                                            }
-                                        } else {
+                        for (let d = 0; d < 6; d++) {
+                            const dir = dirs[d];
+                            if (!hasV(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2])) {
+                                const fIdx = [];
+                                for (let v = 0; v < 4; v++) {
+                                    calcPos.copy(dir.v[v]).add(vOffset).multiplyScalar(VOXEL_SIZE);
+                                    const fx = calcPos.x.toFixed(4), fy = calcPos.y.toFixed(4), fz = calcPos.z.toFixed(4);
+                                    
+                                    let idx;
+                                    if (isMesh) {
+                                        const h = `${fx}_${fy}_${fz}_${colorPart}`;
+                                        idx = vertMap.get(h);
+                                        if (idx === undefined) {
                                             idx = vertexOffset++;
+                                            vertMap.set(h, idx);
                                             currentChunkString += `v ${fx} ${fy} ${fz} ${colorPart}\n`;
                                         }
-                                        fIdx.push(idx);
-                                    }
-                                    if (isMesh) {
-                                        currentChunkString += `f ${fIdx[0]} ${fIdx[1]} ${fIdx[2]}\nf ${fIdx[0]} ${fIdx[2]} ${fIdx[3]}\n`;
                                     } else {
-                                        currentChunkString += `f ${fIdx[0]} ${fIdx[1]} ${fIdx[2]} ${fIdx[3]}\n`;
+                                        idx = vertexOffset++;
+                                        currentChunkString += `v ${fx} ${fy} ${fz} ${colorPart}\n`;
                                     }
+                                    fIdx.push(idx);
+                                }
+                                if (isMesh) {
+                                    currentChunkString += `f ${fIdx[0]} ${fIdx[1]} ${fIdx[2]}\nf ${fIdx[0]} ${fIdx[2]} ${fIdx[3]}\n`;
+                                } else {
+                                    currentChunkString += `f ${fIdx[0]} ${fIdx[1]} ${fIdx[2]} ${fIdx[3]}\n`;
                                 }
                             }
+                        }
 
-                            voxelCounter++;
-                            // Flush periodically to manage memory and update progress
-                            if (voxelCounter % 500 === 0) {
-                                await writeChunk(currentChunkString);
-                                currentChunkString = "";
-                                if (exportBtn) exportBtn.innerText = `Exporting: ${Math.round((voxelCounter / totalVoxelTarget) * 100)}%`;
-                                await new Promise(resolve => setTimeout(resolve, 0));
-                            }
+                        voxelCounter++;
+                        // Flush more frequently for massive models to keep RAM footprint minimal
+                        if (voxelCounter % 500 === 0) {
+                            await writer.write(encoder.encode(currentChunkString));
+                            currentChunkString = "";
+                            if (exportBtn) exportBtn.innerText = `Streaming: ${Math.round((voxelCounter / totalActiveVoxels) * 100)}%`;
+                            await new Promise(resolve => setTimeout(resolve, 0));
                         }
                     }
                 }
-
-                if (currentChunkString.length > 0) {
-                    await writeChunk(currentChunkString);
-                    currentChunkString = "";
-                }
-
-                // Finalize Output Stream or Trigger Blob Download
-                if (writer) {
-                    await writer.close();
-                } else {
-                    const blob = new Blob(blobParts, { type: 'text/plain;charset=utf-8' });
-                    const blobUrl = URL.createObjectURL(blob);
-                    const downloadLink = document.createElement('a');
-                    downloadLink.href = blobUrl;
-                    downloadLink.download = fileName;
-                    downloadLink.style.display = 'none';
-                    document.body.appendChild(downloadLink);
-                    downloadLink.click();
-                    setTimeout(() => {
-                        document.body.removeChild(downloadLink);
-                        URL.revokeObjectURL(blobUrl);
-                    }, 1000);
-                }
-
-                console.log("Export Complete");
-            } catch (err) {
-                console.error("Export failed with error:", err);
-                alert("Export error: " + (err.message || err));
-            } finally {
-                if (exportBtn) exportBtn.innerText = originalText;
             }
+
+            if (currentChunkString.length > 0) await writer.write(encoder.encode(currentChunkString));
+            writer.releaseLock();
+            await writable.close();
+            if (exportBtn) exportBtn.innerText = originalText;
+            console.log("Export Complete");
         }
+
 
 
         function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, slotIndex, pathT = -1, uT = -1) {
@@ -2163,11 +2119,12 @@ function handleRightMenuClick(cx, cy) {
             
             // Record change for undo if a stroke is active
             if (currentStrokeChanges) {
-                const prevMat = getVoxelMatAndColor(gx, gy, gz, undoScratchColor);
+                const prevColor = new THREE.Color();
+                const prevMat = getVoxelMatAndColor(gx, gy, gz, prevColor);
                 const targetMat = isP ? (mOver !== -1 ? mOver : matTypes[0]) : -1;
                 
                 // Only record if state actually changes
-                if (prevMat !== targetMat || (isP && !undoScratchColor.equals(color))) {
+                if (prevMat !== targetMat || (isP && !prevColor.equals(color))) {
                     const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
                     const existingIdx = currentStrokeVoxelTracker.get(vHash);
 
@@ -2177,7 +2134,7 @@ function handleRightMenuClick(cx, cy) {
                         currentStrokeChanges.push({ 
                             gx, gy, gz, 
                             prevMat, 
-                            prevColor: prevMat !== -1 ? undoScratchColor.clone() : null,
+                            prevColor: prevMat !== -1 ? prevColor.clone() : null,
                             nextMat: targetMat,
                             nextColor: isP ? color.clone() : null
                         });
@@ -2199,8 +2156,9 @@ function handleRightMenuClick(cx, cy) {
             if (m !== -1) {
                 // Record change for undo if a stroke is active
                 if (currentStrokeChanges && currentStrokeVoxelTracker) {
+                    const existingColor = queryColor.clone();
                     // Only record if state actually changes
-                    if (m !== targetM || !queryColor.equals(color)) {
+                    if (m !== targetM || !existingColor.equals(color)) {
                         const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
                         const existingIdx = currentStrokeVoxelTracker.get(vHash);
 
@@ -2210,15 +2168,16 @@ function handleRightMenuClick(cx, cy) {
                             currentStrokeChanges.push({ 
                                 gx, gy, gz, 
                                 prevMat: m, 
-                                prevColor: queryColor.clone(),
+                                prevColor: existingColor,
                                 nextMat: targetM,
                                 nextColor: color.clone()
                             });
-                        } else {
-                            const record = currentStrokeChanges[existingIdx];
-                            record.nextMat = targetM;
-                            record.nextColor = color.clone();
-                        }
+                            } else {
+                                const record = currentStrokeChanges[existingIdx];
+                                record.nextMat = targetM;
+                                record.nextColor = color.clone();
+                            }
+
                     }
                 }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
@@ -2958,9 +2917,10 @@ function placeBrushVoxels(pos, isP) {
     for (let gx = minX; gx <= maxX; gx++) {
         for (let gy = minY; gy <= maxY; gy++) {
             for (let gz = minZ; gz <= maxZ; gz++) {
+                const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
+                const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
+                
                 const isFace = (gx === minX || gx === maxX || gy === minY || gy === maxY || gz === minZ || gz === maxZ);
-                if (!isFace && boxMode === 'shell' && !clearInterior) continue;
-
                 const isOuterX = (gx >= minX && gx <= minX + w) || (gx <= maxX && gx >= maxX - w);
                 const isOuterY = (gy >= minY && gy <= minY + w) || (gy <= maxY && gy >= maxY - w);
                 const isOuterZ = (gz >= minZ && gz <= minZ + w) || (gz <= maxZ && gz >= maxZ - w);
@@ -2988,26 +2948,16 @@ function placeBrushVoxels(pos, isP) {
                 }
 
                 if (boxMode === 'wireframe') {
-                    if (isEdge || isDivVoxel) {
-                        const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
-                        setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
-                    } else if (wireFill && isFace) {
-                        const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
-                        setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
-                    }
+                    if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                    else if (wireFill && isFace) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
                 } else if (boxMode === 'shell') {
-                    if (isFace) {
-                        const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
-                        setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
-                    }
+                    if (isFace) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
                 } else {
-                    const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
                     setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
                 }
             }
         }
     }
-
     leftMenuNeedsUpdate = true;
 }
 
@@ -4085,14 +4035,8 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                 if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
                 if(needsSync(linePreviewMesh, showM)) syncMirrorProxies(linePreviewMesh, getMirrorProxies(linePreviewMesh), showM);
                 if(needsSync(lineWireframeMesh, showM)) syncMirrorProxies(lineWireframeMesh, getMirrorProxies(lineWireframeMesh), showM);
-                if (dirtyLayers.size > 0) {
-                    for (const layer of dirtyLayers) {
-                        layer.updateBuffers();
-                    }
-                    dirtyLayers.clear();
-                }
+                chunks.forEach(c=>c.updateBuffers());
             }
-
             if (renderMode === 'performance') {
                 const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
                 for (let i = 0; i < perfMaterials.length; i++) perfMaterials[i].size = effSize;
