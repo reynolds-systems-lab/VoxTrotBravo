@@ -359,6 +359,9 @@
         const lastHoveredVoxel = new THREE.Vector3(Infinity, Infinity, Infinity);
 
         // --- Pre-allocated optimization objects ---
+        const dirtyLayers = new Set();
+        const undoScratchColor = new THREE.Color();
+
         const rotR = new THREE.Matrix4();
         const rotR_inv = new THREE.Matrix4();
         const selRotEuler = new THREE.Euler();
@@ -544,11 +547,12 @@
                 const ptsGeo = new THREE.BufferGeometry();
                 ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
                 ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
+                ptsGeo.boundingSphere = this.mesh.boundingSphere.clone();
                 this.pointsMesh = new THREE.Points(ptsGeo, perfMaterials[matType]);
                 this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
                 this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
                 this.pointsMesh.visible = false;
-                this.pointsMesh.boundingSphere = this.mesh.boundingSphere;
+                this.pointsMesh.geometry.boundingSphere = ptsGeo.boundingSphere;
                 worldGroup.add(this.pointsMesh);
 
                 this.voxelToIndex = new Uint16Array(CHUNK_VOL);
@@ -590,14 +594,16 @@
                 const ptsGeo = new THREE.BufferGeometry();
                 ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
                 ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
+                ptsGeo.boundingSphere = oldMesh.boundingSphere.clone();
                 this.pointsMesh = new THREE.Points(ptsGeo, oldPtsMesh.material);
                 this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
                 this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
                 this.pointsMesh.visible = oldPtsMesh.visible;
-                this.pointsMesh.boundingSphere = oldPtsMesh.boundingSphere;
+                this.pointsMesh.geometry.boundingSphere = ptsGeo.boundingSphere;
                 this.pointsMesh.geometry.setDrawRange(0, this.count);
                 worldGroup.remove(oldPtsMesh); worldGroup.add(this.pointsMesh);
                 oldPtsMesh.geometry.dispose();
+
 
                 this.capacity = newCapacity;
             }
@@ -611,6 +617,7 @@
                     if (cArr[idx] !== r || cArr[idx+1] !== g || cArr[idx+2] !== b) {
                         cArr[idx] = r; cArr[idx+1] = g; cArr[idx+2] = b;
                         this.needsUpdate = true;
+                        dirtyLayers.add(this);
                         if (instIdx < this.dirtyMin) this.dirtyMin = instIdx;
                         if (instIdx > this.dirtyMax) this.dirtyMax = instIdx;
                     }
@@ -628,6 +635,7 @@
                     
                     this.count++; this.mesh.count = this.count; totalActiveVoxels++;
                     this.needsUpdate = true;
+                    dirtyLayers.add(this);
                     if (instIdx < this.dirtyMin) this.dirtyMin = instIdx;
                     if (instIdx > this.dirtyMax) this.dirtyMax = instIdx;
                 }
@@ -663,10 +671,12 @@
                     this.voxelToIndex[localIdx] = 65535;
                     this.count--; this.mesh.count = this.count; totalActiveVoxels--; 
                     this.needsUpdate = true;
+                    dirtyLayers.add(this);
                     if (instIdxToRemove < this.dirtyMin) this.dirtyMin = instIdxToRemove;
                     if (instIdxToRemove > this.dirtyMax) this.dirtyMax = instIdxToRemove;
                 }
             }
+
 
             updateBuffers() {
                 if (this.needsUpdate && this.dirtyMin <= this.dirtyMax) {
@@ -894,6 +904,7 @@ function updatePreviews() {
                     const p4 = new THREE.Points(new THREE.BufferGeometry(), perfMaterials[3]); p4.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); p4.geometry.setAttribute('position', selPtsAttrPosMetal); p4.geometry.setAttribute('color', selPtsAttrColMetal);
                     const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat); bMesh.matrixAutoUpdate = false;
                     pivotGroup.add(m1, m2, m3, m4, p1, p2, p3, p4, bMesh);
+                    g.traverse(obj => { obj.frustumCulled = false; });
                     previewContainer.add(g); previewGroups.push(g);
                 }
                 const g = previewGroups[pIdx];
@@ -920,7 +931,6 @@ function updatePreviews() {
 		g.rotation.set(0, polarAngle, 0, 'XYZ');
 		g.updateMatrix();
 		g.updateMatrixWorld(true);
-		g.traverse(obj => { obj.frustumCulled = false; });
 		g.visible = true;
 		pIdx++;
             }
@@ -2119,12 +2129,11 @@ function handleRightMenuClick(cx, cy) {
             
             // Record change for undo if a stroke is active
             if (currentStrokeChanges) {
-                const prevColor = new THREE.Color();
-                const prevMat = getVoxelMatAndColor(gx, gy, gz, prevColor);
+                const prevMat = getVoxelMatAndColor(gx, gy, gz, undoScratchColor);
                 const targetMat = isP ? (mOver !== -1 ? mOver : matTypes[0]) : -1;
                 
                 // Only record if state actually changes
-                if (prevMat !== targetMat || (isP && !prevColor.equals(color))) {
+                if (prevMat !== targetMat || (isP && !undoScratchColor.equals(color))) {
                     const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
                     const existingIdx = currentStrokeVoxelTracker.get(vHash);
 
@@ -2134,7 +2143,7 @@ function handleRightMenuClick(cx, cy) {
                         currentStrokeChanges.push({ 
                             gx, gy, gz, 
                             prevMat, 
-                            prevColor: prevMat !== -1 ? prevColor.clone() : null,
+                            prevColor: prevMat !== -1 ? undoScratchColor.clone() : null,
                             nextMat: targetMat,
                             nextColor: isP ? color.clone() : null
                         });
@@ -2156,9 +2165,8 @@ function handleRightMenuClick(cx, cy) {
             if (m !== -1) {
                 // Record change for undo if a stroke is active
                 if (currentStrokeChanges && currentStrokeVoxelTracker) {
-                    const existingColor = queryColor.clone();
                     // Only record if state actually changes
-                    if (m !== targetM || !existingColor.equals(color)) {
+                    if (m !== targetM || !queryColor.equals(color)) {
                         const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
                         const existingIdx = currentStrokeVoxelTracker.get(vHash);
 
@@ -2168,16 +2176,15 @@ function handleRightMenuClick(cx, cy) {
                             currentStrokeChanges.push({ 
                                 gx, gy, gz, 
                                 prevMat: m, 
-                                prevColor: existingColor,
+                                prevColor: queryColor.clone(),
                                 nextMat: targetM,
                                 nextColor: color.clone()
                             });
-                            } else {
-                                const record = currentStrokeChanges[existingIdx];
-                                record.nextMat = targetM;
-                                record.nextColor = color.clone();
-                            }
-
+                        } else {
+                            const record = currentStrokeChanges[existingIdx];
+                            record.nextMat = targetM;
+                            record.nextColor = color.clone();
+                        }
                     }
                 }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
@@ -2917,10 +2924,9 @@ function placeBrushVoxels(pos, isP) {
     for (let gx = minX; gx <= maxX; gx++) {
         for (let gy = minY; gy <= maxY; gy++) {
             for (let gz = minZ; gz <= maxZ; gz++) {
-                const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
-                const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
-                
                 const isFace = (gx === minX || gx === maxX || gy === minY || gy === maxY || gz === minZ || gz === maxZ);
+                if (!isFace && boxMode === 'shell' && !clearInterior) continue;
+
                 const isOuterX = (gx >= minX && gx <= minX + w) || (gx <= maxX && gx >= maxX - w);
                 const isOuterY = (gy >= minY && gy <= minY + w) || (gy <= maxY && gy >= maxY - w);
                 const isOuterZ = (gz >= minZ && gz <= minZ + w) || (gz <= maxZ && gz >= maxZ - w);
@@ -2948,16 +2954,26 @@ function placeBrushVoxels(pos, isP) {
                 }
 
                 if (boxMode === 'wireframe') {
-                    if (isEdge || isDivVoxel) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
-                    else if (wireFill && isFace) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    if (isEdge || isDivVoxel) {
+                        const cSec = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 1);
+                        setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                    } else if (wireFill && isFace) {
+                        const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
+                        setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    }
                 } else if (boxMode === 'shell') {
-                    if (isFace) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    if (isFace) {
+                        const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
+                        setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    }
                 } else {
+                    const cMain = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, 0);
                     setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
                 }
             }
         }
     }
+
     leftMenuNeedsUpdate = true;
 }
 
@@ -4035,8 +4051,14 @@ controller0.addEventListener('selectstart', onSelectStart); controller1.addEvent
                 if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
                 if(needsSync(linePreviewMesh, showM)) syncMirrorProxies(linePreviewMesh, getMirrorProxies(linePreviewMesh), showM);
                 if(needsSync(lineWireframeMesh, showM)) syncMirrorProxies(lineWireframeMesh, getMirrorProxies(lineWireframeMesh), showM);
-                chunks.forEach(c=>c.updateBuffers());
+                if (dirtyLayers.size > 0) {
+                    for (const layer of dirtyLayers) {
+                        layer.updateBuffers();
+                    }
+                    dirtyLayers.clear();
+                }
             }
+
             if (renderMode === 'performance') {
                 const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
                 for (let i = 0; i < perfMaterials.length; i++) perfMaterials[i].size = effSize;
