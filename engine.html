@@ -2537,9 +2537,13 @@ leftMenuNeedsUpdate = true;
             const pressure = isRight ? rightTriggerValue : leftTriggerValue;
             if (pressure <= 0.05) return 1; // Deadzone
             
-            // Map the active pressure range (0.05 - 1.0) to (1 - brushSize)
+            // Map the active pressure range (0.05 - 1.0) to (0.0 - 1.0)
             const activePressure = (pressure - 0.05) / 0.95;
-            return Math.round(1 + (brushSize - 1) * activePressure);
+            
+            // Apply a smooth sine easing curve for more evenly shaped tapers
+            const easedPressure = -(Math.cos(Math.PI * activePressure) - 1) / 2;
+            
+            return Math.round(1 + (brushSize - 1) * easedPressure);
         }
 
 function placeBrushVoxels(pos, isP, overrideSize = brushSize) {
@@ -2622,9 +2626,22 @@ function placeBrushVoxels(pos, isP, overrideSize = brushSize) {
             }
         }
 
-        function drawLineVoxels(start, end, isP) {
-            const dist=start.distanceTo(end), steps=Math.min(600, Math.max(1, Math.ceil(dist/(VOXEL_SIZE*0.25)))); let lastG = {x:Infinity,y:Infinity,z:Infinity};
-            for (let i=0; i<=steps; i++) { tempPos.lerpVectors(start, end, i/steps); const gx=Math.round(tempPos.x/VOXEL_SIZE), gy=Math.round(tempPos.y/VOXEL_SIZE), gz=Math.round(tempPos.z/VOXEL_SIZE); if(gx!==lastG.x||gy!==lastG.y||gz!==lastG.z){ placeBrushVoxels(tempPos, isP); lastG={x:gx,y:gy,z:gz}; } }
+        function drawLineVoxels(start, end, isP, startSize = brushSize, endSize = brushSize) {
+            const dist = start.distanceTo(end);
+            const steps = Math.min(600, Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.25)))); 
+            let lastG = {x:Infinity, y:Infinity, z:Infinity};
+            let lastSize = -1;
+            for (let i = 0; i <= steps; i++) { 
+                const t = steps === 0 ? 1 : i / steps;
+                tempPos.lerpVectors(start, end, t); 
+                const currentSize = Math.round(startSize + (endSize - startSize) * t);
+                const gx = Math.round(tempPos.x / VOXEL_SIZE), gy = Math.round(tempPos.y / VOXEL_SIZE), gz = Math.round(tempPos.z / VOXEL_SIZE); 
+                if (gx !== lastG.x || gy !== lastG.y || gz !== lastG.z || currentSize !== lastSize) { 
+                    placeBrushVoxels(tempPos, isP, currentSize); 
+                    lastG = {x:gx, y:gy, z:gz}; 
+                    lastSize = currentSize;
+                } 
+            }
         }
 
         function drawPaintLineVoxels(start, end) {
@@ -3483,9 +3500,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
 
         function onSelectStart(event) {
-            // If already drawing/erasing via analog pressure bypass, ignore native select events
-            if (this === xrRight && isDrawing) return;
-            if (this === xrLeft && isErasing) return;
+            // Completely bypass native select events when analog pressure is driving the brush
+            if (event && activeTool === 'brush' && brushPressureMode) return;
             
             menuClickActive = false; // Reset on every press
             currentStrokeChanges = []; // Start recording changes for this action
@@ -3635,9 +3651,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         }
 
         function onSelectEnd(event) {
-            // Avoid double-firing for analog pressure brushes
-            if (this === xrRight && !isDrawing && activeTool === 'brush' && brushPressureMode) return;
-            if (this === xrLeft && !isErasing && activeTool === 'brush' && brushPressureMode) return;
+            // Completely bypass native select events when analog pressure is driving the brush
+            if (event && activeTool === 'brush' && brushPressureMode) return;
 
             // Commit logic moved to bottom of function
             if (this === xrRight) { 
@@ -4014,8 +4029,12 @@ if (joyChanged) { updateCursors(); if (Date.now() - lastColorJoystickUpdateTime 
                     }
                     else if(activeTool==='brush'){ 
                         const rEff = getEffectiveBrushSize(true);
-                        if(!rightTargetLocal.equals(lastPaintedPos) || (brushPressureMode && rEff !== lastDrawnRightEffSize)){ 
-                            placeBrushVoxels(rightTargetLocal,true, rEff); 
+                        if(lastPaintedPos.x === Infinity){ 
+                            placeBrushVoxels(rightTargetLocal, true, rEff); 
+                            lastPaintedPos.copy(rightTargetLocal); 
+                            lastDrawnRightEffSize = rEff;
+                        } else if(!rightTargetLocal.equals(lastPaintedPos) || (brushPressureMode && rEff !== lastDrawnRightEffSize)){ 
+                            drawLineVoxels(lastPaintedPos, rightTargetLocal, true, lastDrawnRightEffSize, rEff);
                             lastPaintedPos.copy(rightTargetLocal); 
                             lastDrawnRightEffSize = rEff;
                         } 
@@ -4058,8 +4077,12 @@ if (joyChanged) { updateCursors(); if (Date.now() - lastColorJoystickUpdateTime 
 
                     else if(activeTool==='brush'){ 
                         const lEff = getEffectiveBrushSize(false);
-                        if(!leftTargetLocal.equals(lastErasedPos) || (brushPressureMode && lEff !== lastDrawnLeftEffSize)){ 
-                            placeBrushVoxels(leftTargetLocal,false, lEff); 
+                        if(lastErasedPos.x === Infinity){ 
+                            placeBrushVoxels(leftTargetLocal, false, lEff); 
+                            lastErasedPos.copy(leftTargetLocal); 
+                            lastDrawnLeftEffSize = lEff;
+                        } else if(!leftTargetLocal.equals(lastErasedPos) || (brushPressureMode && lEff !== lastDrawnLeftEffSize)){ 
+                            drawLineVoxels(lastErasedPos, leftTargetLocal, false, lastDrawnLeftEffSize, lEff); 
                             lastErasedPos.copy(leftTargetLocal); 
                             lastDrawnLeftEffSize = lEff;
                         } 
