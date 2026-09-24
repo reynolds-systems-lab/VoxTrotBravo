@@ -1080,10 +1080,6 @@ function updateCursors(leftOverride, rightOverride) {
             }
 
             const isBoxShape = (brushShape === 'cube' && activeTool !== 'sculpt') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
-
-
-            const isBoxShape = (brushShape === 'cube' && activeTool !== 'sculpt') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
-
             const widthL = ((effSizeLeft - 1) * 2 + 1) * VOXEL_SIZE;
             const shapeKeyL = (isBoxShape ? 'box_' : 'sph_') + widthL;
             if (!cursorGeos[shapeKeyL]) cursorGeos[shapeKeyL] = isBoxShape ? new THREE.BoxGeometry(widthL, widthL, widthL) : new THREE.SphereGeometry(widthL / 2, 16, 16);
