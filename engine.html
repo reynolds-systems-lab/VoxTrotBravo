@@ -826,7 +826,8 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
             
             lineWireframeMesh.geometry.setFromPoints(wirePoints);
             lineWireframeMesh.visible = true;
-            lineWireframeMesh.material.color.setHex(isPainting ? 0x4facfe : 0xff0055);
+            if (isPainting) lineWireframeMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
+            else lineWireframeMesh.material.color.setHex(0xff0055);
 
             // Hide the expensive voxel preview during complex arc updates for performance
             linePreviewMesh.visible = false;
@@ -1095,6 +1096,7 @@ function updateCursors(leftOverride, rightOverride) {
             if (proxyMap.has(cursorLeft)) proxyMap.get(cursorLeft).forEach(m => m.geometry = geoL);
             if (proxyMap.has(cursorRight)) proxyMap.get(cursorRight).forEach(m => m.geometry = geoR);
             cursorRight.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]); 
+            cursorLeft.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]); 
         }
         updateCursors();
 
@@ -1694,12 +1696,6 @@ if (cy >= 60 && cy <= 90) {
         const colorMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: colorMenuTexture, transparent: true, side: THREE.DoubleSide }));
         colorMenuMesh.visible = false; colorMenuMesh.position.set(0, 0.15, -0.05); colorMenuMesh.rotation.x = -Math.PI / 4;
         xrLeft.add(colorMenuMesh);
-
-        const joyIndicatorMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const joyIndicator = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 16), joyIndicatorMat);
-        joyIndicator.visible = false;
-        joyIndicator.position.set(0, 0.05, 0); 
-        xrLeft.add(joyIndicator);
 
         function drawColorPickerUI(ctx, cx, cy, radius, sliderX, sliderY, sliderX_W, sliderX_H, targetColor, isMagnified) {
             targetColor.getHSL(tempHSL);
@@ -3826,15 +3822,23 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                                 if (Math.abs(yVal) > dead) { nL -= (yVal * 0.005); nL = Math.max(0, Math.min(1, nL));
                                 }
                                 tc.setHSL(joystickTracker[trackerIdx].h, joystickTracker[trackerIdx].s, nL);
-                                joyIndicatorMat.color.copy(tc); anyJoyActive = true; joyChanged = true;
+                                anyJoyActive = true; joyChanged = true;
                             }
                         } 
                     }
                 }
             }
-            joyIndicator.visible = anyJoyActive;
-if (joyChanged) { updateCursors(); if (Date.now() - lastColorJoystickUpdateTime > 50) { colorMenuNeedsUpdate = true; lastColorJoystickUpdateTime = Date.now();
-            } }
+            
+            if (joyChanged) { 
+                // Force pressure size recalculation by invalidating the cache
+                lastRightEffSize = -1;
+                lastLeftEffSize = -1;
+                updateCursors(); 
+                if (Date.now() - lastColorJoystickUpdateTime > 50) { 
+                    colorMenuNeedsUpdate = true; 
+                    lastColorJoystickUpdateTime = Date.now();
+                } 
+            }
         }
         
         let lastRightEffSize = -1;
@@ -3845,7 +3849,7 @@ if (joyChanged) { updateCursors(); if (Date.now() - lastColorJoystickUpdateTime 
         renderer.setAnimationLoop(() => {
             shiftProgress += 0.005 * shiftDir; if(shiftProgress>=1)shiftDir=-1; if(shiftProgress<=0)shiftDir=1;
             if (renderer.xr.isPresenting) {
-                const session = renderer.xr.getSession(); if(session) for(let i=0;i<session.inputSources.length;i++){ const s=session.inputSources[i]; if(s){ const c=i===0?controller0:controller1, g=i===0?grip0:grip1; if(s.handedness==='right'&&xrRight!==c){ xrRight=c; gripRight=g; xrRight.add(rightLaserLine, rightMenuMesh, globalMenuMesh); } else if(s.handedness==='left'&&xrLeft!==c){ xrLeft=c; gripLeft=g; xrLeft.add(leftLaserLine, leftMenuMesh, colorMenuMesh, joyIndicator); } } }
+                const session = renderer.xr.getSession(); if(session) for(let i=0;i<session.inputSources.length;i++){ const s=session.inputSources[i]; if(s){ const c=i===0?controller0:controller1, g=i===0?grip0:grip1; if(s.handedness==='right'&&xrRight!==c){ xrRight=c; gripRight=g; xrRight.add(rightLaserLine, rightMenuMesh, globalMenuMesh); } else if(s.handedness==='left'&&xrLeft!==c){ xrLeft=c; gripLeft=g; xrLeft.add(leftLaserLine, leftMenuMesh, colorMenuMesh); } } }
                 if(xrLeft){ leftPointerPos.setFromMatrixPosition(xrLeft.matrixWorld); leftDir.set(0,0,-1).transformDirection(xrLeft.matrixWorld); } if(xrRight){ rightPointerPos.setFromMatrixPosition(xrRight.matrixWorld); rightDir.set(0,0,-1).transformDirection(xrRight.matrixWorld); }
                 pollGamepads();
                 
@@ -4161,7 +4165,7 @@ if (joyChanged) { updateCursors(); if (Date.now() - lastColorJoystickUpdateTime 
 
 			lineWireframeMesh.geometry.setFromPoints(wirePoints);
 			lineWireframeMesh.geometry.computeBoundingSphere();
-			lineWireframeMesh.material.color.setHex(0x00ffcc);  
+			lineWireframeMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);  
                         lineWireframeMesh.visible = true;
                         linePreviewMesh.visible = false; // Hide the heavy voxel preview
                     } else {
