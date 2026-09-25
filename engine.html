@@ -1081,14 +1081,29 @@ function updateCursors(leftOverride, rightOverride) {
             }
 
             const isBoxShape = (brushShape === 'cube' && activeTool !== 'sculpt') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
+            const isRibbonShape = (brushShape === 'ribbon' && activeTool !== 'sculpt');
             const widthL = ((effSizeLeft - 1) * 2 + 1) * VOXEL_SIZE;
-            const shapeKeyL = (isBoxShape ? 'box_' : 'sph_') + widthL;
-            if (!cursorGeos[shapeKeyL]) cursorGeos[shapeKeyL] = isBoxShape ? new THREE.BoxGeometry(widthL, widthL, widthL) : new THREE.SphereGeometry(widthL / 2, 16, 16);
+            const shapeKeyL = (isRibbonShape ? 'rib_' : (isBoxShape ? 'box_' : 'sph_')) + widthL;
+            if (!cursorGeos[shapeKeyL]) {
+                if (isRibbonShape) {
+                    const ribbonWidth = effSizeLeft * 2 * VOXEL_SIZE;
+                    cursorGeos[shapeKeyL] = new THREE.BoxGeometry(ribbonWidth, VOXEL_SIZE * 1.5, VOXEL_SIZE * 1.5);
+                } else {
+                    cursorGeos[shapeKeyL] = isBoxShape ? new THREE.BoxGeometry(widthL, widthL, widthL) : new THREE.SphereGeometry(widthL / 2, 16, 16);
+                }
+            }
             const geoL = cursorGeos[shapeKeyL];
             
             const widthR = ((effSizeRight - 1) * 2 + 1) * VOXEL_SIZE;
-            const shapeKeyR = (isBoxShape ? 'box_' : 'sph_') + widthR;
-            if (!cursorGeos[shapeKeyR]) cursorGeos[shapeKeyR] = isBoxShape ? new THREE.BoxGeometry(widthR, widthR, widthR) : new THREE.SphereGeometry(widthR / 2, 16, 16);
+            const shapeKeyR = (isRibbonShape ? 'rib_' : (isBoxShape ? 'box_' : 'sph_')) + widthR;
+            if (!cursorGeos[shapeKeyR]) {
+                if (isRibbonShape) {
+                    const ribbonWidth = effSizeRight * 2 * VOXEL_SIZE;
+                    cursorGeos[shapeKeyR] = new THREE.BoxGeometry(ribbonWidth, VOXEL_SIZE * 1.5, VOXEL_SIZE * 1.5);
+                } else {
+                    cursorGeos[shapeKeyR] = isBoxShape ? new THREE.BoxGeometry(widthR, widthR, widthR) : new THREE.SphereGeometry(widthR / 2, 16, 16);
+                }
+            }
             const geoR = cursorGeos[shapeKeyR];
 
             cursorLeft.geometry = geoL; 
@@ -1346,10 +1361,11 @@ function updatePlanePreview(start, end, isPainting) {
             leftMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; leftMenuCtx.fillRect(0, 0, 512, 512);
             leftMenuCtx.fillStyle = '#4facfe'; leftMenuCtx.font = 'bold 22px sans-serif'; leftMenuCtx.textAlign = 'center';
             leftMenuCtx.fillText(`Tool Options | Blocks: ${totalActiveVoxels.toLocaleString()}`, 256, 30);
-if (activeTool === 'brush') {
-            drawButton(leftMenuCtx, 50, 70, 200, 50, 'Shape: CUBE', brushShape === 'cube'); 
-            drawButton(leftMenuCtx, 262, 70, 200, 50, 'Shape: SPHERE', brushShape === 'sphere');
-            drawButton(leftMenuCtx, 50, 140, 200, 50, 'SOLID', brushVolume === 'solid'); 
+        if (activeTool === 'brush') {
+            drawButton(leftMenuCtx, 50, 70, 130, 50, 'CUBE', brushShape === 'cube'); 
+            drawButton(leftMenuCtx, 190, 70, 130, 50, 'SPHERE', brushShape === 'sphere');
+            drawButton(leftMenuCtx, 330, 70, 132, 50, 'RIBBON', brushShape === 'ribbon');
+            drawButton(leftMenuCtx, 50, 140, 200, 50, 'SOLID', brushVolume === 'solid');  
             drawButton(leftMenuCtx, 262, 140, 200, 50, 'SHELL', brushVolume === 'shell');
             drawButton(leftMenuCtx, 50, 210, 80, 50, '[-]', false); 
             drawButton(leftMenuCtx, 140, 210, 232, 50, `Radius: ${brushSize}`, false); 
@@ -1581,7 +1597,7 @@ if (cy >= 60 && cy <= 90) {
                 if (cy >= 70 && cy <= 110) { if (cx >= 50 && cx <= 250) selectMode = 'box'; if (cx >= 262 && cx <= 462) selectMode = 'connected'; } 
                 if (cy >= 120 && cy <= 160) { if (cx >= 50 && cx <= 180) selectFilter = 'all'; if (cx >= 190 && cx <= 320) selectFilter = 'color'; if (cx >= 330 && cx <= 462) selectFilter = 'material'; }
 	    } else if (activeTool === 'brush') {
-                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; }
+                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 180) brushShape = 'cube'; else if (cx >= 190 && cx <= 320) brushShape = 'sphere'; else if (cx >= 330 && cx <= 462) brushShape = 'ribbon'; }
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                 if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(20, brushSize + 1); } 
                 if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 462) brushPressureMode = !brushPressureMode; }
@@ -2558,30 +2574,47 @@ leftMenuNeedsUpdate = true;
             return Math.round(1 + (sculptSize - 1) * easedPressure);
         }
 
-function placeBrushVoxels(pos, isP, overrideSize = brushSize) {
+function placeBrushVoxels(pos, isP, overrideSize = brushSize, ctrlQuat = null) {
     const r = overrideSize - 1;
+    const loopR = (brushShape === 'ribbon') ? Math.ceil(overrideSize * 1.5) : r;
     // We use a slightly tighter rSq for the outer boundary to keep the shell thin
     const rSqOuter = (r + 0.4) * (r + 0.4);
     const cGx = Math.round(pos.x / VOXEL_SIZE);
     const cGy = Math.round(pos.y / VOXEL_SIZE);
     const cGz = Math.round(pos.z / VOXEL_SIZE);
 
+    let wQuat = new THREE.Quaternion();
+    let invCtrlQuat = new THREE.Quaternion();
+    let localOffset = new THREE.Vector3();
+    if (brushShape === 'ribbon' && ctrlQuat) {
+        worldGroup.getWorldQuaternion(wQuat);
+        invCtrlQuat.copy(ctrlQuat).invert();
+    }
+
     // Helper to determine if a relative coordinate is within the brush shape
     const isInside = (dx, dy, dz) => {
         if (brushShape === 'sphere') {
             return (dx * dx + dy * dy + dz * dz <= rSqOuter);
+        } else if (brushShape === 'ribbon' && ctrlQuat) {
+            localOffset.set(dx * VOXEL_SIZE, dy * VOXEL_SIZE, dz * VOXEL_SIZE);
+            localOffset.applyQuaternion(wQuat);
+            localOffset.applyQuaternion(invCtrlQuat);
+            const halfW = overrideSize * VOXEL_SIZE;
+            const halfH = VOXEL_SIZE * 0.75;
+            const halfD = VOXEL_SIZE * 0.75;
+            return Math.abs(localOffset.x) <= halfW && Math.abs(localOffset.y) <= halfH && Math.abs(localOffset.z) <= halfD;
         } else {
             return (Math.abs(dx) <= r && Math.abs(dy) <= r && Math.abs(dz) <= r);
         }
     };
 
     // Determine the bounds for color gradients
-    const minX = cGx - r, maxX = cGx + r;
-    const minY = cGy - r, maxY = cGy + r;
+    const minX = cGx - loopR, maxX = cGx + loopR;
+    const minY = cGy - loopR, maxY = cGy + loopR;
 
-    for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-            for (let dz = -r; dz <= r; dz++) {
+    for (let dx = -loopR; dx <= loopR; dx++) {
+        for (let dy = -loopR; dy <= loopR; dy++) {
+            for (let dz = -loopR; dz <= loopR; dz++) {
                 // Skip coordinates outside the primary brush volume
                 if (!isInside(dx, dy, dz)) continue;
 
@@ -2638,18 +2671,20 @@ function placeBrushVoxels(pos, isP, overrideSize = brushSize) {
             }
         }
 
-        function drawLineVoxels(start, end, isP, startSize = brushSize, endSize = brushSize) {
+        function drawLineVoxels(start, end, isP, startSize = brushSize, endSize = brushSize, startQuat = null, endQuat = null) {
             const dist = start.distanceTo(end);
             const steps = Math.min(600, Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.25)))); 
             let lastG = {x:Infinity, y:Infinity, z:Infinity};
             let lastSize = -1;
+            let tempQ = new THREE.Quaternion();
             for (let i = 0; i <= steps; i++) { 
                 const t = steps === 0 ? 1 : i / steps;
                 tempPos.lerpVectors(start, end, t); 
                 const currentSize = Math.round(startSize + (endSize - startSize) * t);
                 const gx = Math.round(tempPos.x / VOXEL_SIZE), gy = Math.round(tempPos.y / VOXEL_SIZE), gz = Math.round(tempPos.z / VOXEL_SIZE); 
                 if (gx !== lastG.x || gy !== lastG.y || gz !== lastG.z || currentSize !== lastSize) { 
-                    placeBrushVoxels(tempPos, isP, currentSize); 
+                    if (startQuat && endQuat) tempQ.slerpQuaternions(startQuat, endQuat, t);
+                    placeBrushVoxels(tempPos, isP, currentSize, startQuat && endQuat ? tempQ : null); 
                     lastG = {x:gx, y:gy, z:gz}; 
                     lastSize = currentSize;
                 } 
@@ -3464,6 +3499,8 @@ function executeCylinderTool(startPos, endPos, isPainting) {
 let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=false, rightMenuHovered=false, globalMenuHovered=false, leftMenuHovered=false, colorMenuHovered=false;
         let rightMenuUV={x:0,y:0}, globalMenuUV={x:0,y:0}, leftMenuUV={x:0,y:0}, colorMenuUV={x:0,y:0}, isRightGripping=false, isLeftGripping=false;
         const prevRightPos=new THREE.Vector3(), prevLeftPos=new THREE.Vector3(), prevMid=new THREE.Vector3(), prevHandVec=new THREE.Vector3(), rightPos=new THREE.Vector3(), leftPos=new THREE.Vector3(), rightDir=new THREE.Vector3(), leftDir=new THREE.Vector3(), rightTargetLocal=new THREE.Vector3(), leftTargetLocal=new THREE.Vector3(), lastPaintedPos=new THREE.Vector3(Infinity,Infinity,Infinity), lastErasedPos=new THREE.Vector3(Infinity,Infinity,Infinity);
+        const lastPaintedQuatRight = new THREE.Quaternion();
+        const lastErasedQuatLeft = new THREE.Quaternion();
         let prevGripDist=0;
 
         function stampSelection(ox, oy, oz) { for(let i=0; i<selectedVoxelsCount; i++){ const v=selectedVoxels[i]; setVoxel(v.x + ox, v.y + oy, v.z + oz, true, v.color, v.mat); } }
@@ -3901,12 +3938,35 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                 if(gripRight) gripRight.getWorldPosition(rightPos); if(gripLeft) gripLeft.getWorldPosition(leftPos);
                 if(isRightGripping&&isLeftGripping){ const dist=rightPos.distanceTo(leftPos); midPos.copy(rightPos).lerp(leftPos,0.5); currentHandVec.subVectors(rightPos,leftPos).normalize(); if(prevGripDist>0){ const sD=dist/prevGripDist; panDelta.copy(midPos).sub(prevMid); tempQuat.setFromUnitVectors(prevHandVec,currentHandVec); if(isVerticalLock){ tempPXZ.set(prevHandVec.x,0,prevHandVec.z).normalize(); tempCXZ.set(currentHandVec.x,0,currentHandVec.z).normalize(); if(tempPXZ.lengthSq()>0.001&&tempCXZ.lengthSq()>0.001)tempQuat.setFromUnitVectors(tempPXZ,tempCXZ); else tempQuat.identity(); } worldGroup.position.add(panDelta).sub(midPos).multiplyScalar(sD).applyQuaternion(tempQuat).add(midPos); worldGroup.scale.multiplyScalar(sD); worldGroup.quaternion.premultiply(tempQuat); } prevGripDist=dist; prevMid.copy(midPos); prevHandVec.copy(currentHandVec); prevRightPos.copy(rightPos); prevLeftPos.copy(leftPos); } else if(isRightGripping){ worldGroup.position.add(tempPos.copy(rightPos).sub(prevRightPos)); prevRightPos.copy(rightPos); } else if(isLeftGripping){ worldGroup.position.add(tempPos.copy(leftPos).sub(prevLeftPos)); prevLeftPos.copy(leftPos); } else prevGripDist=0;
                 
-                if(xrLeft){ leftTargetLocal.copy(leftPointerPos).addScaledVector(leftDir,0.05); worldGroup.worldToLocal(leftTargetLocal); leftTargetLocal.set(Math.round(leftTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(leftTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(leftTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); cursorLeft.position.copy(leftTargetLocal); cursorLeft.updateMatrix(); cursorLeft.visible=true; } else cursorLeft.visible=false;
+                if(xrLeft){ 
+                    leftTargetLocal.copy(leftPointerPos).addScaledVector(leftDir,0.05); worldGroup.worldToLocal(leftTargetLocal); leftTargetLocal.set(Math.round(leftTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(leftTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(leftTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
+                    cursorLeft.position.copy(leftTargetLocal); 
+                    if (brushShape === 'ribbon' && activeTool === 'brush') {
+                        let wQuat = new THREE.Quaternion();
+                        worldGroup.getWorldQuaternion(wQuat).invert();
+                        let cQuat = new THREE.Quaternion();
+                        xrLeft.getWorldQuaternion(cQuat);
+                        cursorLeft.quaternion.copy(wQuat).multiply(cQuat);
+                    } else {
+                        cursorLeft.quaternion.identity();
+                    }
+                    cursorLeft.updateMatrix(); cursorLeft.visible=true; 
+                } else cursorLeft.visible=false;
                 
                 if(xrRight){ 
                     rightTargetLocal.copy(rightPointerPos).addScaledVector(rightDir,0.05); worldGroup.worldToLocal(rightTargetLocal); 
                     rightTargetLocal.set(Math.round(rightTargetLocal.x/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.y/VOXEL_SIZE)*VOXEL_SIZE,Math.round(rightTargetLocal.z/VOXEL_SIZE)*VOXEL_SIZE); 
-                    cursorRight.position.copy(rightTargetLocal); cursorRight.updateMatrix(); cursorRight.visible=true; 
+                    cursorRight.position.copy(rightTargetLocal); 
+                    if (brushShape === 'ribbon' && activeTool === 'brush') {
+                        let wQuat = new THREE.Quaternion();
+                        worldGroup.getWorldQuaternion(wQuat).invert();
+                        let cQuat = new THREE.Quaternion();
+                        xrRight.getWorldQuaternion(cQuat);
+                        cursorRight.quaternion.copy(wQuat).multiply(cQuat);
+                    } else {
+                        cursorRight.quaternion.identity();
+                    }
+                    cursorRight.updateMatrix(); cursorRight.visible=true; 
                     // Real-time Arc Control: Dynamic Bulge via Wrist Pitch
                     if (activeTool === 'line' && lineType === 'arc' && xrRight && arcControlMode === 'dynamic') {
                         const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
@@ -4059,12 +4119,15 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     else if(activeTool==='brush'){ 
                         const rEff = getEffectiveBrushSize(true);
                         if(lastPaintedPos.x === Infinity){ 
-                            placeBrushVoxels(rightTargetLocal, true, rEff); 
+                            xrRight.getWorldQuaternion(lastPaintedQuatRight);
+                            placeBrushVoxels(rightTargetLocal, true, rEff, lastPaintedQuatRight); 
                             lastPaintedPos.copy(rightTargetLocal); 
                             lastDrawnRightEffSize = rEff;
                         } else if(!rightTargetLocal.equals(lastPaintedPos) || (brushPressureMode && rEff !== lastDrawnRightEffSize)){ 
-                            drawLineVoxels(lastPaintedPos, rightTargetLocal, true, lastDrawnRightEffSize, rEff);
+                            const curQuat = xrRight.getWorldQuaternion(new THREE.Quaternion());
+                            drawLineVoxels(lastPaintedPos, rightTargetLocal, true, lastDrawnRightEffSize, rEff, lastPaintedQuatRight, curQuat);
                             lastPaintedPos.copy(rightTargetLocal); 
+                            lastPaintedQuatRight.copy(curQuat);
                             lastDrawnRightEffSize = rEff;
                         } 
                     } else if(activeTool==='sculpt') {
@@ -4110,12 +4173,15 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     else if(activeTool==='brush'){ 
                         const lEff = getEffectiveBrushSize(false);
                         if(lastErasedPos.x === Infinity){ 
-                            placeBrushVoxels(leftTargetLocal, false, lEff); 
+                            xrLeft.getWorldQuaternion(lastErasedQuatLeft);
+                            placeBrushVoxels(leftTargetLocal, false, lEff, lastErasedQuatLeft); 
                             lastErasedPos.copy(leftTargetLocal); 
                             lastDrawnLeftEffSize = lEff;
                         } else if(!leftTargetLocal.equals(lastErasedPos) || (brushPressureMode && lEff !== lastDrawnLeftEffSize)){ 
-                            drawLineVoxels(lastErasedPos, leftTargetLocal, false, lastDrawnLeftEffSize, lEff); 
+                            const curQuat = xrLeft.getWorldQuaternion(new THREE.Quaternion());
+                            drawLineVoxels(lastErasedPos, leftTargetLocal, false, lastDrawnLeftEffSize, lEff, lastErasedQuatLeft, curQuat); 
                             lastErasedPos.copy(leftTargetLocal); 
+                            lastErasedQuatLeft.copy(curQuat);
                             lastDrawnLeftEffSize = lEff;
                         } 
                     } else if(activeTool==='sculpt') {
