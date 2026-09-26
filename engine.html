@@ -3367,7 +3367,7 @@ function executeCylinderTool(startPos, endPos, isPainting) {
 
                             if (isEdge || (isDivPos && cylinderCap)) {
                                 shouldDraw = true; drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 1); drawMat = matTypes[1];
-                            } else if (wireFill) {{
+                            } else if (wireFill) {
                                 shouldDraw = true; if (!cylinderCap && isCap) shouldDraw = false;
                             }
                         } else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
