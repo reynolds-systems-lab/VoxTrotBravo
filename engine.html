@@ -149,6 +149,9 @@
         let brushVolume = 'shell';
         let brushSize = 1;
 	let brushPressureMode = false; // New: optional pressure mode
+        let particleSpeed = 1.0;
+        let particleCount = 20;
+        const activeParticles = [];
         let rightTriggerValue = 0; // New: tracking trigger pressure
         let leftTriggerValue = 0; // New: tracking trigger pressure 
 
@@ -767,6 +770,7 @@
         function hideAllPreviews() {
             boxPreviewMesh.visible = spherePreviewMesh.visible = cylinderPreviewMesh.visible = 
             conePreviewMesh.visible = polyPreviewMesh.visible = lineWireframeMesh.visible = false;
+            if (typeof particleInstancedMesh !== 'undefined') particleInstancedMesh.visible = false;
         }
 
 const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false }), 80000);
@@ -785,6 +789,16 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
         linePreviewMesh.matrixAutoUpdate = false; 
         linePreviewMesh.updateMatrix();
         linePreviewMesh.visible = false;
+
+        const particleInstancedMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8 }), 100);
+        particleInstancedMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+        particleInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        particleInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(100 * 3), 3, true);
+        particleInstancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        particleInstancedMesh.matrixAutoUpdate = false;
+        particleInstancedMesh.updateMatrix();
+        particleInstancedMesh.visible = false;
+        worldGroup.add(particleInstancedMesh);
 
 
         // New High-Fidelity Wireframe Preview for Lines/Arcs
@@ -1080,8 +1094,8 @@ function updateCursors(leftOverride, rightOverride) {
                 effSizeRight = rightOverride !== undefined ? rightOverride : sculptSize;
             }
 
-            const isBoxShape = (brushShape === 'cube' && activeTool !== 'sculpt') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
-            const isRibbonShape = (brushShape === 'ribbon' && activeTool !== 'sculpt');
+            const isBoxShape = (brushShape === 'cube' && activeTool !== 'sculpt' && activeTool !== 'particle') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
+            const isRibbonShape = (brushShape === 'ribbon' && activeTool !== 'sculpt' && activeTool !== 'particle');
             const widthL = ((effSizeLeft - 1) * 2 + 1) * VOXEL_SIZE;
             const shapeKeyL = (isRibbonShape ? 'rib_' : (isBoxShape ? 'box_' : 'sph_')) + widthL;
             if (!cursorGeos[shapeKeyL]) {
@@ -1371,6 +1385,10 @@ function updatePlanePreview(start, end, isPainting) {
             drawButton(leftMenuCtx, 140, 210, 232, 50, `Radius: ${brushSize}`, false); 
             drawButton(leftMenuCtx, 382, 210, 80, 50, '[+]', false);
             drawButton(leftMenuCtx, 50, 280, 412, 50, `Pressure Size: ${brushPressureMode ? 'ON' : 'OFF'}`, brushPressureMode);
+        } else if (activeTool === 'particle') {
+            drawButton(leftMenuCtx, 50, 70, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 70, 232, 50, `Radius: ${brushSize}`, false); drawButton(leftMenuCtx, 382, 70, 80, 50, '[+]', false);
+            drawButton(leftMenuCtx, 50, 140, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 140, 232, 50, `Speed: ${particleSpeed.toFixed(1)}`, false); drawButton(leftMenuCtx, 382, 140, 80, 50, '[+]', false);
+            drawButton(leftMenuCtx, 50, 210, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 210, 232, 50, `Count: ${particleCount}`, false); drawButton(leftMenuCtx, 382, 210, 80, 50, '[+]', false);
         } else if (activeTool === 'extrude') {
             drawButton(leftMenuCtx, 20, 60, 110, 40, 'FREE', extrudeAxis === 'free');
             drawButton(leftMenuCtx, 140, 60, 110, 40, 'X', extrudeAxis === 'X');
@@ -1596,12 +1614,15 @@ if (cy >= 60 && cy <= 90) {
             } else if (activeTool === 'select' && !hasSelection) { 
                 if (cy >= 70 && cy <= 110) { if (cx >= 50 && cx <= 250) selectMode = 'box'; if (cx >= 262 && cx <= 462) selectMode = 'connected'; } 
                 if (cy >= 120 && cy <= 160) { if (cx >= 50 && cx <= 180) selectFilter = 'all'; if (cx >= 190 && cx <= 320) selectFilter = 'color'; if (cx >= 330 && cx <= 462) selectFilter = 'material'; }
-	    } else if (activeTool === 'brush') {
+            } else if (activeTool === 'brush') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 180) brushShape = 'cube'; else if (cx >= 190 && cx <= 320) brushShape = 'sphere'; else if (cx >= 330 && cx <= 462) brushShape = 'ribbon'; }
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
                 if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(20, brushSize + 1); } 
                 if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 462) brushPressureMode = !brushPressureMode; }
-
+            } else if (activeTool === 'particle') {
+                if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 130) brushSize = Math.max(1, brushSize - 1); if (cx >= 382 && cx <= 462) brushSize = Math.min(20, brushSize + 1); }
+                if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 130) particleSpeed = Math.max(0.1, particleSpeed - 0.2); if (cx >= 382 && cx <= 462) particleSpeed = Math.min(5.0, particleSpeed + 0.2); }
+                if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) particleCount = Math.max(5, particleCount - 5); if (cx >= 382 && cx <= 462) particleCount = Math.min(100, particleCount + 5); }
             } else if (activeTool === 'extrude') {
                 if (cy >= 60 && cy <= 100) { 
                     if (cx >= 20 && cx <= 130) extrudeAxis = 'free'; 
@@ -1804,22 +1825,23 @@ if (cy >= 60 && cy <= 90) {
         function updateRightMenuTexture() {
             rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; rightMenuCtx.fillRect(0, 0, 512, 512);
             rightMenuCtx.fillStyle = '#4facfe'; rightMenuCtx.font = 'bold 28px sans-serif'; rightMenuCtx.textAlign = 'center'; rightMenuCtx.fillText(`Tool Selection`, 256, 28);
-            const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'extrude', label: 'Extrude (Pull)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' } ];
-            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 42 + i * 35, 412, 31, tools[i].label, activeTool === tools[i].id);
+            const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'particle', label: 'Particle Brush' }, { id: 'extrude', label: 'Extrude (Pull)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' } ];
+            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 40 + i * 35, 412, 31, tools[i].label, activeTool === tools[i].id);
             rightMenuTexture.needsUpdate = true;
         }
 
-function handleRightMenuClick(cx, cy) {
-            if (cx >= 50 && cx <= 462 && cy >= 42 && cy <= 42 + 12 * 35) {
-                const idx = Math.floor((cy - 42) / 35);
+        function handleRightMenuClick(cx, cy) {
+            if (cx >= 50 && cx <= 462 && cy >= 40 && cy <= 40 + 13 * 35) {
+                const idx = Math.floor((cy - 40) / 35);
                 
-                if (idx >= 0 && idx < 12) {
+                if (idx >= 0 && idx < 13) {
                     if (hasSelection) applySelection();
                     isPreviewingBox = isPreviewingSphere = isPreviewingPlane = isPreviewingTriangle = isPreviewingCylinder = isPreviewingIcosahedron = false;
                     boxPreviewMesh.visible = spherePreviewMesh.visible = bucketPreviewMesh.visible = linePreviewMesh.visible = lineWireframeMesh.visible = false;
-
+                    if (typeof particleInstancedMesh !== 'undefined') particleInstancedMesh.visible = false;
+                    activeParticles.length = 0;
                     
-                    const tools = ['brush', 'extrude', 'line', 'paint', 'sculpt', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select'];
+                    const tools = ['brush', 'particle', 'extrude', 'line', 'paint', 'sculpt', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select'];
                     
                     activeTool = tools[idx];
                     
@@ -3729,7 +3751,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='plane'&&isPreviewingPlane){ executePlaneTool(drawStartPos,rightTargetLocal,true); isPreviewingPlane=false; boxPreviewMesh.visible=false; } 
                     if(activeTool==='triangle'&&isPreviewingTriangle){ executeTriangleTool(drawStartPos,rightTargetLocal,true); isPreviewingTriangle=false; conePreviewMesh.visible=false; } 
                     if(activeTool==='icosahedron'&&isPreviewingIcosahedron){ executeIcosahedronTool(drawStartPos,rightTargetLocal,true); isPreviewingIcosahedron=false; polyPreviewMesh.visible=false; } 
-                    lastPaintedPos.set(Infinity,Infinity,Infinity); 
+                    if(activeTool==='particle') { activeParticles.length = 0; particleInstancedMesh.visible = false; spherePreviewMesh.visible = false; }
+                    lastPaintedPos.set(Infinity,Infinity,Infinity);  
                 } 
             }
             else if (this === xrLeft) { 
@@ -3753,6 +3776,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                 if(activeTool==='plane'&&isPreviewingPlane){ executePlaneTool(drawStartPos,leftTargetLocal,false); isPreviewingPlane=false; boxPreviewMesh.visible=false; } 
                 if(activeTool==='triangle'&&isPreviewingTriangle){ executeTriangleTool(drawStartPos,leftTargetLocal,false); isPreviewingTriangle=false; conePreviewMesh.visible=false; } 
                 if(activeTool==='icosahedron'&&isPreviewingIcosahedron){ executeIcosahedronTool(drawStartPos,leftTargetLocal,false); isPreviewingIcosahedron=false; polyPreviewMesh.visible=false; } 
+                if(activeTool==='particle') { activeParticles.length = 0; particleInstancedMesh.visible = false; spherePreviewMesh.visible = false; }
                 lastErasedPos.set(Infinity,Infinity,Infinity); 
             }
             hideAllPreviews();
@@ -4116,7 +4140,80 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                             linePreviewMesh.visible = true;
                         }
                     }
-                    else if(activeTool==='brush'){ 
+                    } else if(activeTool==='particle'){
+                        const center = rightTargetLocal;
+                        const radiusWorld = brushSize * VOXEL_SIZE;
+                        
+                        if (activeParticles.length < particleCount) {
+                            while(activeParticles.length < particleCount) {
+                                const vel = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+                                const wasSolid = getVoxelMatAndColor(Math.round(center.x/VOXEL_SIZE), Math.round(center.y/VOXEL_SIZE), Math.round(center.z/VOXEL_SIZE), tempColor) !== -1;
+                                activeParticles.push({ pos: center.clone(), prevPos: center.clone(), vel: vel, wasSolid: wasSolid });
+                            }
+                        } else if (activeParticles.length > particleCount) {
+                            activeParticles.length = particleCount;
+                        }
+
+                        const colArray = particleInstancedMesh.instanceColor.array;
+                        const matColor = slotColors[activeMatSlot][activeColorSubSlot];
+                        const rVal = Math.round(matColor.r * 255), gVal = Math.round(matColor.g * 255), bVal = Math.round(matColor.b * 255);
+                        
+                        for(let i=0; i<activeParticles.length; i++) {
+                            const p = activeParticles[i];
+                            p.prevPos.copy(p.pos);
+                            p.pos.addScaledVector(p.vel, particleSpeed * VOXEL_SIZE * 0.15);
+
+                            const dist = p.pos.distanceTo(center);
+                            if (dist > radiusWorld) {
+                                const normal = new THREE.Vector3().subVectors(p.pos, center).normalize();
+                                p.vel.reflect(normal);
+                                p.vel.add(new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2)).normalize();
+                                p.pos.copy(center).addScaledVector(normal, radiusWorld - 0.001);
+                            }
+
+                            const gx = Math.round(p.pos.x / VOXEL_SIZE);
+                            const gy = Math.round(p.pos.y / VOXEL_SIZE);
+                            const gz = Math.round(p.pos.z / VOXEL_SIZE);
+                            
+                            const isSolid = getVoxelMatAndColor(gx, gy, gz, tempColor) !== -1;
+                            
+                            if (isSolid && !p.wasSolid) {
+                                const pgx = Math.round(p.prevPos.x / VOXEL_SIZE);
+                                const pgy = Math.round(p.prevPos.y / VOXEL_SIZE);
+                                const pgz = Math.round(p.prevPos.z / VOXEL_SIZE);
+                                
+                                if (getVoxelMatAndColor(pgx, pgy, pgz, tempColor) === -1) {
+                                    setVoxel(pgx, pgy, pgz, true, matColor, matTypes[activeMatSlot]);
+                                    
+                                    const newVel = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+                                    p.pos.copy(center);
+                                    p.prevPos.copy(center);
+                                    p.vel.copy(newVel);
+                                    p.wasSolid = getVoxelMatAndColor(Math.round(center.x/VOXEL_SIZE), Math.round(center.y/VOXEL_SIZE), Math.round(center.z/VOXEL_SIZE), tempColor) !== -1;
+                                } else {
+                                    p.wasSolid = isSolid;
+                                }
+                            } else {
+                                p.wasSolid = isSolid;
+                            }
+                            
+                            tempMatrix.makeTranslation(p.pos.x, p.pos.y, p.pos.z);
+                            particleInstancedMesh.setMatrixAt(i, tempMatrix);
+                            colArray[i * 3] = rVal; colArray[i * 3 + 1] = gVal; colArray[i * 3 + 2] = bVal;
+                        }
+                        
+                        particleInstancedMesh.instanceMatrix.needsUpdate = true;
+                        particleInstancedMesh.instanceColor.needsUpdate = true;
+                        particleInstancedMesh.count = activeParticles.length;
+                        particleInstancedMesh.visible = true;
+                        
+                        spherePreviewMesh.position.copy(center);
+                        spherePreviewMesh.scale.set(radiusWorld*2 + VOXEL_SIZE, radiusWorld*2 + VOXEL_SIZE, radiusWorld*2 + VOXEL_SIZE);
+                        spherePreviewMesh.updateMatrix();
+                        spherePreviewMesh.visible = true;
+                        spherePreviewMesh.material.wireframe = true;
+                        spherePreviewMesh.material.color.copy(matColor);
+                    } else if(activeTool==='brush'){ 
                         const rEff = getEffectiveBrushSize(true);
                         if(lastPaintedPos.x === Infinity){ 
                             xrRight.getWorldQuaternion(lastPaintedQuatRight);
@@ -4170,7 +4267,70 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         }
                     }
 
-                    else if(activeTool==='brush'){ 
+                    else if(activeTool==='particle'){
+                        const center = leftTargetLocal;
+                        const radiusWorld = brushSize * VOXEL_SIZE;
+                        
+                        if (activeParticles.length < particleCount) {
+                            while(activeParticles.length < particleCount) {
+                                const vel = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+                                const wasSolid = getVoxelMatAndColor(Math.round(center.x/VOXEL_SIZE), Math.round(center.y/VOXEL_SIZE), Math.round(center.z/VOXEL_SIZE), tempColor) !== -1;
+                                activeParticles.push({ pos: center.clone(), prevPos: center.clone(), vel: vel, wasSolid: wasSolid });
+                            }
+                        } else if (activeParticles.length > particleCount) {
+                            activeParticles.length = particleCount;
+                        }
+
+                        const colArray = particleInstancedMesh.instanceColor.array;
+                        
+                        for(let i=0; i<activeParticles.length; i++) {
+                            const p = activeParticles[i];
+                            p.prevPos.copy(p.pos);
+                            p.pos.addScaledVector(p.vel, particleSpeed * VOXEL_SIZE * 0.15);
+
+                            const dist = p.pos.distanceTo(center);
+                            if (dist > radiusWorld) {
+                                const normal = new THREE.Vector3().subVectors(p.pos, center).normalize();
+                                p.vel.reflect(normal);
+                                p.vel.add(new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2)).normalize();
+                                p.pos.copy(center).addScaledVector(normal, radiusWorld - 0.001);
+                            }
+
+                            const gx = Math.round(p.pos.x / VOXEL_SIZE);
+                            const gy = Math.round(p.pos.y / VOXEL_SIZE);
+                            const gz = Math.round(p.pos.z / VOXEL_SIZE);
+                            
+                            const isSolid = getVoxelMatAndColor(gx, gy, gz, tempColor) !== -1;
+                            
+                            if (isSolid && !p.wasSolid) {
+                                setVoxel(gx, gy, gz, false, null);
+                                
+                                const newVel = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+                                p.pos.copy(center);
+                                p.prevPos.copy(center);
+                                p.vel.copy(newVel);
+                                p.wasSolid = getVoxelMatAndColor(Math.round(center.x/VOXEL_SIZE), Math.round(center.y/VOXEL_SIZE), Math.round(center.z/VOXEL_SIZE), tempColor) !== -1;
+                            } else {
+                                p.wasSolid = isSolid;
+                            }
+                            
+                            tempMatrix.makeTranslation(p.pos.x, p.pos.y, p.pos.z);
+                            particleInstancedMesh.setMatrixAt(i, tempMatrix);
+                            colArray[i * 3] = 255; colArray[i * 3 + 1] = 0; colArray[i * 3 + 2] = 85;
+                        }
+                        
+                        particleInstancedMesh.instanceMatrix.needsUpdate = true;
+                        particleInstancedMesh.instanceColor.needsUpdate = true;
+                        particleInstancedMesh.count = activeParticles.length;
+                        particleInstancedMesh.visible = true;
+                        
+                        spherePreviewMesh.position.copy(center);
+                        spherePreviewMesh.scale.set(radiusWorld*2 + VOXEL_SIZE, radiusWorld*2 + VOXEL_SIZE, radiusWorld*2 + VOXEL_SIZE);
+                        spherePreviewMesh.updateMatrix();
+                        spherePreviewMesh.visible = true;
+                        spherePreviewMesh.material.wireframe = true;
+                        spherePreviewMesh.material.color.setHex(0xff0055);
+                    } else if(activeTool==='brush'){ 
                         const lEff = getEffectiveBrushSize(false);
                         if(lastErasedPos.x === Infinity){ 
                             xrLeft.getWorldQuaternion(lastErasedQuatLeft);
@@ -4256,6 +4416,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                 if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
                 if(needsSync(linePreviewMesh, showM)) syncMirrorProxies(linePreviewMesh, getMirrorProxies(linePreviewMesh), showM);
                 if(needsSync(lineWireframeMesh, showM)) syncMirrorProxies(lineWireframeMesh, getMirrorProxies(lineWireframeMesh), showM);
+                if(needsSync(particleInstancedMesh, showM)) syncMirrorProxies(particleInstancedMesh, getMirrorProxies(particleInstancedMesh), showM);
                 chunks.forEach(c=>c.updateBuffers());
             }
             if (renderMode === 'performance') {
