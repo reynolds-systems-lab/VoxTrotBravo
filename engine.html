@@ -160,6 +160,8 @@
         // Particle Brush (Bouncy) config
         let bouncyRadius = 3;
         let bouncySpeed = 5;
+        let bouncyCount = 40;
+        let bouncyColorMode = 'palette'; // 'palette' or 'match'
         
         let boxMode = 'shell';  
         let boxGridMode = 'internal';
@@ -790,20 +792,21 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
         linePreviewMesh.updateMatrix();
         linePreviewMesh.visible = false;
 
+        const MAX_BOUNCY_PARTICLES = 200;
         const bouncyParticles = [];
-        for(let i=0; i<40; i++) {
+        for(let i=0; i<MAX_BOUNCY_PARTICLES; i++) {
             bouncyParticles.push({ pos: new THREE.Vector3(), vel: new THREE.Vector3(), color: new THREE.Color(), mat: 0 });
         }
-        const bouncyMesh = new THREE.InstancedMesh(voxelGeometry, voxelMaterials[0], 40);
+        const bouncyMesh = new THREE.InstancedMesh(voxelGeometry, voxelMaterials[0], MAX_BOUNCY_PARTICLES);
         bouncyMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
         bouncyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         bouncyMesh.matrixAutoUpdate = false;
         bouncyMesh.updateMatrix();
-        for(let i=0; i<40; i++) { 
+        for(let i=0; i<MAX_BOUNCY_PARTICLES; i++) { 
             bouncyMesh.instanceMatrix.array[i*16]=1; bouncyMesh.instanceMatrix.array[i*16+5]=1; 
             bouncyMesh.instanceMatrix.array[i*16+10]=1; bouncyMesh.instanceMatrix.array[i*16+15]=1; 
         }
-        bouncyMesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(40 * 3), 3, true);
+        bouncyMesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(MAX_BOUNCY_PARTICLES * 3), 3, true);
         bouncyMesh.visible = false;
         worldGroup.add(bouncyMesh);
 
@@ -1465,6 +1468,8 @@ function updatePlanePreview(start, end, isPainting) {
             } else if (activeTool === 'bouncy') {
                 drawButton(leftMenuCtx, 50, 70, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 70, 232, 50, `Radius: ${bouncyRadius}`, false); drawButton(leftMenuCtx, 382, 70, 80, 50, '[+]', false);
                 drawButton(leftMenuCtx, 50, 140, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 140, 232, 50, `Speed: ${bouncySpeed}`, false); drawButton(leftMenuCtx, 382, 140, 80, 50, '[+]', false);
+                drawButton(leftMenuCtx, 50, 210, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 210, 232, 50, `Count: ${bouncyCount}`, false); drawButton(leftMenuCtx, 382, 210, 80, 50, '[+]', false);
+                drawButton(leftMenuCtx, 50, 280, 200, 50, 'CLR: PALETTE', bouncyColorMode === 'palette'); drawButton(leftMenuCtx, 262, 280, 200, 50, 'CLR: MATCH', bouncyColorMode === 'match');
             } else if (activeTool === 'box') {
                 drawButton(leftMenuCtx, 20, 70, 140, 50, 'SOLID', boxMode === 'solid'); drawButton(leftMenuCtx, 170, 70, 150, 50, 'SHELL', boxMode === 'shell'); drawButton(leftMenuCtx, 330, 70, 160, 50, 'WIRE', boxMode === 'wireframe');
                 if (boxMode === 'wireframe') { drawButton(leftMenuCtx, 20, 140, 50, 50, '-', false); drawButton(leftMenuCtx, 80, 140, 160, 50, `Thick: ${wireWidth}`, false); drawButton(leftMenuCtx, 250, 140, 50, 50, '+', false); drawButton(leftMenuCtx, 330, 140, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); }
@@ -1694,6 +1699,8 @@ if (cy >= 60 && cy <= 90) {
             } else if (activeTool === 'bouncy') {
                 if (cy >= 70 && cy <= 120) { if (cx >= 50 && cx <= 130) bouncyRadius = Math.max(1, bouncyRadius - 1); if (cx >= 382 && cx <= 462) bouncyRadius = Math.min(20, bouncyRadius + 1); }
                 if (cy >= 140 && cy <= 190) { if (cx >= 50 && cx <= 130) bouncySpeed = Math.max(1, bouncySpeed - 1); if (cx >= 382 && cx <= 462) bouncySpeed = Math.min(20, bouncySpeed + 1); }
+                if (cy >= 210 && cy <= 260) { if (cx >= 50 && cx <= 130) bouncyCount = Math.max(1, bouncyCount - 5); if (cx >= 382 && cx <= 462) bouncyCount = Math.min(200, bouncyCount + 5); }
+                if (cy >= 280 && cy <= 330) { if (cx >= 50 && cx <= 250) bouncyColorMode = 'palette'; if (cx >= 262 && cx <= 462) bouncyColorMode = 'match'; }
             } else if (activeTool === 'triangle') {
                 if (cy >= 60 && cy <= 110) { if (cx >= 20 && cx <= 245) triangleType = 'cone'; if (cx >= 265 && cx <= 490) triangleType = 'pyramid'; } 
                 else if (cy >= 120 && cy <= 170) { if (cx >= 20 && cx <= 160) triangleMode = 'solid'; if (cx >= 170 && cx <= 320) triangleMode = 'shell'; if (cx >= 330 && cx <= 490) triangleMode = 'wireframe'; } 
@@ -3679,8 +3686,9 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='icosahedron'){ isDrawing=true; isPreviewingIcosahedron=true; drawStartPos.copy(rightTargetLocal); }
                     if(activeTool==='bouncy'){
                         bouncyMesh.material = voxelMaterials[matTypes[activeMatSlot]];
+                        bouncyMesh.count = bouncyCount;
                         const cArr = bouncyMesh.instanceColor.array;
-                        for(let i=0; i<40; i++){
+                        for(let i=0; i<bouncyCount; i++){
                             let p = bouncyParticles[i];
                             let rVec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
                             p.pos.copy(rightTargetLocal).add(rVec);
@@ -3750,8 +3758,9 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } 
                     if(activeTool==='bouncy'){
                         bouncyMesh.material = voxelMaterials[matTypes[activeMatSlot]];
+                        bouncyMesh.count = bouncyCount;
                         const cArr = bouncyMesh.instanceColor.array;
-                        for(let i=0; i<40; i++){
+                        for(let i=0; i<bouncyCount; i++){
                             let p = bouncyParticles[i];
                             let rVec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
                             p.pos.copy(leftTargetLocal).add(rVec);
@@ -4315,14 +4324,24 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
 
                 if (activeTool === 'bouncy' && (isDrawing || isErasing)) {
                     bouncyMesh.visible = true;
+                    bouncyMesh.count = bouncyCount;
                     let center = isDrawing ? rightTargetLocal : leftTargetLocal;
                     let radiusInWorld = (bouncyRadius - 0.5) * VOXEL_SIZE;
                     let speedInWorld = bouncySpeed * VOXEL_SIZE * 0.08;
                     let mArr = bouncyMesh.instanceMatrix.array;
                     let cArr = bouncyMesh.instanceColor.array;
+                    let hitColor = new THREE.Color();
                     
-                    for(let i=0; i<40; i++) {
+                    for(let i=0; i<bouncyCount; i++) {
                         let p = bouncyParticles[i];
+                        
+                        // Failsafe: if the particle drifts outside due to rapid brush movement, snap it back inside.
+                        if (p.pos.distanceTo(center) > radiusInWorld) {
+                            p.pos.copy(center).add(
+                                new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE)
+                            );
+                        }
+                        
                         tempPos.copy(p.vel).multiplyScalar(speedInWorld);
                         let nextPos = p.pos.clone().add(tempPos);
                         
@@ -4334,11 +4353,19 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         let nY = Math.round(nextPos.y / VOXEL_SIZE);
                         let nZ = Math.round(nextPos.z / VOXEL_SIZE);
                         
-                        let hitMat = getVoxelMatAndColor(nX, nY, nZ, null);
+                        let hitMat = getVoxelMatAndColor(nX, nY, nZ, hitColor);
                         
                         if (hitMat !== -1 && (nX !== pX || nY !== pY || nZ !== pZ)) {
-                            if (isDrawing) setVoxel(pX, pY, pZ, true, p.color, p.mat);
-                            else setVoxel(nX, nY, nZ, false, null);
+                            // Enforce strict bounds check directly against the final grid placement
+                            let pGridPos = new THREE.Vector3(pX * VOXEL_SIZE, pY * VOXEL_SIZE, pZ * VOXEL_SIZE);
+                            if (pGridPos.distanceTo(center) <= radiusInWorld + (VOXEL_SIZE * 0.5)) {
+                                if (isDrawing) {
+                                    let placeColor = bouncyColorMode === 'match' ? hitColor : p.color;
+                                    let placeMat = bouncyColorMode === 'match' ? hitMat : p.mat;
+                                    setVoxel(pX, pY, pZ, true, placeColor, placeMat);
+                                }
+                                else setVoxel(nX, nY, nZ, false, null);
+                            }
                             
                             p.pos.copy(center);
                             p.vel.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
