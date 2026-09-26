@@ -282,7 +282,7 @@
         let shiftDir = 1;
         const tempColorForDraw = [new THREE.Color(), new THREE.Color()]; 
         
-        // --- Symmetry & Settings ---
+// --- Symmetry & Settings ---
         let isVerticalLock = true;
         let clearInterior = false; 
         let mirrorX = false;
@@ -290,6 +290,10 @@
         let mirrorZ = false;
         let polarSymmetry = 1; 
         let drawFromCenter = false;
+
+        let gridCopyX = false, gridCopyXSpace = 10, gridCopyXCopies = 1;
+        let gridCopyY = false, gridCopyYSpace = 10, gridCopyYCopies = 1;
+        let gridCopyZ = false, gridCopyZSpace = 10, gridCopyZCopies = 1;
 
         let lockCtx = { active: false, startG: {x:0, y:0, z:0}, symmetries: [] };
         
@@ -1920,15 +1924,15 @@ function handleRightMenuClick(cx, cy) {
             }
         }
 
-        const globalMenuCanvas = document.createElement('canvas'); globalMenuCanvas.width = 512; globalMenuCanvas.height = 512;
+	const globalMenuCanvas = document.createElement('canvas'); globalMenuCanvas.width = 512; globalMenuCanvas.height = 1024;
         const globalMenuCtx = globalMenuCanvas.getContext('2d', { willReadFrequently: true });
         const globalMenuTexture = new THREE.CanvasTexture(globalMenuCanvas);
-        const globalMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: globalMenuTexture, transparent: true, side: THREE.DoubleSide }));
-        globalMenuMesh.visible = false; globalMenuMesh.position.set(0, 0.15, -0.05); globalMenuMesh.rotation.x = -Math.PI / 4;
+        const globalMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.30), new THREE.MeshBasicMaterial({ map: globalMenuTexture, transparent: true, side: THREE.DoubleSide }));
+        globalMenuMesh.visible = false; globalMenuMesh.position.set(0, 0.22, -0.05); globalMenuMesh.rotation.x = -Math.PI / 4;
         xrRight.add(globalMenuMesh);
 
-        function updateGlobalMenuTexture() {
-            globalMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; globalMenuCtx.fillRect(0, 0, 512, 512);
+function updateGlobalMenuTexture() {
+            globalMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; globalMenuCtx.fillRect(0, 0, 512, 1024);
             globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Global Settings`, 256, 40);
             drawButton(globalMenuCtx, 40, 70, 200, 50, `V-Lock: ${isVerticalLock ? 'ON' : 'OFF'}`, isVerticalLock);
             drawButton(globalMenuCtx, 272, 70, 200, 50, `Clear Inside: ${clearInterior ? 'ON' : 'OFF'}`, clearInterior);
@@ -1946,8 +1950,69 @@ function handleRightMenuClick(cx, cy) {
             drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
             drawButton(globalMenuCtx, 40, 450, 280, 50, 'EXPORT .OBJ', false);
             drawButton(globalMenuCtx, 330, 450, 142, 50, 'EXIT VR', false);
+
+            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Grid Copy Array`, 256, 540);
             
+            drawButton(globalMenuCtx, 20, 560, 80, 45, `X: ${gridCopyX ? 'ON' : 'OFF'}`, gridCopyX);
+            drawButton(globalMenuCtx, 110, 560, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 560, 100, 45, `Spc: ${gridCopyXSpace}`, false); drawButton(globalMenuCtx, 250, 560, 40, 45, '+', false);
+            drawButton(globalMenuCtx, 300, 560, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 560, 110, 45, `Num: ${gridCopyXCopies}`, false); drawButton(globalMenuCtx, 450, 560, 40, 45, '+', false);
+
+            drawButton(globalMenuCtx, 20, 620, 80, 45, `Y: ${gridCopyY ? 'ON' : 'OFF'}`, gridCopyY);
+            drawButton(globalMenuCtx, 110, 620, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 620, 100, 45, `Spc: ${gridCopyYSpace}`, false); drawButton(globalMenuCtx, 250, 620, 40, 45, '+', false);
+            drawButton(globalMenuCtx, 300, 620, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 620, 110, 45, `Num: ${gridCopyYCopies}`, false); drawButton(globalMenuCtx, 450, 620, 40, 45, '+', false);
+
+            drawButton(globalMenuCtx, 20, 680, 80, 45, `Z: ${gridCopyZ ? 'ON' : 'OFF'}`, gridCopyZ);
+            drawButton(globalMenuCtx, 110, 680, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 680, 100, 45, `Spc: ${gridCopyZSpace}`, false); drawButton(globalMenuCtx, 250, 680, 40, 45, '+', false);
+            drawButton(globalMenuCtx, 300, 680, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 680, 110, 45, `Num: ${gridCopyZCopies}`, false); drawButton(globalMenuCtx, 450, 680, 40, 45, '+', false);
+
+            drawButton(globalMenuCtx, 40, 740, 432, 50, 'EXECUTE GRID COPY', false);
+
             globalMenuTexture.needsUpdate = true;
+        }
+
+function executeGridCopy() {
+            const voxelsToCopy = [];
+            for (let [key, chunk] of chunks) {
+                for (let m = 0; m < 4; m++) {
+                    const layer = chunk.layers[m];
+                    if (layer && layer.count > 0) {
+                        for (let i = 0; i < layer.count; i++) {
+                            const localIdx = layer.indexToLocal[i];
+                            if (localIdx === 65535) continue;
+                            const gx = (chunk.cx * 32) + (localIdx & 31);
+                            const gy = (chunk.cy * 32) + ((localIdx >> 5) & 31);
+                            const gz = (chunk.cz * 32) + (localIdx >> 10);
+                            const color = new THREE.Color();
+                            layer.mesh.getColorAt(i, color);
+                            if (color.r > 1.0 || color.g > 1.0 || color.b > 1.0) { 
+                                color.r /= 255; color.g /= 255; color.b /= 255; 
+                            }
+                            voxelsToCopy.push({gx, gy, gz, color, mat: m});
+                        }
+                    }
+                }
+            }
+
+            const xIter = gridCopyX ? gridCopyXCopies : 0;
+            const yIter = gridCopyY ? gridCopyYCopies : 0;
+            const zIter = gridCopyZ ? gridCopyZCopies : 0;
+
+            for (let x = 0; x <= xIter; x++) {
+                for (let y = 0; y <= yIter; y++) {
+                    for (let z = 0; z <= zIter; z++) {
+                        if (x === 0 && y === 0 && z === 0) continue; 
+                        
+                        const offsetX = x * (gridCopyX ? gridCopyXSpace : 0);
+                        const offsetY = y * (gridCopyY ? gridCopyYSpace : 0);
+                        const offsetZ = z * (gridCopyZ ? gridCopyZSpace : 0);
+                        
+                        for(let i = 0; i < voxelsToCopy.length; i++) {
+                            const v = voxelsToCopy[i];
+                            setVoxelCore(v.gx + offsetX, v.gy + offsetY, v.gz + offsetZ, true, v.color, v.mat);
+                        }
+                    }
+                }
+            }
         }
 
         function handleGlobalMenuClick(cx, cy) {
@@ -1982,6 +2047,30 @@ function handleRightMenuClick(cx, cy) {
                 }
             }
 
+            if (cy >= 560 && cy <= 605) {
+                if (cx >= 20 && cx <= 100) gridCopyX = !gridCopyX;
+                if (cx >= 110 && cx <= 150) gridCopyXSpace = Math.max(-100, gridCopyXSpace - 1);
+                if (cx >= 250 && cx <= 290) gridCopyXSpace = Math.min(100, gridCopyXSpace + 1);
+                if (cx >= 300 && cx <= 340) gridCopyXCopies = Math.max(1, gridCopyXCopies - 1);
+                if (cx >= 450 && cx <= 490) gridCopyXCopies = Math.min(20, gridCopyXCopies + 1);
+            }
+            if (cy >= 620 && cy <= 665) {
+                if (cx >= 20 && cx <= 100) gridCopyY = !gridCopyY;
+                if (cx >= 110 && cx <= 150) gridCopyYSpace = Math.max(-100, gridCopyYSpace - 1);
+                if (cx >= 250 && cx <= 290) gridCopyYSpace = Math.min(100, gridCopyYSpace + 1);
+                if (cx >= 300 && cx <= 340) gridCopyYCopies = Math.max(1, gridCopyYCopies - 1);
+                if (cx >= 450 && cx <= 490) gridCopyYCopies = Math.min(20, gridCopyYCopies + 1);
+            }
+            if (cy >= 680 && cy <= 725) {
+                if (cx >= 20 && cx <= 100) gridCopyZ = !gridCopyZ;
+                if (cx >= 110 && cx <= 150) gridCopyZSpace = Math.max(-100, gridCopyZSpace - 1);
+                if (cx >= 250 && cx <= 290) gridCopyZSpace = Math.min(100, gridCopyZSpace + 1);
+                if (cx >= 300 && cx <= 340) gridCopyZCopies = Math.max(1, gridCopyZCopies - 1);
+                if (cx >= 450 && cx <= 490) gridCopyZCopies = Math.min(20, gridCopyZCopies + 1);
+            }
+            if (cy >= 740 && cy <= 790 && cx >= 40 && cx <= 472) {
+                executeGridCopy();
+            }
 
             globalMenuNeedsUpdate = true;
         }
@@ -3694,9 +3783,9 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(cy>=155&&cy<=335&&cx>=20&&cx<=492) { isColorPicking=true; isPaletteMagnified=true; updateColorMenuTexture(); } else handleColorMenuClick(cx,cy);
                     return;
                 }
-            } else if (this === xrLeft) { 
+} else if (this === xrLeft) { 
                 if (rightMenuHovered && rightMenuMesh.visible) { menuClickActive = true; handleRightMenuClick(Math.floor(rightMenuUV.x*512),Math.floor((1-rightMenuUV.y)*512)); return; }
-                else if (globalMenuHovered && globalMenuMesh.visible) { menuClickActive = true; handleGlobalMenuClick(Math.floor(globalMenuUV.x*512),Math.floor((1-globalMenuUV.y)*512)); return; }
+                else if (globalMenuHovered && globalMenuMesh.visible) { menuClickActive = true; handleGlobalMenuClick(Math.floor(globalMenuUV.x*512),Math.floor((1-globalMenuUV.y)*1024)); return; }
             }
             
             lockCtx.symmetries = activeSymmetries.map(sym => {
