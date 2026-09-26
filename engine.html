@@ -764,16 +764,14 @@
             new THREE.ConeGeometry(0.5, 1, 16), 
             new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: true })
         );
+        const conePreviewMesh = new THREE.Mesh(
+            new THREE.ConeGeometry(0.5, 1, 16), 
+            new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: true })
+        );
         conePreviewMesh.visible = false;
         worldGroup.add(conePreviewMesh);
 
-        function hideAllPreviews() {
-            boxPreviewMesh.visible = spherePreviewMesh.visible = cylinderPreviewMesh.visible = 
-            conePreviewMesh.visible = polyPreviewMesh.visible = lineWireframeMesh.visible = false;
-            if (typeof particleInstancedMesh !== 'undefined') particleInstancedMesh.visible = false;
-        }
-
-const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false }), 80000);
+        const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false }), 80000);
         bucketPreviewMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
         bucketPreviewMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); 
         bucketPreviewMesh.matrixAutoUpdate = false; 
@@ -800,14 +798,20 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
         particleInstancedMesh.visible = false;
         worldGroup.add(particleInstancedMesh);
 
-
         // New High-Fidelity Wireframe Preview for Lines/Arcs
         const lineWireframeMesh = new THREE.LineSegments(
             new THREE.BufferGeometry(),
             new THREE.LineBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.8 })
         );
         lineWireframeMesh.visible = false;
-        worldGroup.add(lineWireframeMesh, linePreviewMesh);       
+        worldGroup.add(lineWireframeMesh, linePreviewMesh);   
+
+        // Safely declare hideAllPreviews AFTER all referenced meshes exist
+        function hideAllPreviews() {
+            boxPreviewMesh.visible = spherePreviewMesh.visible = cylinderPreviewMesh.visible = 
+            conePreviewMesh.visible = polyPreviewMesh.visible = lineWireframeMesh.visible = false;
+            if (typeof particleInstancedMesh !== 'undefined') particleInstancedMesh.visible = false;
+        }         
         function updateLinePreviewFromPoints(points, isPainting, arcUp = new THREE.Vector3(0,1,0)) {
             // Update Wireframe
             const wirePoints = [];
