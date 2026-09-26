@@ -313,7 +313,7 @@
             updateActiveSymmetries();
         }
 
-        function updateActiveSymmetries() {
+function updateActiveSymmetries() {
             activeSymmetries = [];
             let mirrors = [{sx: 1, sy: 1, sz: 1}];
             
@@ -336,16 +336,29 @@
                 }
             }
 
+            const xIter = gridCopyX ? gridCopyXCopies : 0;
+            const yIter = gridCopyY ? gridCopyYCopies : 0;
+            const zIter = gridCopyZ ? gridCopyZCopies : 0;
+
             for (let m = 0; m < mirrors.length; m++) {
                 for (let p = 0; p < polarSymmetry; p++) {
-                    activeSymmetries.push({
-                        sx: mirrors[m].sx,
-                        sy: mirrors[m].sy,
-                        sz: mirrors[m].sz,
-                        p: p,
-                        cos: p > 0 ? polarCos[p] : 1,
-                        sin: p > 0 ? polarSin[p] : 0
-                    });
+                    for (let x = 0; x <= xIter; x++) {
+                        for (let y = 0; y <= yIter; y++) {
+                            for (let z = 0; z <= zIter; z++) {
+                                activeSymmetries.push({
+                                    sx: mirrors[m].sx,
+                                    sy: mirrors[m].sy,
+                                    sz: mirrors[m].sz,
+                                    p: p,
+                                    cos: p > 0 ? polarCos[p] : 1,
+                                    sin: p > 0 ? polarSin[p] : 0,
+                                    tx: x * (gridCopyX ? gridCopyXSpace : 0),
+                                    ty: y * (gridCopyY ? gridCopyYSpace : 0),
+                                    tz: z * (gridCopyZ ? gridCopyZSpace : 0)
+                                });
+                            }
+                        }
+                    }
                 }
             }
             symmetryVersion++;
@@ -966,20 +979,20 @@ function updatePreviews() {
 	    selectionGroup.visible = selectedVoxelsCount > 0;
 	    selBoxMesh.visible = selectedVoxelsCount > 0;
 
-	    for (let step = 1; step <= steps; step++) {
+	for (let step = 1; step <= steps; step++) {
                 const bx = pCX + offX * step, by = pCY + offY * step, bz = pCZ + offZ * step;
                 for (let i = 0; i < activeSymmetries.length; i++) {
                     const sym = activeSymmetries[i]; let fx = bx * sym.sx, fy = by * sym.sy, fz = bz * sym.sz, rot = 0;
                     if (sym.p > 0) { rot = sym.p * 2 * Math.PI / polarSymmetry; fx = (bx * sym.sx) * sym.cos + (bz * sym.sz) * sym.sin; fz = -(bx * sym.sx) * sym.sin + (bz * sym.sz) * sym.cos; }
-                    getPreviewGroup(fx, fy, fz, sym.sx, sym.sy, sym.sz, step, rot);
+                    getPreviewGroup(fx + (sym.tx || 0) * VOXEL_SIZE, fy + (sym.ty || 0) * VOXEL_SIZE, fz + (sym.tz || 0) * VOXEL_SIZE, sym.sx, sym.sy, sym.sz, step, rot);
                 }
             }
         }
 
-        const proxyMap = new Map();
+const proxyMap = new Map();
         function createMirrorProxies(baseMesh) {
             const proxies = [];
-            for (let i = 0; i < 63; i++) {
+            for (let i = 0; i < 255; i++) {
                 let proxy;
                 if (baseMesh.isInstancedMesh) {
                     proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, baseMesh.instanceMatrix.count);
@@ -1028,7 +1041,7 @@ function updatePreviews() {
         }
 
         function syncMirrorProxies(baseMesh, proxies, showMirrors) {
-            if (!baseMesh.visible || !showMirrors || (polarSymmetry === 1 && !mirrorX && !mirrorY && !mirrorZ)) { 
+            if (!baseMesh.visible || !showMirrors || activeSymmetries.length <= 1) { 
                 if (proxies) for(let i=0; i < proxies.length; i++) proxies[i].visible = false; 
                 return; 
             }
@@ -1039,7 +1052,7 @@ function updatePreviews() {
             
             for (let i = 0; i < targetSyms.length; i++) {
                 const sym = targetSyms[i];
-                if (sym.sx === 1 && sym.sy === 1 && sym.sz === 1 && sym.p === 0) continue;
+                if (sym.sx === 1 && sym.sy === 1 && sym.sz === 1 && sym.p === 0 && (sym.tx || 0) === 0 && (sym.ty || 0) === 0 && (sym.tz || 0) === 0) continue;
                 if (pIdx >= proxies.length) break;
                 
                 const proxy = proxies[pIdx++];
@@ -1066,7 +1079,7 @@ function updatePreviews() {
                     const lockedY = sym.lockedStartG.y * VOXEL_SIZE;
                     const lockedZ = sym.lockedStartG.z * VOXEL_SIZE;
 
-                    proxy.position.set(lockedX + fdx, lockedY + mdy, lockedZ + fdz);
+                    proxy.position.set(lockedX + fdx + (sym.tx || 0) * VOXEL_SIZE, lockedY + mdy + (sym.ty || 0) * VOXEL_SIZE, lockedZ + fdz + (sym.tz || 0) * VOXEL_SIZE);
                     proxy.scale.copy(baseMesh.scale);
                     proxy.scale.x *= sym.sx; proxy.scale.y *= sym.sy; proxy.scale.z *= sym.sz;
                     proxy.quaternion.copy(baseMesh.quaternion);
@@ -1082,7 +1095,7 @@ function updatePreviews() {
                         fz = -mx * sym.sin + mz * sym.cos;
                         rotAngle = sym.p * 2 * Math.PI / polarSymmetry;
                     }
-                    proxy.position.set(fx, my, fz);
+                    proxy.position.set(fx + (sym.tx || 0) * VOXEL_SIZE, my + (sym.ty || 0) * VOXEL_SIZE, fz + (sym.tz || 0) * VOXEL_SIZE);
                     proxy.scale.copy(baseMesh.scale);
                     proxy.scale.x *= sym.sx; proxy.scale.y *= sym.sy; proxy.scale.z *= sym.sz;
                     proxy.quaternion.copy(baseMesh.quaternion);
@@ -1096,7 +1109,6 @@ function updatePreviews() {
             }
             for (; pIdx < proxies.length; pIdx++) proxies[pIdx].visible = false;
         }
-
         function createBouncyCursorGeometry(radiusLevel, count) {
             const rad = Math.max(0, (radiusLevel - 0.5)) * VOXEL_SIZE;
             const size = VOXEL_SIZE * 0.6; // Slightly larger than half a voxel for clear visibility
@@ -1965,54 +1977,7 @@ function updateGlobalMenuTexture() {
             drawButton(globalMenuCtx, 110, 680, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 680, 100, 45, `Spc: ${gridCopyZSpace}`, false); drawButton(globalMenuCtx, 250, 680, 40, 45, '+', false);
             drawButton(globalMenuCtx, 300, 680, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 680, 110, 45, `Num: ${gridCopyZCopies}`, false); drawButton(globalMenuCtx, 450, 680, 40, 45, '+', false);
 
-            drawButton(globalMenuCtx, 40, 740, 432, 50, 'EXECUTE GRID COPY', false);
-
             globalMenuTexture.needsUpdate = true;
-        }
-
-function executeGridCopy() {
-            const voxelsToCopy = [];
-            for (let [key, chunk] of chunks) {
-                for (let m = 0; m < 4; m++) {
-                    const layer = chunk.layers[m];
-                    if (layer && layer.count > 0) {
-                        for (let i = 0; i < layer.count; i++) {
-                            const localIdx = layer.indexToLocal[i];
-                            if (localIdx === 65535) continue;
-                            const gx = (chunk.cx * 32) + (localIdx & 31);
-                            const gy = (chunk.cy * 32) + ((localIdx >> 5) & 31);
-                            const gz = (chunk.cz * 32) + (localIdx >> 10);
-                            const color = new THREE.Color();
-                            layer.mesh.getColorAt(i, color);
-                            if (color.r > 1.0 || color.g > 1.0 || color.b > 1.0) { 
-                                color.r /= 255; color.g /= 255; color.b /= 255; 
-                            }
-                            voxelsToCopy.push({gx, gy, gz, color, mat: m});
-                        }
-                    }
-                }
-            }
-
-            const xIter = gridCopyX ? gridCopyXCopies : 0;
-            const yIter = gridCopyY ? gridCopyYCopies : 0;
-            const zIter = gridCopyZ ? gridCopyZCopies : 0;
-
-            for (let x = 0; x <= xIter; x++) {
-                for (let y = 0; y <= yIter; y++) {
-                    for (let z = 0; z <= zIter; z++) {
-                        if (x === 0 && y === 0 && z === 0) continue; 
-                        
-                        const offsetX = x * (gridCopyX ? gridCopyXSpace : 0);
-                        const offsetY = y * (gridCopyY ? gridCopyYSpace : 0);
-                        const offsetZ = z * (gridCopyZ ? gridCopyZSpace : 0);
-                        
-                        for(let i = 0; i < voxelsToCopy.length; i++) {
-                            const v = voxelsToCopy[i];
-                            setVoxelCore(v.gx + offsetX, v.gy + offsetY, v.gz + offsetZ, true, v.color, v.mat);
-                        }
-                    }
-                }
-            }
         }
 
         function handleGlobalMenuClick(cx, cy) {
@@ -2047,34 +2012,35 @@ function executeGridCopy() {
                 }
             }
 
+            let arrayChanged = false;
             if (cy >= 560 && cy <= 605) {
-                if (cx >= 20 && cx <= 100) gridCopyX = !gridCopyX;
-                if (cx >= 110 && cx <= 150) gridCopyXSpace = Math.max(-100, gridCopyXSpace - 1);
-                if (cx >= 250 && cx <= 290) gridCopyXSpace = Math.min(100, gridCopyXSpace + 1);
-                if (cx >= 300 && cx <= 340) gridCopyXCopies = Math.max(1, gridCopyXCopies - 1);
-                if (cx >= 450 && cx <= 490) gridCopyXCopies = Math.min(20, gridCopyXCopies + 1);
+                if (cx >= 20 && cx <= 100) { gridCopyX = !gridCopyX; arrayChanged = true; }
+                if (cx >= 110 && cx <= 150) { gridCopyXSpace = Math.max(-100, gridCopyXSpace - 1); arrayChanged = true; }
+                if (cx >= 250 && cx <= 290) { gridCopyXSpace = Math.min(100, gridCopyXSpace + 1); arrayChanged = true; }
+                if (cx >= 300 && cx <= 340) { gridCopyXCopies = Math.max(1, gridCopyXCopies - 1); arrayChanged = true; }
+                if (cx >= 450 && cx <= 490) { gridCopyXCopies = Math.min(20, gridCopyXCopies + 1); arrayChanged = true; }
             }
             if (cy >= 620 && cy <= 665) {
-                if (cx >= 20 && cx <= 100) gridCopyY = !gridCopyY;
-                if (cx >= 110 && cx <= 150) gridCopyYSpace = Math.max(-100, gridCopyYSpace - 1);
-                if (cx >= 250 && cx <= 290) gridCopyYSpace = Math.min(100, gridCopyYSpace + 1);
-                if (cx >= 300 && cx <= 340) gridCopyYCopies = Math.max(1, gridCopyYCopies - 1);
-                if (cx >= 450 && cx <= 490) gridCopyYCopies = Math.min(20, gridCopyYCopies + 1);
+                if (cx >= 20 && cx <= 100) { gridCopyY = !gridCopyY; arrayChanged = true; }
+                if (cx >= 110 && cx <= 150) { gridCopyYSpace = Math.max(-100, gridCopyYSpace - 1); arrayChanged = true; }
+                if (cx >= 250 && cx <= 290) { gridCopyYSpace = Math.min(100, gridCopyYSpace + 1); arrayChanged = true; }
+                if (cx >= 300 && cx <= 340) { gridCopyYCopies = Math.max(1, gridCopyYCopies - 1); arrayChanged = true; }
+                if (cx >= 450 && cx <= 490) { gridCopyYCopies = Math.min(20, gridCopyYCopies + 1); arrayChanged = true; }
             }
             if (cy >= 680 && cy <= 725) {
-                if (cx >= 20 && cx <= 100) gridCopyZ = !gridCopyZ;
-                if (cx >= 110 && cx <= 150) gridCopyZSpace = Math.max(-100, gridCopyZSpace - 1);
-                if (cx >= 250 && cx <= 290) gridCopyZSpace = Math.min(100, gridCopyZSpace + 1);
-                if (cx >= 300 && cx <= 340) gridCopyZCopies = Math.max(1, gridCopyZCopies - 1);
-                if (cx >= 450 && cx <= 490) gridCopyZCopies = Math.min(20, gridCopyZCopies + 1);
+                if (cx >= 20 && cx <= 100) { gridCopyZ = !gridCopyZ; arrayChanged = true; }
+                if (cx >= 110 && cx <= 150) { gridCopyZSpace = Math.max(-100, gridCopyZSpace - 1); arrayChanged = true; }
+                if (cx >= 250 && cx <= 290) { gridCopyZSpace = Math.min(100, gridCopyZSpace + 1); arrayChanged = true; }
+                if (cx >= 300 && cx <= 340) { gridCopyZCopies = Math.max(1, gridCopyZCopies - 1); arrayChanged = true; }
+                if (cx >= 450 && cx <= 490) { gridCopyZCopies = Math.min(20, gridCopyZCopies + 1); arrayChanged = true; }
             }
-            if (cy >= 740 && cy <= 790 && cx >= 40 && cx <= 472) {
-                executeGridCopy();
+
+            if (arrayChanged) {
+                updateActiveSymmetries();
             }
 
             globalMenuNeedsUpdate = true;
         }
-
         let leftMenuNeedsUpdate = true, rightMenuNeedsUpdate = true, colorMenuNeedsUpdate = true, globalMenuNeedsUpdate = true, lastMenuUpdateTime = 0, lastColorJoystickUpdateTime = 0; 
 
         async function exportToOBJ() {
@@ -2424,7 +2390,7 @@ function executeGridCopy() {
         }
 
 
-        function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
+function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
             const targetSyms = (isDrawing || isErasing) && lockCtx.active ? lockCtx.symmetries : activeSymmetries;
             const baseG = (isDrawing || isErasing) && lockCtx.active ? lockCtx.startG : {x:0, y:0, z:0};
 
@@ -2439,26 +2405,26 @@ function executeGridCopy() {
                 let mdz = dz * sym.sz;
                 
                 const startPos = sym.lockedStartG || {x:0, y:0, z:0};
-                const sY = startPos.y + mdy; // Simplified ternary
+                const sY = startPos.y + mdy + (sym.ty || 0); 
 
                 if (sym.p > 0) {
                     const rx = mdx * sym.cos + mdz * sym.sin;
                     const rz = -mdx * sym.sin + mdz * sym.cos;
-                    const fdx = Math.round(rx);
-                    const fdz = Math.round(rz);
+                    const fdx = Math.round(rx) + (sym.tx || 0);
+                    const fdz = Math.round(rz) + (sym.tz || 0);
                     
                     setVoxelCore(startPos.x + fdx, sY, startPos.z + fdz, isP, color, mOver);
                     
                     // Anti-aliasing / Hole-filling for discrete polar rotation
-                    const dx_frac = rx - fdx;
-                    const dz_frac = rz - fdz;
+                    const dx_frac = rx - Math.round(rx);
+                    const dz_frac = rz - Math.round(rz);
                     if (Math.abs(dx_frac) > 0.25 || Math.abs(dz_frac) > 0.25) {
                         const ox = Math.abs(dx_frac) > Math.abs(dz_frac) ? Math.sign(dx_frac) : 0;
                         const oz = Math.abs(dz_frac) >= Math.abs(dx_frac) ? Math.sign(dz_frac) : 0;
                         setVoxelCore(startPos.x + fdx + ox, sY, startPos.z + fdz + oz, isP, color, mOver);
                     }
                 } else {
-                    setVoxelCore(startPos.x + mdx, sY, startPos.z + mdz, isP, color, mOver);
+                    setVoxelCore(startPos.x + mdx + (sym.tx || 0), sY, startPos.z + mdz + (sym.tz || 0), isP, color, mOver);
                 }
             }
         }
@@ -2477,30 +2443,29 @@ function executeGridCopy() {
                 let mdx = dx * sym.sx, mdy = dy * sym.sy, mdz = dz * sym.sz;
                 
                 const startPos = sym.lockedStartG || {x:0, y:0, z:0};
-                const sY = startPos.y + mdy;
+                const sY = startPos.y + mdy + (sym.ty || 0);
 
                 if (sym.p > 0) {
                     const rx = mdx * sym.cos + mdz * sym.sin;
                     const rz = -mdx * sym.sin + mdz * sym.cos;
-                    const fdx = Math.round(rx);
-                    const fdz = Math.round(rz);
+                    const fdx = Math.round(rx) + (sym.tx || 0);
+                    const fdz = Math.round(rz) + (sym.tz || 0);
                     
                     recolorVoxel(startPos.x + fdx, sY, startPos.z + fdz, color, dM);
                     
                     // Anti-aliasing / Hole-filling for discrete polar rotation
-                    const dx_frac = rx - fdx;
-                    const dz_frac = rz - fdz;
+                    const dx_frac = rx - Math.round(rx);
+                    const dz_frac = rz - Math.round(rz);
                     if (Math.abs(dx_frac) > 0.25 || Math.abs(dz_frac) > 0.25) {
                         const ox = Math.abs(dx_frac) > Math.abs(dz_frac) ? Math.sign(dx_frac) : 0;
                         const oz = Math.abs(dz_frac) >= Math.abs(dx_frac) ? Math.sign(dz_frac) : 0;
                         recolorVoxel(startPos.x + fdx + ox, sY, startPos.z + fdz + oz, color, dM);
                     }
                 } else {
-                    recolorVoxel(startPos.x + mdx, sY, startPos.z + mdz, color, dM);
+                    recolorVoxel(startPos.x + mdx + (sym.tx || 0), sY, startPos.z + mdz + (sym.tz || 0), color, dM);
                 }
             }
         }
-
 
         function updateSelectionVisuals() {
             selMeshSolid.count = selMeshGlass.count = selMeshEmission.count = selMeshMetal.count = 0;
