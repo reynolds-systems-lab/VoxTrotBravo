@@ -402,6 +402,8 @@
         const icoDists = new Float32Array(4);
         const tempHSL = { h: 0, s: 0, l: 0 }; 
         const cursorGeos = {}; 
+        const currentGradientQuat = new THREE.Quaternion();
+        const gradDir = new THREE.Vector3();
         
         const FILL_NEIGHBORS = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
         const SEL_DIRS = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1, 1,1,0, -1,-1,0, 1,-1,0, -1,1,0, 1,0,1, -1,0,-1, 1,0,-1, -1,0,1, 0,1,1, 0,-1,-1, 0,1,-1, 0,-1,1, 1,1,1, -1,-1,-1, 1,-1,1, -1,1,-1, 1,1,-1, -1,-1,1, 1,-1,-1, -1,1,1];
@@ -2137,25 +2139,28 @@ function handleRightMenuClick(cx, cy) {
             if (mode === 'solid') return cA;
             if (mode === 'grad_h' || mode === 'grad_v') {
                 let t = 0;
-                if (mode === 'grad_h') {
-                    if (uT !== -1) {
-                        t = uT;
-                    } else {
-                        const dx = maxX - minX, dz = maxZ - minZ;
-                        if (dx >= dz && dx > 0) t = (gx - minX) / dx;
-                        else if (dz > 0) t = (gz - minZ) / dz;
-                    }
+                if (mode === 'grad_h' && uT !== -1) {
+                    t = uT;
+                } else if (mode === 'grad_v' && pathT !== -1) {
+                    t = pathT;
                 } else {
-                    if (pathT !== -1) {
-                        t = pathT;
+                    gradDir.set(mode === 'grad_h' ? 1 : 0, mode === 'grad_v' ? 1 : 0, 0);
+                    gradDir.applyQuaternion(currentGradientQuat);
+                    
+                    const cX = (minX + maxX) / 2;
+                    const cY = (minY + maxY) / 2;
+                    const cZ = (minZ + maxZ) / 2;
+                    const eX = (maxX - minX) / 2;
+                    const eY = (maxY - minY) / 2;
+                    const eZ = (maxZ - minZ) / 2;
+                    
+                    const extent = Math.abs(eX * gradDir.x) + Math.abs(eY * gradDir.y) + Math.abs(eZ * gradDir.z);
+                    
+                    if (extent > 0.001) {
+                        const proj = (gx - cX) * gradDir.x + (gy - cY) * gradDir.y + (gz - cZ) * gradDir.z;
+                        t = (proj / extent + 1) / 2;
                     } else {
-                        const dy = maxY - minY;
-                        if (dy > 0) t = (gy - minY) / dy;
-                        else {
-                            const dx = maxX - minX, dz = maxZ - minZ;
-                            if (dx >= dz && dx > 0) t = (gx - minX) / dx;
-                            else if (dz > 0) t = (gz - minZ) / dz;
-                        }
+                        t = 0.5;
                     }
                 }
                 return tempColorForDraw[slotIndex].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
@@ -2181,11 +2186,18 @@ function handleRightMenuClick(cx, cy) {
             if (lineColorMode === 'gradient') {
                 let t = (uT !== -1) ? uT : ((pathT !== -1) ? pathT : 0.5);
                 if (uT === -1 && pathT === -1) {
-                    const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-                    if (dx + dy + dz > 0) {
-                        if (dx >= dy && dx >= dz) t = (gx - minX) / dx;
-                        else if (dy >= dx && dy >= dz) t = (gy - minY) / dy;
-                        else t = (gz - minZ) / dz;
+                    gradDir.set(0, 0, -1).applyQuaternion(currentGradientQuat);
+                    const cX = (minX + maxX) / 2;
+                    const cY = (minY + maxY) / 2;
+                    const cZ = (minZ + maxZ) / 2;
+                    const eX = (maxX - minX) / 2;
+                    const eY = (maxY - minY) / 2;
+                    const eZ = (maxZ - minZ) / 2;
+                    
+                    const extent = Math.abs(eX * gradDir.x) + Math.abs(eY * gradDir.y) + Math.abs(eZ * gradDir.z);
+                    if (extent > 0.001) {
+                        const proj = (gx - cX) * gradDir.x + (gy - cY) * gradDir.y + (gz - cZ) * gradDir.z;
+                        t = (proj / extent + 1) / 2;
                     }
                 }
                 return tempColorForDraw[slot].copy(cA).lerp(cB, THREE.MathUtils.clamp(t, 0, 1));
@@ -4105,6 +4117,11 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         cursorRight.quaternion.identity();
                     }
                     cursorRight.updateMatrix(); cursorRight.visible=true; 
+
+                    worldGroup.getWorldQuaternion(tempQuat2).invert();
+                    xrRight.getWorldQuaternion(currentGradientQuat);
+                    currentGradientQuat.premultiply(tempQuat2);
+
                     // Real-time Arc Control: Dynamic Bulge via Wrist Pitch
                     if (activeTool === 'line' && lineType === 'arc' && xrRight && arcControlMode === 'dynamic') {
                         const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
