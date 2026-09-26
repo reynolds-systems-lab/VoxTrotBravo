@@ -1466,7 +1466,7 @@ function updatePlanePreview(start, end, isPainting) {
                 drawButton(leftMenuCtx, 50, 140, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 140, 232, 50, `Density: ${sculptDensity}`, false); drawButton(leftMenuCtx, 382, 140, 80, 50, '[+]', false);
                 drawButton(leftMenuCtx, 50, 210, 412, 50, `Pressure Size: ${sculptPressureMode ? 'ON' : 'OFF'}`, sculptPressureMode);
             } else if (activeTool === 'bouncy') {
-                drawButton(leftMenuCtx, 50, 70, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 70, 232, 50, `Radius: ${bouncyRadius}`, false); drawButton(leftMenuCtx, 382, 70, 80, 50, '[+]', false);
+                drawButton(leftMenuCtx, 50, 70, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 70, 232, 50, `Sphere Rad: ${bouncyRadius}`, false); drawButton(leftMenuCtx, 382, 70, 80, 50, '[+]', false);
                 drawButton(leftMenuCtx, 50, 140, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 140, 232, 50, `Speed: ${bouncySpeed}`, false); drawButton(leftMenuCtx, 382, 140, 80, 50, '[+]', false);
                 drawButton(leftMenuCtx, 50, 210, 80, 50, '[-]', false); drawButton(leftMenuCtx, 140, 210, 232, 50, `Count: ${bouncyCount}`, false); drawButton(leftMenuCtx, 382, 210, 80, 50, '[+]', false);
                 drawButton(leftMenuCtx, 50, 280, 200, 50, 'CLR: PALETTE', bouncyColorMode === 'palette'); drawButton(leftMenuCtx, 262, 280, 200, 50, 'CLR: MATCH', bouncyColorMode === 'match');
@@ -3684,21 +3684,6 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='cylinder')isPreviewingCylinder=true; 
                     if(activeTool==='triangle')isPreviewingTriangle=true;                     
                     if(activeTool==='icosahedron'){ isDrawing=true; isPreviewingIcosahedron=true; drawStartPos.copy(rightTargetLocal); }
-                    if(activeTool==='bouncy'){
-                        bouncyMesh.material = voxelMaterials[matTypes[activeMatSlot]];
-                        bouncyMesh.count = bouncyCount;
-                        const cArr = bouncyMesh.instanceColor.array;
-                        for(let i=0; i<bouncyCount; i++){
-                            let p = bouncyParticles[i];
-                            let rVec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
-                            p.pos.copy(rightTargetLocal).add(rVec);
-                            p.vel.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
-                            p.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
-                            p.mat = matTypes[activeMatSlot];
-                            cArr[i*3] = Math.round(p.color.r * 255); cArr[i*3+1] = Math.round(p.color.g * 255); cArr[i*3+2] = Math.round(p.color.b * 255);
-                        }
-                        bouncyMesh.instanceColor.needsUpdate = true;
-                    }
                     
                     // --- Point Mode Logic for Sheet (Right = Draw) ---
                     if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point' && xrLeft && xrRight) {
@@ -3756,21 +3741,6 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='cylinder')isPreviewingCylinder=true; 
                     if(activeTool==='triangle')isPreviewingTriangle=true; 
                     if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } 
-                    if(activeTool==='bouncy'){
-                        bouncyMesh.material = voxelMaterials[matTypes[activeMatSlot]];
-                        bouncyMesh.count = bouncyCount;
-                        const cArr = bouncyMesh.instanceColor.array;
-                        for(let i=0; i<bouncyCount; i++){
-                            let p = bouncyParticles[i];
-                            let rVec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
-                            p.pos.copy(leftTargetLocal).add(rVec);
-                            p.vel.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
-                            p.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
-                            p.mat = matTypes[activeMatSlot];
-                            cArr[i*3] = Math.round(p.color.r * 255); cArr[i*3+1] = Math.round(p.color.g * 255); cArr[i*3+2] = Math.round(p.color.b * 255);
-                        }
-                        bouncyMesh.instanceColor.needsUpdate = true;
-                    }
                 }
             }
         }
@@ -4026,7 +3996,8 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     } else {
                         cursorLeft.quaternion.identity();
                     }
-                    cursorLeft.updateMatrix(); cursorLeft.visible=true; 
+                    cursorLeft.updateMatrix(); 
+                    cursorLeft.visible = (activeTool !== 'bouncy'); 
                 } else cursorLeft.visible=false;
                 
                 if(xrRight){ 
@@ -4042,7 +4013,8 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     } else {
                         cursorRight.quaternion.identity();
                     }
-                    cursorRight.updateMatrix(); cursorRight.visible=true; 
+                    cursorRight.updateMatrix(); 
+                    cursorRight.visible = (activeTool !== 'bouncy'); 
                     // Real-time Arc Control: Dynamic Bulge via Wrist Pitch
                     if (activeTool === 'line' && lineType === 'arc' && xrRight && arcControlMode === 'dynamic') {
                         const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
@@ -4322,10 +4294,12 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                 }
                 // ---------------------------------------------
 
-                if (activeTool === 'bouncy' && (isDrawing || isErasing)) {
+                if (activeTool === 'bouncy') {
                     bouncyMesh.visible = true;
                     bouncyMesh.count = bouncyCount;
-                    let center = isDrawing ? rightTargetLocal : leftTargetLocal;
+                    
+                    // Preview follows right hand normally, left hand if erasing
+                    let center = isErasing ? leftTargetLocal : rightTargetLocal;
                     let radiusInWorld = (bouncyRadius - 0.5) * VOXEL_SIZE;
                     let speedInWorld = bouncySpeed * VOXEL_SIZE * 0.08;
                     let mArr = bouncyMesh.instanceMatrix.array;
@@ -4334,6 +4308,16 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     
                     for(let i=0; i<bouncyCount; i++) {
                         let p = bouncyParticles[i];
+                        
+                        // Keep particle color synchronized with palette while previewing
+                        if (!isDrawing && !isErasing) {
+                            p.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
+                            p.mat = matTypes[activeMatSlot];
+                            cArr[i*3] = Math.round(p.color.r * 255); 
+                            cArr[i*3+1] = Math.round(p.color.g * 255); 
+                            cArr[i*3+2] = Math.round(p.color.b * 255);
+                            bouncyMesh.material = voxelMaterials[matTypes[activeMatSlot]];
+                        }
                         
                         // Failsafe: if the particle drifts outside due to rapid brush movement, snap it back inside.
                         if (p.pos.distanceTo(center) > radiusInWorld) {
@@ -4363,8 +4347,9 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                                     let placeColor = bouncyColorMode === 'match' ? hitColor : p.color;
                                     let placeMat = bouncyColorMode === 'match' ? hitMat : p.mat;
                                     setVoxel(pX, pY, pZ, true, placeColor, placeMat);
+                                } else if (isErasing) {
+                                    setVoxel(nX, nY, nZ, false, null);
                                 }
-                                else setVoxel(nX, nY, nZ, false, null);
                             }
                             
                             p.pos.copy(center);
@@ -4384,6 +4369,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         tempMatrix.makeTranslation(p.pos.x, p.pos.y, p.pos.z);
                         tempMatrix.toArray(mArr, i * 16);
                     }
+                    bouncyMesh.instanceColor.needsUpdate = true;
                     bouncyMesh.instanceMatrix.needsUpdate = true;
                 } else if (typeof bouncyMesh !== 'undefined' && bouncyMesh) {
                     bouncyMesh.visible = false;
