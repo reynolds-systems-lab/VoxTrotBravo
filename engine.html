@@ -1,4 +1,4 @@
-<!-- 
+ 	<!-- 
     VoxTrotBravo PCVR
     Copyright (c) 2024-2026 Rob Reynolds. All Rights Reserved.
     Unauthorized copying, modification, or distribution is strictly prohibited.
@@ -1980,19 +1980,19 @@ function updateGlobalMenuTexture() {
             drawButton(globalMenuCtx, 40, 450, 280, 50, 'EXPORT .OBJ', false);
             drawButton(globalMenuCtx, 330, 450, 142, 50, 'EXIT VR', false);
 
-            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Grid Copy Array`, 256, 540);
+	globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Grid Copy Array`, 256, 540);
             
-            drawButton(globalMenuCtx, 20, 560, 80, 45, `X: ${gridCopyX ? 'ON' : 'OFF'}`, gridCopyX);
-            drawButton(globalMenuCtx, 110, 560, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 560, 100, 45, `Spc: ${gridCopyXSpace}`, false); drawButton(globalMenuCtx, 250, 560, 40, 45, '+', false);
-            drawButton(globalMenuCtx, 300, 560, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 560, 110, 45, `Num: ${gridCopyXCopies}`, false); drawButton(globalMenuCtx, 450, 560, 40, 45, '+', false);
+            drawButton(globalMenuCtx, 20, 560, 60, 45, `X:${gridCopyX ? 'ON' : 'OFF'}`, gridCopyX);
+            drawButton(globalMenuCtx, 85, 560, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 560, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 560, 95, 45, `Spc: ${gridCopyXSpace}`, false); drawButton(globalMenuCtx, 255, 560, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 560, 35, 45, '>>', false);
+            drawButton(globalMenuCtx, 330, 560, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 560, 100, 45, `Num: ${gridCopyXCopies}`, false); drawButton(globalMenuCtx, 470, 560, 30, 45, '+', false);
 
-            drawButton(globalMenuCtx, 20, 620, 80, 45, `Y: ${gridCopyY ? 'ON' : 'OFF'}`, gridCopyY);
-            drawButton(globalMenuCtx, 110, 620, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 620, 100, 45, `Spc: ${gridCopyYSpace}`, false); drawButton(globalMenuCtx, 250, 620, 40, 45, '+', false);
-            drawButton(globalMenuCtx, 300, 620, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 620, 110, 45, `Num: ${gridCopyYCopies}`, false); drawButton(globalMenuCtx, 450, 620, 40, 45, '+', false);
+            drawButton(globalMenuCtx, 20, 620, 60, 45, `Y:${gridCopyY ? 'ON' : 'OFF'}`, gridCopyY);
+            drawButton(globalMenuCtx, 85, 620, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 620, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 620, 95, 45, `Spc: ${gridCopyYSpace}`, false); drawButton(globalMenuCtx, 255, 620, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 620, 35, 45, '>>', false);
+            drawButton(globalMenuCtx, 330, 620, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 620, 100, 45, `Num: ${gridCopyYCopies}`, false); drawButton(globalMenuCtx, 470, 620, 30, 45, '+', false);
 
-            drawButton(globalMenuCtx, 20, 680, 80, 45, `Z: ${gridCopyZ ? 'ON' : 'OFF'}`, gridCopyZ);
-            drawButton(globalMenuCtx, 110, 680, 40, 45, '-', false); drawButton(globalMenuCtx, 150, 680, 100, 45, `Spc: ${gridCopyZSpace}`, false); drawButton(globalMenuCtx, 250, 680, 40, 45, '+', false);
-            drawButton(globalMenuCtx, 300, 680, 40, 45, '-', false); drawButton(globalMenuCtx, 340, 680, 110, 45, `Num: ${gridCopyZCopies}`, false); drawButton(globalMenuCtx, 450, 680, 40, 45, '+', false);
+            drawButton(globalMenuCtx, 20, 680, 60, 45, `Z:${gridCopyZ ? 'ON' : 'OFF'}`, gridCopyZ);
+            drawButton(globalMenuCtx, 85, 680, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 680, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 680, 95, 45, `Spc: ${gridCopyZSpace}`, false); drawButton(globalMenuCtx, 255, 680, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 680, 35, 45, '>>', false);
+            drawButton(globalMenuCtx, 330, 680, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 680, 100, 45, `Num: ${gridCopyZCopies}`, false); drawButton(globalMenuCtx, 470, 680, 30, 45, '+', false);
 
             globalMenuTexture.needsUpdate = true;
         }
@@ -2029,27 +2029,33 @@ function updateGlobalMenuTexture() {
                 }
             }
 
-            let arrayChanged = false;
+	let arrayChanged = false;
             if (cy >= 560 && cy <= 605) {
-                if (cx >= 20 && cx <= 100) { gridCopyX = !gridCopyX; arrayChanged = true; }
-                if (cx >= 110 && cx <= 150) { gridCopyXSpace = Math.max(-100, gridCopyXSpace - 1); arrayChanged = true; }
-                if (cx >= 250 && cx <= 290) { gridCopyXSpace = Math.min(100, gridCopyXSpace + 1); arrayChanged = true; }
-                if (cx >= 300 && cx <= 340) { gridCopyXCopies = Math.max(1, gridCopyXCopies - 1); arrayChanged = true; }
-                if (cx >= 450 && cx <= 490) { gridCopyXCopies = Math.min(20, gridCopyXCopies + 1); arrayChanged = true; }
+                if (cx >= 20 && cx <= 80) { gridCopyX = !gridCopyX; arrayChanged = true; }
+                if (cx >= 85 && cx <= 120) { gridCopyXSpace = Math.max(-100, gridCopyXSpace - 16); arrayChanged = true; }
+                if (cx >= 125 && cx <= 150) { gridCopyXSpace = Math.max(-100, gridCopyXSpace - 1); arrayChanged = true; }
+                if (cx >= 255 && cx <= 280) { gridCopyXSpace = Math.min(100, gridCopyXSpace + 1); arrayChanged = true; }
+                if (cx >= 285 && cx <= 320) { gridCopyXSpace = Math.min(100, gridCopyXSpace + 16); arrayChanged = true; }
+                if (cx >= 330 && cx <= 360) { gridCopyXCopies = Math.max(1, gridCopyXCopies - 1); arrayChanged = true; }
+                if (cx >= 470 && cx <= 500) { gridCopyXCopies = Math.min(20, gridCopyXCopies + 1); arrayChanged = true; }
             }
             if (cy >= 620 && cy <= 665) {
-                if (cx >= 20 && cx <= 100) { gridCopyY = !gridCopyY; arrayChanged = true; }
-                if (cx >= 110 && cx <= 150) { gridCopyYSpace = Math.max(-100, gridCopyYSpace - 1); arrayChanged = true; }
-                if (cx >= 250 && cx <= 290) { gridCopyYSpace = Math.min(100, gridCopyYSpace + 1); arrayChanged = true; }
-                if (cx >= 300 && cx <= 340) { gridCopyYCopies = Math.max(1, gridCopyYCopies - 1); arrayChanged = true; }
-                if (cx >= 450 && cx <= 490) { gridCopyYCopies = Math.min(20, gridCopyYCopies + 1); arrayChanged = true; }
+                if (cx >= 20 && cx <= 80) { gridCopyY = !gridCopyY; arrayChanged = true; }
+                if (cx >= 85 && cx <= 120) { gridCopyYSpace = Math.max(-100, gridCopyYSpace - 16); arrayChanged = true; }
+                if (cx >= 125 && cx <= 150) { gridCopyYSpace = Math.max(-100, gridCopyYSpace - 1); arrayChanged = true; }
+                if (cx >= 255 && cx <= 280) { gridCopyYSpace = Math.min(100, gridCopyYSpace + 1); arrayChanged = true; }
+                if (cx >= 285 && cx <= 320) { gridCopyYSpace = Math.min(100, gridCopyYSpace + 16); arrayChanged = true; }
+                if (cx >= 330 && cx <= 360) { gridCopyYCopies = Math.max(1, gridCopyYCopies - 1); arrayChanged = true; }
+                if (cx >= 470 && cx <= 500) { gridCopyYCopies = Math.min(20, gridCopyYCopies + 1); arrayChanged = true; }
             }
             if (cy >= 680 && cy <= 725) {
-                if (cx >= 20 && cx <= 100) { gridCopyZ = !gridCopyZ; arrayChanged = true; }
-                if (cx >= 110 && cx <= 150) { gridCopyZSpace = Math.max(-100, gridCopyZSpace - 1); arrayChanged = true; }
-                if (cx >= 250 && cx <= 290) { gridCopyZSpace = Math.min(100, gridCopyZSpace + 1); arrayChanged = true; }
-                if (cx >= 300 && cx <= 340) { gridCopyZCopies = Math.max(1, gridCopyZCopies - 1); arrayChanged = true; }
-                if (cx >= 450 && cx <= 490) { gridCopyZCopies = Math.min(20, gridCopyZCopies + 1); arrayChanged = true; }
+                if (cx >= 20 && cx <= 80) { gridCopyZ = !gridCopyZ; arrayChanged = true; }
+                if (cx >= 85 && cx <= 120) { gridCopyZSpace = Math.max(-100, gridCopyZSpace - 16); arrayChanged = true; }
+                if (cx >= 125 && cx <= 150) { gridCopyZSpace = Math.max(-100, gridCopyZSpace - 1); arrayChanged = true; }
+                if (cx >= 255 && cx <= 280) { gridCopyZSpace = Math.min(100, gridCopyZSpace + 1); arrayChanged = true; }
+                if (cx >= 285 && cx <= 320) { gridCopyZSpace = Math.min(100, gridCopyZSpace + 16); arrayChanged = true; }
+                if (cx >= 330 && cx <= 360) { gridCopyZCopies = Math.max(1, gridCopyZCopies - 1); arrayChanged = true; }
+                if (cx >= 470 && cx <= 500) { gridCopyZCopies = Math.min(20, gridCopyZCopies + 1); arrayChanged = true; }
             }
 
             if (arrayChanged) {
