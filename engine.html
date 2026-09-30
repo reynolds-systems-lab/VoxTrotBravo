@@ -313,7 +313,7 @@
             updateActiveSymmetries();
         }
 
-function updateActiveSymmetries() {
+	function updateActiveSymmetries() {
             activeSymmetries = [];
             let mirrors = [{sx: 1, sy: 1, sz: 1}];
             
@@ -345,6 +345,23 @@ function updateActiveSymmetries() {
                     for (let x = 0; x <= xIter; x++) {
                         for (let y = 0; y <= yIter; y++) {
                             for (let z = 0; z <= zIter; z++) {
+                                let rawTx = x * (gridCopyX ? gridCopyXSpace : 0);
+                                let rawTy = y * (gridCopyY ? gridCopyYSpace : 0);
+                                let rawTz = z * (gridCopyZ ? gridCopyZSpace : 0);
+                                
+                                let mTx = rawTx * mirrors[m].sx;
+                                let mTy = rawTy * mirrors[m].sy;
+                                let mTz = rawTz * mirrors[m].sz;
+                                
+                                let fTx = mTx;
+                                let fTz = mTz;
+                                if (p > 0) {
+                                    const pCos = polarCos[p];
+                                    const pSin = polarSin[p];
+                                    fTx = mTx * pCos + mTz * pSin;
+                                    fTz = -mTx * pSin + mTz * pCos;
+                                }
+
                                 activeSymmetries.push({
                                     sx: mirrors[m].sx,
                                     sy: mirrors[m].sy,
@@ -352,9 +369,9 @@ function updateActiveSymmetries() {
                                     p: p,
                                     cos: p > 0 ? polarCos[p] : 1,
                                     sin: p > 0 ? polarSin[p] : 0,
-                                    tx: x * (gridCopyX ? gridCopyXSpace : 0),
-                                    ty: y * (gridCopyY ? gridCopyYSpace : 0),
-                                    tz: z * (gridCopyZ ? gridCopyZSpace : 0)
+                                    tx: fTx,
+                                    ty: mTy,
+                                    tz: fTz
                                 });
                             }
                         }
@@ -2390,7 +2407,7 @@ function updateGlobalMenuTexture() {
         }
 
 
-function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
+	function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
             const targetSyms = (isDrawing || isErasing) && lockCtx.active ? lockCtx.symmetries : activeSymmetries;
             const baseG = (isDrawing || isErasing) && lockCtx.active ? lockCtx.startG : {x:0, y:0, z:0};
 
@@ -2405,31 +2422,31 @@ function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
                 let mdz = dz * sym.sz;
                 
                 const startPos = sym.lockedStartG || {x:0, y:0, z:0};
-                const sY = startPos.y + mdy + (sym.ty || 0); 
+                const sY = Math.round(startPos.y + mdy + (sym.ty || 0)); 
 
                 if (sym.p > 0) {
-                    const rx = mdx * sym.cos + mdz * sym.sin;
-                    const rz = -mdx * sym.sin + mdz * sym.cos;
-                    const fdx = Math.round(rx) + (sym.tx || 0);
-                    const fdz = Math.round(rz) + (sym.tz || 0);
+                    const rx = mdx * sym.cos + mdz * sym.sin + (sym.tx || 0);
+                    const rz = -mdx * sym.sin + mdz * sym.cos + (sym.tz || 0);
+                    const fdx = Math.round(rx);
+                    const fdz = Math.round(rz);
                     
                     setVoxelCore(startPos.x + fdx, sY, startPos.z + fdz, isP, color, mOver);
                     
                     // Anti-aliasing / Hole-filling for discrete polar rotation
-                    const dx_frac = rx - Math.round(rx);
-                    const dz_frac = rz - Math.round(rz);
+                    const dx_frac = rx - fdx;
+                    const dz_frac = rz - fdz;
                     if (Math.abs(dx_frac) > 0.25 || Math.abs(dz_frac) > 0.25) {
                         const ox = Math.abs(dx_frac) > Math.abs(dz_frac) ? Math.sign(dx_frac) : 0;
                         const oz = Math.abs(dz_frac) >= Math.abs(dx_frac) ? Math.sign(dz_frac) : 0;
                         setVoxelCore(startPos.x + fdx + ox, sY, startPos.z + fdz + oz, isP, color, mOver);
                     }
                 } else {
-                    setVoxelCore(startPos.x + mdx + (sym.tx || 0), sY, startPos.z + mdz + (sym.tz || 0), isP, color, mOver);
+                    setVoxelCore(startPos.x + mdx + Math.round(sym.tx || 0), sY, startPos.z + mdz + Math.round(sym.tz || 0), isP, color, mOver);
                 }
             }
         }
 
-        function recolorVoxelSet(gx, gy, gz, color, mOver = -1) {
+	function recolorVoxelSet(gx, gy, gz, color, mOver = -1) {
             const dM = mOver !== -1 ? mOver : matTypes[0];
             const targetSyms = (isDrawing || isErasing) && lockCtx.active ? lockCtx.symmetries : activeSymmetries;
             const baseG = (isDrawing || isErasing) && lockCtx.active ? lockCtx.startG : {x:0, y:0, z:0};
@@ -2443,26 +2460,26 @@ function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
                 let mdx = dx * sym.sx, mdy = dy * sym.sy, mdz = dz * sym.sz;
                 
                 const startPos = sym.lockedStartG || {x:0, y:0, z:0};
-                const sY = startPos.y + mdy + (sym.ty || 0);
+                const sY = Math.round(startPos.y + mdy + (sym.ty || 0));
 
                 if (sym.p > 0) {
-                    const rx = mdx * sym.cos + mdz * sym.sin;
-                    const rz = -mdx * sym.sin + mdz * sym.cos;
-                    const fdx = Math.round(rx) + (sym.tx || 0);
-                    const fdz = Math.round(rz) + (sym.tz || 0);
+                    const rx = mdx * sym.cos + mdz * sym.sin + (sym.tx || 0);
+                    const rz = -mdx * sym.sin + mdz * sym.cos + (sym.tz || 0);
+                    const fdx = Math.round(rx);
+                    const fdz = Math.round(rz);
                     
                     recolorVoxel(startPos.x + fdx, sY, startPos.z + fdz, color, dM);
                     
                     // Anti-aliasing / Hole-filling for discrete polar rotation
-                    const dx_frac = rx - Math.round(rx);
-                    const dz_frac = rz - Math.round(rz);
+                    const dx_frac = rx - fdx;
+                    const dz_frac = rz - fdz;
                     if (Math.abs(dx_frac) > 0.25 || Math.abs(dz_frac) > 0.25) {
                         const ox = Math.abs(dx_frac) > Math.abs(dz_frac) ? Math.sign(dx_frac) : 0;
                         const oz = Math.abs(dz_frac) >= Math.abs(dx_frac) ? Math.sign(dz_frac) : 0;
                         recolorVoxel(startPos.x + fdx + ox, sY, startPos.z + fdz + oz, color, dM);
                     }
                 } else {
-                    recolorVoxel(startPos.x + mdx + (sym.tx || 0), sY, startPos.z + mdz + (sym.tz || 0), color, dM);
+                    recolorVoxel(startPos.x + mdx + Math.round(sym.tx || 0), sY, startPos.z + mdz + Math.round(sym.tz || 0), color, dM);
                 }
             }
         }
