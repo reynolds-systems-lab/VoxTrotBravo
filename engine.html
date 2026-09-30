@@ -90,6 +90,46 @@
             margin-top: 20px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Color Indicator HUD */
+        #color-indicator-hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 100;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .hud-slot {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .hud-slot-title {
+            color: #4facfe;
+            font-size: 12px;
+            font-weight: bold;
+            width: 45px;
+        }
+        .hud-color-box {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: 2px solid rgba(255,255,255,0.2);
+            transition: all 0.2s ease;
+        }
+        .hud-color-box.active {
+            border-color: #fff;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+            transform: scale(1.15);
+        }
     </style>
     <script type="importmap">
         {
@@ -116,6 +156,18 @@
         <div class="copyright-tag">&copy; 2024-2026 Rob Reynolds. All Rights Reserved.</div>
     </div>
 
+    <div id="color-indicator-hud">
+        <div class="hud-slot" id="hud-slot-1">
+            <span class="hud-slot-title">SLOT 1</span>
+            <div class="hud-color-box" id="hud-s1-a"></div>
+            <div class="hud-color-box" id="hud-s1-b"></div>
+        </div>
+        <div class="hud-slot" id="hud-slot-2">
+            <span class="hud-slot-title">SLOT 2</span>
+            <div class="hud-color-box" id="hud-s2-a"></div>
+            <div class="hud-color-box" id="hud-s2-b"></div>
+        </div>
+    </div>
 
 <button id="export-button-overlay">Export .OBJ (Current Mode)</button>
 
@@ -273,7 +325,26 @@
             [new THREE.Color(0x00ffcc), new THREE.Color(0xffff00)]  
         ];
         
-        const joystickTracker = [ {h: 0.55, s: 1.0}, {h: 0.95, s: 1.0} ]; 
+        function updateColorHUD() {
+            const s1a = document.getElementById('hud-s1-a');
+            const s1b = document.getElementById('hud-s1-b');
+            const s2a = document.getElementById('hud-s2-a');
+            const s2b = document.getElementById('hud-s2-b');
+            if(s1a && s1b && s2a && s2b) {
+                s1a.style.backgroundColor = '#' + slotColors[0][0].getHexString();
+                s1b.style.backgroundColor = '#' + slotColors[0][1].getHexString();
+                s2a.style.backgroundColor = '#' + slotColors[1][0].getHexString();
+                s2b.style.backgroundColor = '#' + slotColors[1][1].getHexString();
+
+                s1a.className = 'hud-color-box' + (activeMatSlot === 0 && activeColorSubSlot === 0 ? ' active' : '');
+                s1b.className = 'hud-color-box' + (activeMatSlot === 0 && activeColorSubSlot === 1 ? ' active' : '');
+                s2a.className = 'hud-color-box' + (activeMatSlot === 1 && activeColorSubSlot === 0 ? ' active' : '');
+                s2b.className = 'hud-color-box' + (activeMatSlot === 1 && activeColorSubSlot === 1 ? ' active' : '');
+            }
+        }
+        updateColorHUD();
+
+        const joystickTracker = [ {h: 0.55, s: 1.0}, {h: 0.95, s: 1.0} ];  
         
         let joyLTarget = 1; 
         let joyRTarget = 0;
