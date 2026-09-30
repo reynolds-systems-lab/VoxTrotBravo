@@ -90,46 +90,6 @@
             margin-top: 20px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* Color Indicator HUD */
-        #color-indicator-hud {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 12px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.2);
-            z-index: 100;
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .hud-slot {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .hud-slot-title {
-            color: #4facfe;
-            font-size: 12px;
-            font-weight: bold;
-            width: 45px;
-        }
-        .hud-color-box {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            border: 2px solid rgba(255,255,255,0.2);
-            transition: all 0.2s ease;
-        }
-        .hud-color-box.active {
-            border-color: #fff;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
-            transform: scale(1.15);
-        }
     </style>
     <script type="importmap">
         {
@@ -156,18 +116,6 @@
         <div class="copyright-tag">&copy; 2024-2026 Rob Reynolds. All Rights Reserved.</div>
     </div>
 
-    <div id="color-indicator-hud">
-        <div class="hud-slot" id="hud-slot-1">
-            <span class="hud-slot-title">SLOT 1</span>
-            <div class="hud-color-box" id="hud-s1-a"></div>
-            <div class="hud-color-box" id="hud-s1-b"></div>
-        </div>
-        <div class="hud-slot" id="hud-slot-2">
-            <span class="hud-slot-title">SLOT 2</span>
-            <div class="hud-color-box" id="hud-s2-a"></div>
-            <div class="hud-color-box" id="hud-s2-b"></div>
-        </div>
-    </div>
 
 <button id="export-button-overlay">Export .OBJ (Current Mode)</button>
 
@@ -325,26 +273,7 @@
             [new THREE.Color(0x00ffcc), new THREE.Color(0xffff00)]  
         ];
         
-        function updateColorHUD() {
-            const s1a = document.getElementById('hud-s1-a');
-            const s1b = document.getElementById('hud-s1-b');
-            const s2a = document.getElementById('hud-s2-a');
-            const s2b = document.getElementById('hud-s2-b');
-            if(s1a && s1b && s2a && s2b) {
-                s1a.style.backgroundColor = '#' + slotColors[0][0].getHexString();
-                s1b.style.backgroundColor = '#' + slotColors[0][1].getHexString();
-                s2a.style.backgroundColor = '#' + slotColors[1][0].getHexString();
-                s2b.style.backgroundColor = '#' + slotColors[1][1].getHexString();
-
-                s1a.className = 'hud-color-box' + (activeMatSlot === 0 && activeColorSubSlot === 0 ? ' active' : '');
-                s1b.className = 'hud-color-box' + (activeMatSlot === 0 && activeColorSubSlot === 1 ? ' active' : '');
-                s2a.className = 'hud-color-box' + (activeMatSlot === 1 && activeColorSubSlot === 0 ? ' active' : '');
-                s2b.className = 'hud-color-box' + (activeMatSlot === 1 && activeColorSubSlot === 1 ? ' active' : '');
-            }
-        }
-        updateColorHUD();
-
-        const joystickTracker = [ {h: 0.55, s: 1.0}, {h: 0.95, s: 1.0} ];  
+        const joystickTracker = [ {h: 0.55, s: 1.0}, {h: 0.95, s: 1.0} ]; 
         
         let joyLTarget = 1; 
         let joyRTarget = 0;
@@ -1990,7 +1919,46 @@ if (cy >= 60 && cy <= 90) {
         rightMenuMesh.visible = false; rightMenuMesh.position.set(0, 0.15, -0.05); rightMenuMesh.rotation.x = -Math.PI / 4;
         xrRight.add(rightMenuMesh);
 
+        // Joystick Color Indicator UI
+        const joyColorCanvas = document.createElement('canvas'); joyColorCanvas.width = 256; joyColorCanvas.height = 128;
+        const joyColorCtx = joyColorCanvas.getContext('2d', { willReadFrequently: true });
+        const joyColorTexture = new THREE.CanvasTexture(joyColorCanvas);
+        const joyColorMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.08), new THREE.MeshBasicMaterial({ map: joyColorTexture, transparent: true, side: THREE.DoubleSide }));
+        joyColorMesh.visible = false; joyColorMesh.position.set(0, 0.10, -0.08); joyColorMesh.rotation.x = -Math.PI / 4;
+        let joyColorActiveTimer = 0;
+
+        function updateJoyColorTexture() {
+            joyColorCtx.clearRect(0, 0, 256, 128);
+            joyColorCtx.fillStyle = 'rgba(20, 20, 20, 0.95)';
+            joyColorCtx.fillRect(0, 0, 256, 128);
+            joyColorCtx.lineWidth = 4; joyColorCtx.strokeStyle = '#4facfe'; joyColorCtx.strokeRect(2, 2, 252, 124);
+            
+            joyColorCtx.font = 'bold 16px sans-serif'; joyColorCtx.textAlign = 'center'; joyColorCtx.textBaseline = 'middle';
+            joyColorCtx.fillStyle = '#4facfe'; joyColorCtx.fillText('SLOT 1', 64, 20); joyColorCtx.fillText('SLOT 2', 192, 20);
+
+            // Draw Slot 1 Colors (A & B)
+            joyColorCtx.fillStyle = '#' + slotColors[0][0].getHexString(); joyColorCtx.fillRect(16, 40, 44, 44);
+            joyColorCtx.strokeStyle = (joyLTarget === 0 || joyRTarget === 0) ? '#fff' : '#444'; joyColorCtx.lineWidth = (joyLTarget === 0 || joyRTarget === 0) ? 4 : 2; joyColorCtx.strokeRect(16, 40, 44, 44);
+            
+            joyColorCtx.fillStyle = '#' + slotColors[0][1].getHexString(); joyColorCtx.fillRect(68, 40, 44, 44);
+            joyColorCtx.strokeStyle = (joyLTarget === 1 || joyRTarget === 1) ? '#fff' : '#444'; joyColorCtx.lineWidth = (joyLTarget === 1 || joyRTarget === 1) ? 4 : 2; joyColorCtx.strokeRect(68, 40, 44, 44);
+
+            // Draw Slot 2 Colors (A & B)
+            joyColorCtx.fillStyle = '#' + slotColors[1][0].getHexString(); joyColorCtx.fillRect(144, 40, 44, 44);
+            joyColorCtx.strokeStyle = (joyLTarget === 2 || joyRTarget === 2) ? '#fff' : '#444'; joyColorCtx.lineWidth = (joyLTarget === 2 || joyRTarget === 2) ? 4 : 2; joyColorCtx.strokeRect(144, 40, 44, 44);
+            
+            joyColorCtx.fillStyle = '#' + slotColors[1][1].getHexString(); joyColorCtx.fillRect(196, 40, 44, 44);
+            joyColorCtx.strokeStyle = (joyLTarget === 3 || joyRTarget === 3) ? '#fff' : '#444'; joyColorCtx.lineWidth = (joyLTarget === 3 || joyRTarget === 3) ? 4 : 2; joyColorCtx.strokeRect(196, 40, 44, 44);
+
+            joyColorCtx.fillStyle = '#ddd'; joyColorCtx.font = '13px sans-serif';
+            joyColorCtx.fillText('Color A', 38, 100); joyColorCtx.fillText('Color B', 90, 100);
+            joyColorCtx.fillText('Color A', 166, 100); joyColorCtx.fillText('Color B', 218, 100);
+            
+            joyColorTexture.needsUpdate = true;
+        }
+
         function updateRightMenuTexture() {
+
             rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; rightMenuCtx.fillRect(0, 0, 512, 512);
             rightMenuCtx.fillStyle = '#4facfe'; rightMenuCtx.font = 'bold 28px sans-serif'; rightMenuCtx.textAlign = 'center'; rightMenuCtx.fillText(`Tool Selection`, 256, 28);
             const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'extrude', label: 'Extrude (Pull)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' }, { id: 'bouncy', label: 'Particle Brush' } ];
@@ -4174,6 +4142,14 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     lastColorJoystickUpdateTime = Date.now();
                 } 
             }
+            
+            if (anyJoyActive) {
+                joyColorActiveTimer = Date.now() + 1500; // Keep UI active for 1.5 seconds after stopping
+                joyColorMesh.visible = true;
+                updateJoyColorTexture();
+            } else if (joyColorMesh.visible && Date.now() > joyColorActiveTimer) {
+                joyColorMesh.visible = false;
+            }
         }
         
         let lastRightEffSize = -1;
@@ -4184,7 +4160,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
         renderer.setAnimationLoop(() => {
             shiftProgress += 0.005 * shiftDir; if(shiftProgress>=1)shiftDir=-1; if(shiftProgress<=0)shiftDir=1;
             if (renderer.xr.isPresenting) {
-                const session = renderer.xr.getSession(); if(session) for(let i=0;i<session.inputSources.length;i++){ const s=session.inputSources[i]; if(s){ const c=i===0?controller0:controller1, g=i===0?grip0:grip1; if(s.handedness==='right'&&xrRight!==c){ xrRight=c; gripRight=g; xrRight.add(rightLaserLine, rightMenuMesh, globalMenuMesh); } else if(s.handedness==='left'&&xrLeft!==c){ xrLeft=c; gripLeft=g; xrLeft.add(leftLaserLine, leftMenuMesh, colorMenuMesh); } } }
+                const session = renderer.xr.getSession(); if(session) for(let i=0;i<session.inputSources.length;i++){ const s=session.inputSources[i]; if(s){ const c=i===0?controller0:controller1, g=i===0?grip0:grip1; if(s.handedness==='right'&&xrRight!==c){ xrRight=c; gripRight=g; xrRight.add(rightLaserLine, rightMenuMesh, globalMenuMesh, joyColorMesh); } else if(s.handedness==='left'&&xrLeft!==c){ xrLeft=c; gripLeft=g; xrLeft.add(leftLaserLine, leftMenuMesh, colorMenuMesh); } } }
                 if(xrLeft){ leftPointerPos.setFromMatrixPosition(xrLeft.matrixWorld); leftDir.set(0,0,-1).transformDirection(xrLeft.matrixWorld); } if(xrRight){ rightPointerPos.setFromMatrixPosition(xrRight.matrixWorld); rightDir.set(0,0,-1).transformDirection(xrRight.matrixWorld); }
                 pollGamepads();
                 
