@@ -3039,36 +3039,39 @@ function placeBrushVoxels(pos, isP, overrideSize = brushSize, ctrlQuat = null) {
             }
         }
 
-        const testPos = new THREE.Vector3();
-        const localW = new THREE.Vector3();
-        const localDistVec = new THREE.Vector3();
+            const testPos = new THREE.Vector3();
+            const localW = new THREE.Vector3();
+            const localDistVec = new THREE.Vector3();
+            const tolerance = VOXEL_SIZE * 0.85;
 
-        const getStrokeInfo = (pos) => {
-            let bestT = -1;
-            for (const seg of segments) {
-                localW.subVectors(pos, seg.A);
-                const t = localW.dot(seg.normDir);
-                if (t < -0.005 || t > seg.L + 0.005) continue;
+            const getStrokeInfo = (pos) => {
+                let bestT = -1;
+                for (const seg of segments) {
+                    localW.subVectors(pos, seg.A);
+                    const t = localW.dot(seg.normDir);
+                    
+                    if (t < -r - tolerance || t > seg.L + r + tolerance) continue;
 
-                localDistVec.copy(seg.A).addScaledVector(seg.normDir, t);
-                localDistVec.subVectors(pos, localDistVec);
+                    const clampedT = THREE.MathUtils.clamp(t, 0, seg.L);
+                    localDistVec.copy(seg.A).addScaledVector(seg.normDir, clampedT);
+                    localDistVec.subVectors(pos, localDistVec);
 
-                let inside = false;
-                if (brushShape === 'sphere') {
-                    if (localDistVec.lengthSq() <= (r + 0.005) * (r + 0.005)) inside = true;
-                } else {
-                    const dU = Math.abs(localDistVec.dot(seg.u));
-                    const dV = Math.abs(localDistVec.dot(seg.v));
-                    if (dU <= r + 0.005 && dV <= r + 0.005) inside = true;
+                    let inside = false;
+                    if (brushShape === 'sphere') {
+                        if (localDistVec.lengthSq() <= (r + tolerance) * (r + tolerance)) inside = true;
+                    } else {
+                        const dU = Math.abs(localDistVec.dot(seg.u));
+                        const dV = Math.abs(localDistVec.dot(seg.v));
+                        if (dU <= r + tolerance && dV <= r + tolerance) inside = true;
+                    }
+
+                    if (inside) {
+                        bestT = (seg.startDist + clampedT) / (totalPathLength || 1);
+                        return bestT;
+                    }
                 }
-
-                if (inside) {
-                    bestT = (seg.startDist + THREE.MathUtils.clamp(t, 0, seg.L)) / (totalPathLength || 1);
-                    return bestT;
-                }
-            }
-            return -1;
-        };
+                return -1;
+            };
 
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
         points.forEach(p => {
@@ -3978,11 +3981,12 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='select'&&selectMode==='box'&&isPreviewingBox){ if(!menuClickActive) executeSelectBox(drawStartPos,rightTargetLocal); isPreviewingBox=false; boxPreviewMesh.visible=false; } 
                     
                     if(activeTool==='line') {
-                        if (!menuClickActive && lineDrawMode === 'stroke' && linePreviewMesh.visible) {
+                        if (!menuClickActive && lineDrawMode === 'stroke' && (linePreviewMesh.visible || lineWireframeMesh.visible)) {
                             let pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
                             executeLineTool(pStart, rightTargetLocal, true);
                         }
                         linePreviewMesh.visible=false;
+                        lineWireframeMesh.visible=false;
                         // ONLY clear memory if NOT in Point Mode
                         if (lineSheetType !== 'point') lastArcPoints = [];
                     }
@@ -4002,11 +4006,12 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                 isErasing=false;
                 
                 if(activeTool==='line') { 
-                    if (lineDrawMode === 'stroke' && linePreviewMesh.visible) {
+                    if (lineDrawMode === 'stroke' && (linePreviewMesh.visible || lineWireframeMesh.visible)) {
                         let pStart = (lineMode === 'two-hand' && xrRight) ? rightTargetLocal : drawStartPos;
                         executeLineTool(pStart, leftTargetLocal, false);
                     }
                     linePreviewMesh.visible=false;
+                    lineWireframeMesh.visible=false;
                     if (lineSheetType !== 'point') lastArcPoints = [];
                 }
 
@@ -4321,8 +4326,8 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                                 updateLinePreviewFromPoints(arcPoints, true);
                             } else {
                                 updateLinePreviewMesh(pStart, pEnd, true);
+                                linePreviewMesh.visible = true;
                             }
-                            linePreviewMesh.visible = true;
                         }
                     }
                     if(activeTool==='select'&&hasSelection&&!isSettingPivot){ 
@@ -4442,10 +4447,10 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                                 const arcPoints = [];
                                 calculateArcPoints(pStart, pEnd, xrRight, xrLeft, arcPoints); 
                                 updateLinePreviewFromPoints(arcPoints, false);
-			    } else {
+                            } else {
                                 updateLinePreviewMesh(pStart, pEnd, false);
+                                linePreviewMesh.visible = true;
                             }
-                            linePreviewMesh.visible = true;
                         }
                     }
 
