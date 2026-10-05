@@ -4540,18 +4540,22 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     let cArr = bouncyMesh.instanceColor.array;
                     let hitColor = new THREE.Color();
                     
+                    // PRE-ALLOCATED VECTORS: Eliminates up to 600 allocations per frame to stabilize GC
+                    let nextPos = new THREE.Vector3();
+                    let localTemp1 = new THREE.Vector3();
+                    let normal = new THREE.Vector3();
+                    
                     for(let i=0; i<bouncyCount; i++) {
                         let p = bouncyParticles[i];
                         
                         // Failsafe: if the particle drifts outside due to rapid brush movement, snap it back inside.
                         if (p.pos.distanceTo(center) > radiusInWorld) {
-                            p.pos.copy(center).add(
-                                new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE)
-                            );
+                            localTemp1.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
+                            p.pos.copy(center).add(localTemp1);
                         }
                         
                         tempPos.copy(p.vel).multiplyScalar(speedInWorld);
-                        let nextPos = p.pos.clone().add(tempPos);
+                        nextPos.copy(p.pos).add(tempPos);
                         
                         let pX = Math.round(p.pos.x / VOXEL_SIZE);
                         let pY = Math.round(p.pos.y / VOXEL_SIZE);
@@ -4565,8 +4569,8 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         
                         if (hitMat !== -1 && (nX !== pX || nY !== pY || nZ !== pZ)) {
                             // Enforce strict bounds check directly against the final grid placement
-                            let pGridPos = new THREE.Vector3(pX * VOXEL_SIZE, pY * VOXEL_SIZE, pZ * VOXEL_SIZE);
-                            if (pGridPos.distanceTo(center) <= radiusInWorld + (VOXEL_SIZE * 0.5)) {
+                            localTemp1.set(pX * VOXEL_SIZE, pY * VOXEL_SIZE, pZ * VOXEL_SIZE);
+                            if (localTemp1.distanceTo(center) <= radiusInWorld + (VOXEL_SIZE * 0.5)) {
                                 if (isDrawing) {
                                     let placeColor = bouncyColorMode === 'match' ? hitColor : p.color;
                                     let placeMat = bouncyColorMode === 'match' ? hitMat : p.mat;
@@ -4580,7 +4584,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         } else {
                             let dist = nextPos.distanceTo(center);
                             if (dist > radiusInWorld) {
-                                let normal = new THREE.Vector3().subVectors(nextPos, center).normalize();
+                                normal.subVectors(nextPos, center).normalize();
                                 let dot = p.vel.dot(normal);
                                 p.vel.sub(normal.multiplyScalar(2 * dot));
                                 p.pos.copy(center).add(normal.multiplyScalar(radiusInWorld - 0.001));
