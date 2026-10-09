@@ -133,11 +133,17 @@
         let totalActiveVoxels = 0;
         
         // --- Undo/Redo System State ---
-        const undoStack = [];
-        const redoStack = []; // Added redo stack
-        const MAX_UNDO_STEPS = 10; // History limit maintained at 10
-        let currentStrokeChanges = null; 
-        let currentStrokeVoxelTracker = null;
+        const MAX_UNDO_STEPS = 10;
+        const MAX_STROKE_VOXELS = 1000000; // Limit per stroke to prevent infinite scaling
+        const historyBuffers = Array.from({length: MAX_UNDO_STEPS}, () => new Int32Array(MAX_STROKE_VOXELS * 5));
+        const historyLengths = new Int32Array(MAX_UNDO_STEPS);
+        let undoHead = -1;
+        let validUndoSteps = 0;
+        let redoCount = 0;
+        let currentStrokeBuffer = new Int32Array(MAX_STROKE_VOXELS * 5);
+        let currentStrokeLength = 0;
+        let isStrokeActive = false;
+        const undoColor = new THREE.Color();
         
         let activeTool = 'brush'; 
         let extrudeAxis = 'free';
@@ -2015,8 +2021,8 @@ function updateGlobalMenuTexture() {
             
             drawButton(globalMenuCtx, 40, 270, 432, 45, `Draw From Center: ${drawFromCenter ? 'ON' : 'OFF'}`, drawFromCenter);
             drawButton(globalMenuCtx, 40, 330, 140, 45, renderMode === 'performance' ? 'PERFORMANCE' : 'STANDARD', renderMode === 'performance');
-            drawButton(globalMenuCtx, 187, 330, 140, 45, `UNDO (${undoStack.length})`, false);
-            drawButton(globalMenuCtx, 334, 330, 140, 45, `REDO (${redoStack.length})`, false);
+            drawButton(globalMenuCtx, 187, 330, 140, 45, `UNDO (${validUndoSteps})`, false);
+            drawButton(globalMenuCtx, 334, 330, 140, 45, `REDO (${redoCount})`, false);
 
             drawButton(globalMenuCtx, 40, 390, 200, 45, 'Export: BOXES', exportMode === 'boxes');
             drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
@@ -2388,66 +2394,63 @@ function updateGlobalMenuTexture() {
             const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5, k = (cx+65536)+(cy+65536)*131072+(cz+65536)*17179869184, lx = gx&31, ly = gy&31, lz = gz&31;
             
             // Record change for undo if a stroke is active
-            if (currentStrokeChanges) {
-                const prevColor = new THREE.Color();
-                const prevMat = getVoxelMatAndColor(gx, gy, gz, prevColor);
-                const targetMat = isP ? (mOver !== -1 ? mOver : matTypes[0]) : -1;
-                
-                // Only record if state actually changes
-                if (prevMat !== targetMat || (isP && !prevColor.equals(color))) {
-                    const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                    const existingIdx = currentStrokeVoxelTracker.get(vHash);
-
-                    if (existingIdx === undefined) {
-                        const idx = currentStrokeChanges.length;
-                        currentStrokeVoxelTracker.set(vHash, idx);
-                        currentStrokeChanges.push({ 
-                            gx, gy, gz, 
-                            prevMat, 
-                            prevColor: prevMat !== -1 ? prevColor.clone() : null,
-                            nextMat: targetMat,
-                            nextColor: isP ? color.clone() : null
-                        });
-                    } else {
-                        const record = currentStrokeChanges[existingIdx];
-                        record.nextMat = targetMat;
-                        record.nextColor = isP ? color.clone() : null;
-                    }
+            if (isStrokeActive && currentStrokeLength < MAX_STROKE_VOXELS) {
+                let pR = 0, pG = 0, pB = 0;
+                const prevMat = getVoxelMatAndColor(gx, gy, gz, undoColor);
+                if (prevMat !== -1) {
+                    pR = Math.round(undoColor.r * 255);
+                    pG = Math.round(undoColor.g * 255);
+                    pB = Math.round(undoColor.b * 255);
                 }
 
-            }
+                const targetMat = isP ? (mOver !== -1 ? mOver : matTypes[0]) : -1;
+                let nR = 0, nG = 0, nB = 0;
+                if (isP) {
+                    nR = Math.round(color.r * 255);
+                    nG = Math.round(color.g * 255);
+                    nB = Math.round(color.b * 255);
+                }
+
+                let changed = (prevMat !== targetMat);
+                if (!changed && isP && prevMat !== -1) {
+                    changed = (pR !== nR || pG !== nG || pB !== nB);
+                }
+
+                if (changed) {
+                    const packedNext = (targetMat & 0xFF) | (nR << 8) | (nG << 16) | (nB << 24);
+                    const idx = currentStrokeLength * 5;
+                    currentStrokeBuffer[idx] = gx;
+                    currentStrokeBuffer[idx + 1] = gy;
+                    currentStrokeBuffer[idx + 2] = gz;
+                    currentStrokeBuffer[idx + 3] = (prevMat & 0xFF) | (pR << 8) | (pG << 16) | (pB << 24);
+                    currentStrokeBuffer[idx + 4] = packedNext;
+                    currentStrokeLength++;
+                }
+            }}
 
             let chunk = chunks.get(k);
             if (isP) { if (!chunk) { chunk = new Chunk(cx, cy, cz); chunks.set(k, chunk); } chunk.addVoxel(lx, ly, lz, gx, gy, gz, color, mOver !== -1 ? mOver : matTypes[0]); } else if (chunk) chunk.removeVoxel(lx, ly, lz);
         }
 
-        function recolorVoxel(gx, gy, gz, color, targetM) {
-            const m = getVoxelMatAndColor(gx, gy, gz, queryColor);
             if (m !== -1) {
                 // Record change for undo if a stroke is active
-                if (currentStrokeChanges && currentStrokeVoxelTracker) {
-                    const existingColor = queryColor.clone();
-                    // Only record if state actually changes
-                    if (m !== targetM || !existingColor.equals(color)) {
-                        const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                        const existingIdx = currentStrokeVoxelTracker.get(vHash);
+                if (isStrokeActive && currentStrokeLength < MAX_STROKE_VOXELS) {
+                    const pR = Math.round(queryColor.r * 255);
+                    const pG = Math.round(queryColor.g * 255);
+                    const pB = Math.round(queryColor.b * 255);
+                    const nR = Math.round(color.r * 255);
+                    const nG = Math.round(color.g * 255);
+                    const nB = Math.round(color.b * 255);
 
-                        if (existingIdx === undefined) {
-                            const idx = currentStrokeChanges.length;
-                            currentStrokeVoxelTracker.set(vHash, idx);
-                            currentStrokeChanges.push({ 
-                                gx, gy, gz, 
-                                prevMat: m, 
-                                prevColor: existingColor,
-                                nextMat: targetM,
-                                nextColor: color.clone()
-                            });
-                            } else {
-                                const record = currentStrokeChanges[existingIdx];
-                                record.nextMat = targetM;
-                                record.nextColor = color.clone();
-                            }
-
+                    if (m !== targetM || pR !== nR || pG !== nG || pB !== nB) {
+                        const packedNext = (targetM & 0xFF) | (nR << 8) | (nG << 16) | (nB << 24);
+                        const idx = currentStrokeLength * 5;
+                        currentStrokeBuffer[idx] = gx;
+                        currentStrokeBuffer[idx + 1] = gy;
+                        currentStrokeBuffer[idx + 2] = gz;
+                        currentStrokeBuffer[idx + 3] = (m & 0xFF) | (pR << 8) | (pG << 16) | (pB << 24);
+                        currentStrokeBuffer[idx + 4] = packedNext;
+                        currentStrokeLength++;
                     }
                 }
                 if (m === targetM && Math.abs(queryColor.r - color.r) < 0.02 && Math.abs(queryColor.g - color.g) < 0.02 && Math.abs(queryColor.b - color.b) < 0.02) return;
@@ -3744,38 +3747,70 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
 
         function performUndo() {
-            if (undoStack.length === 0) return;
-            const step = undoStack.pop();
-            redoStack.push(step); // Move step to redo stack
+            if (validUndoSteps === 0) return;
             
-            const tempStroke = currentStrokeChanges;
-            currentStrokeChanges = null;
+            const tempActive = isStrokeActive;
+            isStrokeActive = false;
             
-            for (let i = step.length - 1; i >= 0; i--) {
-                const c = step[i];
-                if (c.prevMat === -1) setVoxelCore(c.gx, c.gy, c.gz, false, null);
-                else setVoxelCore(c.gx, c.gy, c.gz, true, c.prevColor, c.prevMat);
+            const buf = historyBuffers[undoHead];
+            const len = historyLengths[undoHead];
+            
+            for (let i = len - 1; i >= 0; i--) {
+                const idx = i * 5;
+                const gx = buf[idx];
+                const gy = buf[idx+1];
+                const gz = buf[idx+2];
+                const pPacked = buf[idx+3];
+                
+                const prevMat = (pPacked << 24) >> 24; 
+                
+                if (prevMat === -1) {
+                    setVoxelCore(gx, gy, gz, false, null);
+                } else {
+                    undoColor.setRGB(((pPacked >> 8) & 0xFF) / 255, ((pPacked >> 16) & 0xFF) / 255, ((pPacked >>> 24) & 0xFF) / 255);
+                    setVoxelCore(gx, gy, gz, true, undoColor, prevMat);
+                }
             }
             
-            currentStrokeChanges = tempStroke;
+            undoHead = (undoHead - 1 + MAX_UNDO_STEPS) % MAX_UNDO_STEPS;
+            validUndoSteps--;
+            redoCount++;
+            
+            isStrokeActive = tempActive;
             globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
         }
 
         function performRedo() {
-            if (redoStack.length === 0) return;
-            const step = redoStack.pop();
-            undoStack.push(step); // Move step back to undo stack
+            if (redoCount === 0) return;
             
-            const tempStroke = currentStrokeChanges;
-            currentStrokeChanges = null;
+            const tempActive = isStrokeActive;
+            isStrokeActive = false;
             
-            for (let i = 0; i < step.length; i++) {
-                const c = step[i];
-                if (c.nextMat === -1) setVoxelCore(c.gx, c.gy, c.gz, false, null);
-                else setVoxelCore(c.gx, c.gy, c.gz, true, c.nextColor, c.nextMat);
+            undoHead = (undoHead + 1) % MAX_UNDO_STEPS;
+            const buf = historyBuffers[undoHead];
+            const len = historyLengths[undoHead];
+            
+            for (let i = 0; i < len; i++) {
+                const idx = i * 5;
+                const gx = buf[idx];
+                const gy = buf[idx+1];
+                const gz = buf[idx+2];
+                const nPacked = buf[idx+4];
+                
+                const nextMat = (nPacked << 24) >> 24; 
+                
+                if (nextMat === -1) {
+                    setVoxelCore(gx, gy, gz, false, null);
+                } else {
+                    undoColor.setRGB(((nPacked >> 8) & 0xFF) / 255, ((nPacked >> 16) & 0xFF) / 255, ((nPacked >>> 24) & 0xFF) / 255);
+                    setVoxelCore(gx, gy, gz, true, undoColor, nextMat);
+                }
             }
             
-            currentStrokeChanges = tempStroke;
+            validUndoSteps++;
+            redoCount--;
+            
+            isStrokeActive = tempActive;
             globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
         }
 
@@ -3788,8 +3823,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             if (event && ((activeTool === 'brush' && brushPressureMode) || (activeTool === 'sculpt' && sculptPressureMode))) return;
             
             menuClickActive = false; // Reset on every press
-            currentStrokeChanges = []; // Start recording changes for this action
-            currentStrokeVoxelTracker = new Map();
+            isStrokeActive = true; 
+            currentStrokeLength = 0;
             if (this === xrRight) {  
                 if (leftMenuHovered && leftMenuMesh.visible) {
                     menuClickActive = true;
@@ -3916,17 +3951,18 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         }
                         
                         // Commit the discrete point operation to the undo stack
-                        if (currentStrokeChanges && currentStrokeChanges.length > 0) {
-                            undoStack.push(currentStrokeChanges);
-                            if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
-                            redoStack.length = 0;
+                        if (isStrokeActive && currentStrokeLength > 0) {
+                            undoHead = (undoHead + 1) % MAX_UNDO_STEPS;
+                            if (validUndoSteps < MAX_UNDO_STEPS) validUndoSteps++;
+                            redoCount = 0;
+                            historyLengths[undoHead] = currentStrokeLength;
+                            historyBuffers[undoHead].set(currentStrokeBuffer.subarray(0, currentStrokeLength * 5));
                             globalMenuNeedsUpdate = true;
                             leftMenuNeedsUpdate = true;
                         }
                         
                         lastArcPoints = currentPoints.map(p => p.clone());
-                        currentStrokeChanges = null; // Clean up so onSelectEnd doesn't double-commit
-                        currentStrokeVoxelTracker = null;
+                        isStrokeActive = false; // Clean up so onSelectEnd doesn't double-commit
                         return; 
                     }
 
@@ -3938,11 +3974,9 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='line' && lineDrawMode === 'sheet' && lineSheetType === 'point') {
                         // Left click ends the current point mode sheet without erasing
                         lastArcPoints = [];
-                        currentStrokeChanges = null;
-                        currentStrokeVoxelTracker = null;
+                        isStrokeActive = false;
                         return; 
                     }
-
 
                     isErasing=true;  
                     drawStartPos.copy(leftTargetLocal); 
@@ -4049,16 +4083,18 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             }
 
             // Commit changes to undo stack AFTER all tools have finished executing
-            if (currentStrokeChanges && currentStrokeChanges.length > 0) {
-                undoStack.push(currentStrokeChanges);
-                if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
-                redoStack.length = 0; // Clear redo history on new action
+            if (isStrokeActive && currentStrokeLength > 0) {
+                undoHead = (undoHead + 1) % MAX_UNDO_STEPS;
+                if (validUndoSteps < MAX_UNDO_STEPS) validUndoSteps++;
+                redoCount = 0; // Clear redo history on new action
+                historyLengths[undoHead] = currentStrokeLength;
+                historyBuffers[undoHead].set(currentStrokeBuffer.subarray(0, currentStrokeLength * 5));
                 globalMenuNeedsUpdate = true;
                 leftMenuNeedsUpdate = true;
             }
 
-            currentStrokeChanges = null;
-            currentStrokeVoxelTracker = null;
+            isStrokeActive = false;
+
         }
 
 
