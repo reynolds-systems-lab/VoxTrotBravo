@@ -1470,7 +1470,9 @@ function updatePlanePreview(start, end, isPainting) {
                     lastGx = cx; lastGy = cy; lastGz = cz;
                 }
             }
-            linePreviewMesh.count = instCount; linePreviewMesh.instanceMatrix.needsUpdate = true;
+            linePreviewMesh.count = instCount; 
+            linePreviewMesh.instanceMatrix.updateRange.count = instCount * 16;
+            linePreviewMesh.instanceMatrix.needsUpdate = true;
             if (isPainting) linePreviewMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]); else linePreviewMesh.material.color.setHex(0xff0055);
         }
 
@@ -2579,6 +2581,16 @@ function updateGlobalMenuTexture() {
                 else if (v.mat === 3) { arrM[iM*16+12]=v.x; arrM[iM*16+13]=v.y; arrM[iM*16+14]=v.z; ptsM[iM*3]=v.x; ptsM[iM*3+1]=v.y; ptsM[iM*3+2]=v.z; colM[iM*3]=r; colM[iM*3+1]=g; colM[iM*3+2]=b; iM++; }
                 minX=Math.min(minX, v.x); maxX=Math.max(maxX, v.x); minY=Math.min(minY, v.y); maxY=Math.max(maxY, v.y); minZ=Math.min(minZ, v.z); maxZ=Math.max(maxZ, v.z);
             }
+            selMeshSolid.instanceMatrix.updateRange.count = iS * 16; selMeshSolid.instanceColor.updateRange.count = iS * 3;
+            selMeshGlass.instanceMatrix.updateRange.count = iG * 16; selMeshGlass.instanceColor.updateRange.count = iG * 3;
+            selMeshEmission.instanceMatrix.updateRange.count = iE * 16; selMeshEmission.instanceColor.updateRange.count = iE * 3;
+            selMeshMetal.instanceMatrix.updateRange.count = iM * 16; selMeshMetal.instanceColor.updateRange.count = iM * 3;
+            
+            selPtsAttrPosSolid.updateRange.count = iS * 3; selPtsAttrColSolid.updateRange.count = iS * 3;
+            selPtsAttrPosGlass.updateRange.count = iG * 3; selPtsAttrColGlass.updateRange.count = iG * 3;
+            selPtsAttrPosEmission.updateRange.count = iE * 3; selPtsAttrColEmission.updateRange.count = iE * 3;
+            selPtsAttrPosMetal.updateRange.count = iM * 3; selPtsAttrColMetal.updateRange.count = iM * 3;
+
             selMeshSolid.instanceMatrix.needsUpdate = selMeshSolid.instanceColor.needsUpdate = true; selMeshGlass.instanceMatrix.needsUpdate = selMeshGlass.instanceColor.needsUpdate = true; selMeshEmission.instanceMatrix.needsUpdate = selMeshEmission.instanceColor.needsUpdate = true;
             selMeshMetal.instanceMatrix.needsUpdate = selMeshMetal.instanceColor.needsUpdate = true;
             
@@ -3059,8 +3071,8 @@ function updateGlobalMenuTexture() {
 
             const steps = Math.max(2, Math.ceil(L / (VOXEL_SIZE * 0.4)));
             for (let s = 0; s <= steps; s++) {
-                const p = new THREE.Vector3().lerpVectors(A, B, s / steps);
-                const gx = Math.round(p.x / VOXEL_SIZE), gy = Math.round(p.y / VOXEL_SIZE), gz = Math.round(p.z / VOXEL_SIZE);
+                tempPos.lerpVectors(A, B, s / steps);
+                const gx = Math.round(tempPos.x / VOXEL_SIZE), gy = Math.round(tempPos.y / VOXEL_SIZE), gz = Math.round(tempPos.z / VOXEL_SIZE);
                 const rad = brushSize;
                 for (let x = -rad; x <= rad; x++)
                     for (let y = -rad; y <= rad; y++)
@@ -3923,8 +3935,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         const cArr = bouncyMesh.instanceColor.array;
                         for(let i=0; i<bouncyCount; i++){
                             let p = bouncyParticles[i];
-                            let rVec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
-                            p.pos.copy(rightTargetLocal).add(rVec);
+                            tempPos.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
+                            p.pos.copy(rightTargetLocal).add(tempPos);
                             p.vel.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
                             p.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
                             p.mat = matTypes[activeMatSlot];
@@ -3996,8 +4008,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         const cArr = bouncyMesh.instanceColor.array;
                         for(let i=0; i<bouncyCount; i++){
                             let p = bouncyParticles[i];
-                            let rVec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
-                            p.pos.copy(leftTargetLocal).add(rVec);
+                            tempPos.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(Math.random() * (bouncyRadius - 1) * VOXEL_SIZE);
+                            p.pos.copy(rightTargetLocal).add(tempPos);
                             p.vel.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
                             p.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
                             p.mat = matTypes[activeMatSlot];
