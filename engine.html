@@ -703,7 +703,10 @@
 
                         this.voxelToIndex[lastLocalIdx] = instIdxToRemove;
                         this.indexToLocal[instIdxToRemove] = lastLocalIdx;
-                        if (lastInstIdx > this.dirtyMax) this.dirtyMax = lastInstIdx;
+                        
+                        // FIX: We no longer push the dirtyMax to the end of the array.
+                        // The swapped data is now residing at `instIdxToRemove`, which is 
+                        // correctly tracked by the dirty range flags at the bottom.
                     }
 
                     this.voxelToIndex[localIdx] = 65535;
@@ -713,6 +716,7 @@
                     if (instIdxToRemove > this.dirtyMax) this.dirtyMax = instIdxToRemove;
                 }
             }
+
 
             updateBuffers() {
                 if (this.needsUpdate && this.dirtyMin <= this.dirtyMax) {
