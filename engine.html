@@ -134,7 +134,7 @@
         
         // --- Typed-Array Undo/Redo System State ---
         class StrokeBuffer {
-            constructor(initialCapacity = 16384) {
+            constructor(initialCapacity = 2048) {
                 this.capacity = initialCapacity;
                 this.count = 0;
                 this.coords = new Int32Array(this.capacity * 3); // gx, gy, gz
@@ -611,7 +611,7 @@
             constructor(cx, cy, cz, matType) {
                 this.matType = matType;
                 this.material = voxelMaterials[matType];
-                this.capacity = CHUNK_VOL; // Pre-allocate to absolute max (32768) to prevent resize pauses 
+                this.capacity = 4096; 
                 this.count = 0;
                 this.mesh = new THREE.InstancedMesh(voxelGeometry, this.material, this.capacity);
                 this.mesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); 
