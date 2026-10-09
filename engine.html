@@ -1052,24 +1052,9 @@ function updatePreviews() {
             }
         }
 
-const proxyMap = new Map();
+        const proxyMap = new Map();
         function createMirrorProxies(baseMesh) {
-            const proxies = [];
-            for (let i = 0; i < 255; i++) {
-                let proxy;
-                if (baseMesh.isInstancedMesh) {
-                    proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, baseMesh.instanceMatrix.count);
-                    proxy.instanceMatrix = baseMesh.instanceMatrix;
-                    if (baseMesh.instanceColor) proxy.instanceColor = baseMesh.instanceColor;
-                } else {
-                    proxy = new baseMesh.constructor(baseMesh.geometry, baseMesh.material);
-                }
-                proxy.matrixAutoUpdate = false;
-                proxy.visible = false;
-                worldGroup.add(proxy);
-                proxies.push(proxy);
-            }
-            return proxies;
+            return []; // Start empty to prevent injecting 2,550 unused objects into worldGroup
         }
 
         function getMirrorProxies(baseMesh) { if (!proxyMap.has(baseMesh)) proxyMap.set(baseMesh, createMirrorProxies(baseMesh)); return proxyMap.get(baseMesh); }
@@ -1109,10 +1094,26 @@ const proxyMap = new Map();
                 return; 
             }
             
-            let pIdx = 0;
             const isDrawingSession = (isDrawing || isErasing) && lockCtx.active;
             const targetSyms = isDrawingSession ? lockCtx.symmetries : activeSymmetries;
             
+            // Dynamically grow the proxy array only up to the active symmetry count
+            while (proxies.length < targetSyms.length) {
+                let proxy;
+                if (baseMesh.isInstancedMesh) {
+                    proxy = new THREE.InstancedMesh(baseMesh.geometry, baseMesh.material, baseMesh.instanceMatrix.count);
+                    proxy.instanceMatrix = baseMesh.instanceMatrix;
+                    if (baseMesh.instanceColor) proxy.instanceColor = baseMesh.instanceColor;
+                } else {
+                    proxy = new baseMesh.constructor(baseMesh.geometry, baseMesh.material);
+                }
+                proxy.matrixAutoUpdate = false;
+                proxy.visible = false;
+                worldGroup.add(proxy);
+                proxies.push(proxy);
+            }
+
+            let pIdx = 0;
             for (let i = 0; i < targetSyms.length; i++) {
                 const sym = targetSyms[i];
                 if (sym.sx === 1 && sym.sy === 1 && sym.sz === 1 && sym.p === 0 && (sym.tx || 0) === 0 && (sym.ty || 0) === 0 && (sym.tz || 0) === 0) continue;
@@ -4652,7 +4653,11 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                 if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
                 if(needsSync(linePreviewMesh, showM)) syncMirrorProxies(linePreviewMesh, getMirrorProxies(linePreviewMesh), showM);
                 if(needsSync(lineWireframeMesh, showM)) syncMirrorProxies(lineWireframeMesh, getMirrorProxies(lineWireframeMesh), showM);
-                chunks.forEach(c=>c.updateBuffers());
+                
+                // Only iterate chunks and update buffers if actively modifying the world
+                if (isDrawing || isErasing || hasSelection) {
+                    chunks.forEach(c=>c.updateBuffers());
+                }
             }
             if (renderMode === 'performance') {
                 const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
