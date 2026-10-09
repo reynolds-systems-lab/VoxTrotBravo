@@ -507,7 +507,10 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
-        document.body.appendChild(VRButton.createButton(renderer));
+        // Explicitly request a WebGPU-compatible WebXR Session
+        document.body.appendChild(VRButton.createButton(renderer, {
+            optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'layers', 'webgpu']
+        }));
 
         // --- Quest 3 PCVR Specific Optimizations ---
         renderer.xr.addEventListener('sessionstart', () => {
