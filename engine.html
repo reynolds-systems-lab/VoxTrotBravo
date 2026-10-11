@@ -94,9 +94,8 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
-                "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
             }
         }
     </script>
@@ -123,7 +122,6 @@
     <script type="module">
         import * as THREE from 'three';
         import { VRButton } from 'three/addons/webxr/VRButton.js';
-        import { WebGPURenderer } from 'three/webgpu';
 
         document.addEventListener('DOMContentLoaded', () => {
 
@@ -489,6 +487,10 @@
         // --- Scene Setup ---
         const canvas = document.createElement('canvas');
         document.body.appendChild(canvas);
+        
+        let gl;
+        try { gl = canvas.getContext('webgl2', { xrCompatible: true, powerPreference: "high-performance", antialias: true }); } 
+        catch(e) { console.warn("WebGL2 xrCompatible request failed, falling back."); }
 
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x111111);
@@ -498,8 +500,9 @@
     
 
 
-        const renderer = new WebGPURenderer({ 
+        const renderer = new THREE.WebGLRenderer({ 
             canvas: canvas, 
+            context: gl, 
             antialias: false, 
             powerPreference: "high-performance" 
         });
@@ -507,10 +510,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
 
-        // Explicitly request a WebGPU-compatible WebXR Session
-        document.body.appendChild(VRButton.createButton(renderer, {
-            optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'layers', 'webgpu']
-        }));
+        document.body.appendChild(VRButton.createButton(renderer));
 
         // --- Quest 3 PCVR Specific Optimizations ---
         renderer.xr.addEventListener('sessionstart', () => {
@@ -537,15 +537,32 @@
         scene.add(directionalLight);
 
         // --- Studio Room & Environment Map for Metal Reflections ---
-        // PMREMGenerator is WebGL-specific. For WebGPU, we add ambient and directional 
-        // lighting to compensate, allowing standard materials to rely on scene lights.
-        const metalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-        metalLight1.position.set(20, 20, 20);
-        scene.add(metalLight1);
-
-        const metalLight2 = new THREE.DirectionalLight(0xaaaaaa, 0.5);
-        metalLight2.position.set(-20, 10, -20);
-        scene.add(metalLight2);
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        
+        const envScene = new THREE.Scene();
+        envScene.background = new THREE.Color(0x111111);
+        
+        const envLightGeo = new THREE.PlaneGeometry(40, 40);
+        const envLightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const envLightMatDim = new THREE.MeshBasicMaterial({ color: 0x444444 });
+        
+        const ceilingLight = new THREE.Mesh(envLightGeo, envLightMat);
+        ceilingLight.position.set(0, 20, 0);
+        ceilingLight.rotation.x = Math.PI / 2;
+        envScene.add(ceilingLight);
+        
+        const sideLight1 = new THREE.Mesh(envLightGeo, envLightMatDim);
+        sideLight1.position.set(20, 0, 20);
+        sideLight1.lookAt(0, 0, 0);
+        envScene.add(sideLight1);
+        
+        const sideLight2 = new THREE.Mesh(envLightGeo, envLightMatDim);
+        sideLight2.position.set(-20, 0, -20);
+        sideLight2.lookAt(0, 0, 0);
+        envScene.add(sideLight2);
+        
+        scene.environment = pmremGenerator.fromScene(envScene).texture;
+        pmremGenerator.dispose();
         
         const studioGeo = new THREE.BoxGeometry(200, 200, 200);
         const studioMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0, side: THREE.BackSide });
@@ -568,8 +585,7 @@
         const matSolid = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.1, depthFunc: THREE.LessEqualDepth }); 
         const matGlass = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false, depthFunc: THREE.LessEqualDepth }); 
         const matEmission = new THREE.MeshBasicMaterial(); 
-        // Adjusted metalness/roughness to ensure visibility without a WebGL envMap
-        const matMetal = new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.8, depthFunc: THREE.LessEqualDepth });
+        const matMetal = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 1.0, depthFunc: THREE.LessEqualDepth });
         
         const voxelMaterials = [matSolid, matGlass, matEmission, matMetal];
         const chunks = new Map(); 
