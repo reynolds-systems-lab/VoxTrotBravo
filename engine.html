@@ -3802,6 +3802,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             
             currentStrokeChanges = tempStroke;
             globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
+            chunks.forEach(c => c.updateBuffers()); // Forces a view refresh
         }
 
         function performRedo() {
@@ -3825,6 +3826,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             
             currentStrokeChanges = tempStroke;
             globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
+            chunks.forEach(c => c.updateBuffers()); // Forces a view refresh
         }
 
 
