@@ -1,5 +1,5 @@
  	<!-- 
-    VoxTrotBravo PCVR v2.1
+    VoxTrotBravo PCVR v2.2
     Copyright (c) 2024-2026 Rob Reynolds. All Rights Reserved.
     Unauthorized copying, modification, or distribution is strictly prohibited.
 -->
@@ -1071,9 +1071,10 @@ function updatePreviews() {
                 pivotGroup.children[6].geometry.setDrawRange(0, selMeshEmission.count); pivotGroup.children[6].visible = selMeshEmission.visible && renderMode === 'performance';
                 pivotGroup.children[7].geometry.setDrawRange(0, selMeshMetal.count); pivotGroup.children[7].visible = selMeshMetal.visible && renderMode === 'performance';
                 
+                const showWireBox = selectedVoxelsCount > 0 && ((transformMode !== 'draw' && transformMode !== 'paint') || isSettingPivot);
                 for (let idx = 0; idx < 8; idx++) { const m = pivotGroup.children[idx]; m.position.set(-pCX, -pCY, -pCZ); m.updateMatrix(); }
                 const bMesh = pivotGroup.children[8]; tempPos.set(pCX, pCY, pCZ); bMesh.position.copy(selBoxMesh.position).sub(tempPos); bMesh.scale.copy(selBoxMesh.scale); bMesh.updateMatrix();
-                bMesh.visible = selBoxMesh.visible;
+                bMesh.visible = showWireBox;
                 pivotGroup.rotation.set(THREE.MathUtils.degToRad(copyStepRotX * step), THREE.MathUtils.degToRad(copyStepRotY * step), THREE.MathUtils.degToRad(copyStepRotZ * step), 'XYZ');
                 const stScale = Math.pow(copyStepScale, step); pivotGroup.scale.set(stScale, stScale, stScale); pivotGroup.updateMatrix();
 		g.position.set(tgtCX, tgtCY, tgtCZ);
@@ -1088,8 +1089,8 @@ function updatePreviews() {
 	    const steps = transformMode === 'copy' ? numCopies : 1, offX = Math.round(selectionGroup.position.x / VOXEL_SIZE) * VOXEL_SIZE, offY = Math.round(selectionGroup.position.y / VOXEL_SIZE) * VOXEL_SIZE, offZ = Math.round(selectionGroup.position.z / VOXEL_SIZE) * VOXEL_SIZE, pCX = pivotPoint.x * VOXEL_SIZE, pCY = pivotPoint.y * VOXEL_SIZE, pCZ = pivotPoint.z * VOXEL_SIZE;
 
 	    selectionGroup.visible = selectedVoxelsCount > 0;
-	    selBoxMesh.visible = selectedVoxelsCount > 0 && ((transformMode !== 'draw' && transformMode !== 'paint') || isSettingPivot);
-	    pivotIndicator.visible = selBoxMesh.visible;
+	    selBoxMesh.visible = false;
+	    pivotIndicator.visible = selectedVoxelsCount > 0 && ((transformMode !== 'draw' && transformMode !== 'paint') || isSettingPivot);
 
 	for (let step = 1; step <= steps; step++) {
                 const bx = pCX + offX * step, by = pCY + offY * step, bz = pCZ + offZ * step;
@@ -1260,7 +1261,7 @@ function updatePreviews() {
             let effSizeLeft = leftOverride !== undefined ? leftOverride : brushSize;
             let effSizeRight = rightOverride !== undefined ? rightOverride : brushSize;
             
-            if (activeTool === 'box' || activeTool === 'extrude' || activeTool === 'quadsphere' || activeTool === 'cylinder' || activeTool === 'select' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket')) {
+            if (isDropperActive || activeTool === 'box' || activeTool === 'extrude' || activeTool === 'quadsphere' || activeTool === 'cylinder' || activeTool === 'select' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket')) {
                 effSizeLeft = 1;
                 effSizeRight = 1;
             }
@@ -1273,7 +1274,7 @@ function updatePreviews() {
                 effSizeRight = rightOverride !== undefined ? rightOverride : bouncyRadius;
             }
 
-            const isBoxShape = (brushShape === 'cube' && activeTool !== 'sculpt' && activeTool !== 'bouncy') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
+            const isBoxShape = isDropperActive || (brushShape === 'cube' && activeTool !== 'sculpt' && activeTool !== 'bouncy') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
             const isRibbonShape = (brushShape === 'ribbon' && activeTool !== 'sculpt' && activeTool !== 'bouncy');
             const isBouncyShape = (activeTool === 'bouncy');
 
@@ -1549,10 +1550,12 @@ function updatePlanePreview(start, end, isPainting) {
 
         function drawSlider(ctx, x, y, w, h, label, val, min, max, format = '') {
             ctx.fillStyle = '#333'; ctx.fillRect(x, y, w, h);
-            const pct = (val - min) / (max - min); ctx.fillStyle = '#4facfe'; ctx.fillRect(x, y, w * pct, h);
+            const pct = Math.max(0, Math.min(1, (val - min) / (max - min)));
+            ctx.fillStyle = '#4facfe'; ctx.fillRect(x, y, w * pct, h);
             ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
             ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; 
-            const displayStr = format ? format.replace('%v', val) : `${label}: ${val}°`;
+            const displayVal = Number.isInteger(val) ? val : Number(val.toFixed(2));
+            const displayStr = format ? format.replace('%v', displayVal) : `${label}: ${displayVal}°`;
             ctx.fillText(displayStr, x + w/2, y + h/2);
         }
 
@@ -1794,7 +1797,9 @@ if (cy >= 60 && cy <= 90) {
     }
     if (newM !== transformMode) {
         transformMode = newM;
-        // Refresh selection visuals to immediately show/hide the wireframe based on mode
+        if (transformMode === 'copy' || transformMode === 'draw' || transformMode === 'paint') {
+            restoreBaseSelectionIfRemoved();
+        }
         updateSelectionVisuals();
     }
 }
@@ -1836,10 +1841,13 @@ if (cy >= 60 && cy <= 90) {
                     if (cx >= 262 && cx <= 492) extrudeAdjoiningFilter = 'color'; 
                 }
             } else if (activeTool === 'line') {
-                if (cy >= 45 && cy <= 85) { if (cx >= 50 && cx <= 250) lineMode = 'one-hand'; if (cx >= 262 && cx <= 462) lineMode = 'two-hand'; } 
+                if (cy >= 45 && cy <= 85) {
+                    if (cx >= 50 && cx <= 250) { lineMode = 'one-hand'; if (lineDrawMode === 'sheet') { lineDrawMode = 'stroke'; lastArcPoints = []; } }
+                    if (cx >= 262 && cx <= 462) lineMode = 'two-hand';
+                } 
                 else if (cy >= 90 && cy <= 130) { 
                     if (cx >= 50 && cx <= 190) { lineDrawMode = 'stroke'; lastArcPoints = []; }
-                    if (cx >= 200 && cx <= 340) { lineDrawMode = 'sheet'; brushSize = 1; lastArcPoints = []; }
+                    if (cx >= 200 && cx <= 340) { lineDrawMode = 'sheet'; lineMode = 'two-hand'; brushSize = 1; lastArcPoints = []; }
                     if (cx >= 350 && cx <= 470 && lineDrawMode === 'sheet') {
                         lineSheetType = (lineSheetType === 'continuous') ? 'point' : 'continuous';
                         lastArcPoints = []; // Reset point memory when switching
@@ -1963,7 +1971,13 @@ if (cy >= 60 && cy <= 90) {
                 drawButton(colorMenuCtx, 375, 100, 107, 45, 'METAL', mType === 3);
 
                 drawColorPickerUI(colorMenuCtx, 256, 235, 75, 40, 315, 432, 15, targetColor, false);
-            const cMode = colorModes[activeMatSlot]; drawButton(colorMenuCtx, 30, 340, 105, 40, 'SOLID', cMode === 'solid'); drawButton(colorMenuCtx, 145, 340, 105, 40, 'GRAD-H', cMode === 'grad_h'); drawButton(colorMenuCtx, 260, 340, 105, 40, 'GRAD-V', cMode === 'grad_v'); drawButton(colorMenuCtx, 375, 340, 107, 40, 'DROPPER', isDropperActive);                const cA = slotColors[activeMatSlot][0], cB = slotColors[activeMatSlot][1];
+            const cMode = colorModes[activeMatSlot];
+            drawButton(colorMenuCtx, 30, 340, 84, 40, 'SOLID', cMode === 'solid');
+            drawButton(colorMenuCtx, 122, 340, 84, 40, 'GRAD-H', cMode === 'grad_h');
+            drawButton(colorMenuCtx, 214, 340, 84, 40, 'GRAD-V', cMode === 'grad_v');
+            drawButton(colorMenuCtx, 306, 340, 84, 40, 'SHIFT', cMode === 'shift');
+            drawButton(colorMenuCtx, 398, 340, 84, 40, 'DROPPER', isDropperActive);
+            const cA = slotColors[activeMatSlot][0], cB = slotColors[activeMatSlot][1];
                 colorMenuCtx.fillStyle = '#' + cA.getHexString(); colorMenuCtx.fillRect(30, 390, 216, 55); 
                 colorMenuCtx.strokeStyle = activeColorSubSlot === 0 ? '#fff' : '#444'; colorMenuCtx.lineWidth = activeColorSubSlot === 0 ? 4 : 2; colorMenuCtx.strokeRect(30, 390, 216, 55);
                 colorMenuCtx.fillStyle = '#' + cB.getHexString(); colorMenuCtx.fillRect(266, 390, 216, 55); 
@@ -1998,7 +2012,13 @@ if (cy >= 60 && cy <= 90) {
                 if (cx >= 260 && cx <= 365) matTypes[activeMatSlot] = 2;
                 if (cx >= 375 && cx <= 482) matTypes[activeMatSlot] = 3;
             } 
-        else if (cy >= 340 && cy <= 380) { if (cx >= 30 && cx <= 135) { colorModes[activeMatSlot] = 'solid'; activeColorSubSlot = 0; } if (cx >= 145 && cx <= 250) colorModes[activeMatSlot] = 'grad_h'; if (cx >= 260 && cx <= 365) colorModes[activeMatSlot] = 'grad_v'; if (cx >= 375 && cx <= 482) { isDropperActive = !isDropperActive; } }             else if (cy >= 390 && cy <= 445) {
+        else if (cy >= 340 && cy <= 380) {
+            if (cx >= 30 && cx <= 114) { colorModes[activeMatSlot] = 'solid'; activeColorSubSlot = 0; }
+            else if (cx >= 122 && cx <= 206) colorModes[activeMatSlot] = 'grad_h';
+            else if (cx >= 214 && cx <= 298) colorModes[activeMatSlot] = 'grad_v';
+            else if (cx >= 306 && cx <= 390) colorModes[activeMatSlot] = 'shift';
+            else if (cx >= 398 && cx <= 482) isDropperActive = !isDropperActive;
+        } else if (cy >= 390 && cy <= 445) {
                 const sBase = activeMatSlot * 2;
                 if (cy >= 418) {
                     if (cx >= 35 && cx <= 135) { joyLTarget = joyLTarget === sBase ? -1 : sBase; if(joyRTarget === joyLTarget) joyRTarget = -1; }
@@ -2346,8 +2366,9 @@ function updateGlobalMenuTexture() {
 
 
         function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, slotIndex, pathT = -1, uT = -1) {
-            const mode = colorModes[slotIndex], cA = slotColors[slotIndex][0], cB = slotColors[slotIndex][1];
-            if (mode === 'solid') return cA;
+            const mode = colorModes[slotIndex], subSlot = (slotIndex === activeMatSlot) ? activeColorSubSlot : 0;
+            const cA = slotColors[slotIndex][0], cB = slotColors[slotIndex][1];
+            if (mode === 'solid') return slotColors[slotIndex][subSlot];
             if (mode === 'grad_h' || mode === 'grad_v') {
                 let t = 0;
                 if (mode === 'grad_h' && uT !== -1) {
@@ -2692,11 +2713,27 @@ function updateGlobalMenuTexture() {
 
         function ensureBaseSelectionRemoved() {
             if (!baseSelectionRemoved && (transformMode === 'move' || transformMode === 'free')) {
+                const savedStroke = currentStrokeChanges;
+                currentStrokeChanges = null;
                 for (let i = 0; i < baseSelectionCount; i++) {
                     const v = baseSelection[i];
                     setVoxelCore(v.x, v.y, v.z, false, null);
                 }
+                currentStrokeChanges = savedStroke;
                 baseSelectionRemoved = true;
+            }
+        }
+
+        function restoreBaseSelectionIfRemoved() {
+            if (baseSelectionRemoved) {
+                const savedStroke = currentStrokeChanges;
+                currentStrokeChanges = null;
+                for (let i = 0; i < baseSelectionCount; i++) {
+                    const v = baseSelection[i];
+                    setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat);
+                }
+                currentStrokeChanges = savedStroke;
+                baseSelectionRemoved = false;
             }
         }
 
@@ -2837,7 +2874,11 @@ function updateGlobalMenuTexture() {
                 }
             } else if (transformMode === 'move' || transformMode === 'free') {
                 if (hasBeenTransformed || baseSelectionRemoved) {
-                    ensureBaseSelectionRemoved();
+                    restoreBaseSelectionIfRemoved();
+                    for (let i = 0; i < baseSelectionCount; i++) {
+                        const v = baseSelection[i];
+                        setVoxelCore(v.x, v.y, v.z, false, null);
+                    }
                     for (let i = 0; i < selectedVoxelsCount; i++) {
                         const v = selectedVoxels[i];
                         setVoxel(v.x + oX, v.y + oY, v.z + oZ, true, v.color, v.mat);
@@ -2862,15 +2903,13 @@ function updateGlobalMenuTexture() {
         }
 
         function cancelSelection() { 
-            if (baseSelectionRemoved) {
-                for(let i=0; i<baseSelectionCount; i++) { const v=baseSelection[i]; setVoxelCore(v.x, v.y, v.z, true, v.color, v.mat); }
-                baseSelectionRemoved = false;
-            } 
+            restoreBaseSelectionIfRemoved();
             deleteSelection(false); 
         }
 
         function deleteSelection(eraseFromWorld = true) {
-            if (eraseFromWorld && !baseSelectionRemoved) {
+            if (eraseFromWorld) {
+                restoreBaseSelectionIfRemoved();
                 for (let i = 0; i < baseSelectionCount; i++) {
                     const v = baseSelection[i];
                     setVoxelCore(v.x, v.y, v.z, false, null);
@@ -2892,7 +2931,7 @@ function updateGlobalMenuTexture() {
             for (let dx=-r; dx<=r; dx++) for (let dy=-r; dy<=r; dy++) {
                 const dxySq=dx*dx+dy*dy; if(dxySq>rSq) continue;
                 const mDz=Math.floor(Math.sqrt(rSq-dxySq));
-                for (let dz=-mDz; dz<=mDz; dz++) { const d=Math.sqrt(dxySq+dz*dz), fall=Math.max(0,1-(d/(r+0.1))), pr=fall*fall*fac; if(Math.random()<pr) { const gx=cGx+dx, gy=cGy+dy, gz=cGz+dz; if(isP) setVoxel(gx,gy,gz,true,getDrawColor(gx,gy,gz,cGx-r,cGx+r,cGy-r,cGy+r,cGz-r,cGz+r,0),matTypes[0]); else setVoxel(gx,gy,gz,false,null); } }
+                for (let dz=-mDz; dz<=mDz; dz++) { const d=Math.sqrt(dxySq+dz*dz), fall=Math.max(0,1-(d/(r+0.1))), pr=fall*fall*fac; if(Math.random()<pr) { const gx=cGx+dx, gy=cGy+dy, gz=cGz+dz; if(isP) setVoxel(gx,gy,gz,true,getDrawColor(gx,gy,gz,cGx-r,cGx+r,cGy-r,cGy+r,cGz-r,cGz+r,activeMatSlot),matTypes[activeMatSlot]); else setVoxel(gx,gy,gz,false,null); } }
             }
         leftMenuNeedsUpdate = true;
         }
@@ -2984,23 +3023,16 @@ function updateGlobalMenuTexture() {
                                                   !isInside(dx, dy, dz - 1);
                                 
                                 if (isSurface) {
-                                    // Place the shell voxel
-                                    const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, 0);
-                                    setVoxel(gx, gy, gz, true, color, matTypes[0]);
+                                    const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
+                                    setVoxel(gx, gy, gz, true, color, matTypes[activeMatSlot]);
                                 } else {
-                                    // AGGRESSIVE CLEARING: 
-                                    // When moving in a continuous stroke, the interior of the current 
-                                    // sphere MUST erase any voxels placed by previous steps to keep 
-                                    // the tube hollow.
                                     setVoxel(gx, gy, gz, false, null);
                                 }
                             } else {
-                                // SOLID MODE: Standard behavior
-                                const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, 0);
-                                setVoxel(gx, gy, gz, true, color, matTypes[0]);
+                                const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
+                                setVoxel(gx, gy, gz, true, color, matTypes[activeMatSlot]);
                             }
                         } else {
-                            // ERASING LOGIC: Always remove the voxel
                             setVoxel(gx, gy, gz, false, null);
                         }
                     }
@@ -3016,7 +3048,7 @@ function updateGlobalMenuTexture() {
             for (let dx=-r; dx<=r; dx++) for (let dy=-r; dy<=r; dy++) for (let dz=-r; dz<=r; dz++) {
                 if(!isInside(dx,dy,dz)) continue;
                 if(brushVolume==='shell'&&r>0) { const sur = !isInside(dx+1,dy,dz)||!isInside(dx-1,dy,dz)||!isInside(dx,dy+1,dz)||!isInside(dx,dy-1,dz)||!isInside(dx,dy,dz+1)||!isInside(dx,dy,dz-1); if(!sur) continue; }
-                recolorVoxelSet(cGx+dx, cGy+dy, cGz+dz, getDrawColor(cGx+dx, cGy+dy, cGz+dz, cGx-r, cGx+r, cGy-r, cGy+r, cGz-r, cGz+r, 0));
+                recolorVoxelSet(cGx+dx, cGy+dy, cGz+dz, getDrawColor(cGx+dx, cGy+dy, cGz+dz, cGx-r, cGx+r, cGy-r, cGy+r, cGz-r, cGz+r, activeMatSlot), matTypes[activeMatSlot]);
             }
         }
 
@@ -4294,7 +4326,8 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     if (ax && ax.length >= 2) { 
                         const xVal = ax.length >= 4 ? ax[2] : ax[0], yVal = ax.length >= 4 ? ax[3] : ax[1], dead = 0.15;
                         if (hasSelection && transformMode === 'free' && source.handedness === 'right' && Math.abs(yVal) > dead) {
-                            selectionScale = Math.max(0.1, Math.min(10, selectionScale - yVal * 0.05));
+                            ensureBaseSelectionRemoved();
+                            selectionScale = Math.max(0.1, Math.min(5.0, selectionScale - yVal * 0.05));
                             updateRotatedSelection();
                             leftMenuNeedsUpdate = true;
                         } else if (Math.abs(xVal) > dead || Math.abs(yVal) > dead) { 
@@ -4451,19 +4484,18 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                             tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
                             tempArcProjUp.copy(tempArcCtrlUp).projectOnPlane(tempArcSide).normalize();
                             
-                            arcBulge = Math.atan2(tempArcProjUp.dot(tempArcLineDir), tempArcProjUp.dot(tempArcUpVec)) * 2.2;
+                            arcBulge = Math.max(-5.0, Math.min(5.0, Math.round(Math.atan2(tempArcProjUp.dot(tempArcLineDir), tempArcProjUp.dot(tempArcUpVec)) * 2.2 * 10) / 10));
                         }
                     }
 
                     if(hasSelection && !isSettingPivot){
-                        // Snap to controller tip for brush-style modes (Draw/Paint/Free)
                         if (transformMode === 'draw' || transformMode === 'paint' || (transformMode === 'free' && isDrawing)) {
                             selectionGroup.position.set(rightTargetLocal.x - Math.round(selectionCenter.x)*VOXEL_SIZE, rightTargetLocal.y - Math.round(selectionCenter.y)*VOXEL_SIZE, rightTargetLocal.z - Math.round(selectionCenter.z)*VOXEL_SIZE);
+                            selectionGroup.quaternion.identity();
                             
                             tempQuat.setFromRotationMatrix(xrRight.matrixWorld);
                             worldGroup.getWorldQuaternion(tempQuat2).invert();
                             const localQuat = tempQuat.premultiply(tempQuat2);
-                            selectionGroup.quaternion.copy(localQuat);
                             
                             tempSEuler.setFromQuaternion(localQuat, 'XYZ');
                             const newRX = Math.round(THREE.MathUtils.radToDeg(tempSEuler.x) / 5) * 5;
@@ -4476,7 +4508,6 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                                 leftMenuNeedsUpdate = true;
                             }
                         } 
-                        // Drag relative to start position for Move/Copy
                         else if (isDrawing && (transformMode === 'move' || transformMode === 'copy')) {
                             selectionGroup.position.copy(dragStartOffset).add(rightTargetLocal).sub(dragStartCtrlPos);
                         }
@@ -4492,16 +4523,20 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         let pEnd = rightTargetLocal;
 
                         if (lineDrawMode === 'sheet' && lineMode === 'two-hand' && xrLeft && xrRight) {
-                            const currentPoints = [];
-                            if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
-                            else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
-                            
-                            if (lastArcPoints.length === currentPoints.length) {
-                                for (let i = 0; i < currentPoints.length - 1; i++) {
-                                    drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize);
+                            if (!leftTargetLocal.equals(lastSheetLeftPos) || !rightTargetLocal.equals(lastSheetRightPos) || lastArcPoints.length === 0) {
+                                lastSheetLeftPos.copy(leftTargetLocal);
+                                lastSheetRightPos.copy(rightTargetLocal);
+                                const currentPoints = [];
+                                if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
+                                else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
+                                
+                                if (lastArcPoints.length === currentPoints.length) {
+                                    for (let i = 0; i < currentPoints.length - 1; i++) {
+                                        drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize);
+                                    }
                                 }
+                                lastArcPoints = currentPoints.map(p => p.clone());
                             }
-                            lastArcPoints = currentPoints.map(p => p.clone());
                         } else if (isDrawing || (lineMode === 'two-hand' && !isErasing)) {
                             if (lineType === 'arc') {
                                 const arcPoints = [];
