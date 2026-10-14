@@ -896,6 +896,8 @@
         conePreviewMesh.visible = false;
         worldGroup.add(conePreviewMesh);
 
+        const proxyMap = new Map();
+
         const torusPreviewMesh = new THREE.Mesh(
             new THREE.BufferGeometry(),
             new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: true })
@@ -1133,7 +1135,6 @@ function updatePreviews() {
             }
         }
 
-        const proxyMap = new Map();
         function createMirrorProxies(baseMesh) {
             return []; // Start empty to prevent injecting 2,550 unused objects into worldGroup
         }
