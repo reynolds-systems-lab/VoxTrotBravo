@@ -1,5 +1,5 @@
  	<!-- 
-    VoxTrotBravo PCVR v2.2
+    VoxTrotBravo PCVR v2.3
     Copyright (c) 2024-2026 Rob Reynolds. All Rights Reserved.
     Unauthorized copying, modification, or distribution is strictly prohibited.
 -->
@@ -108,7 +108,7 @@
     </div>
 
     <div id="ui-container">
-        <h1>VoxTrotBravo PCVR</h1>
+        <h1>VoxTrotBravo PCVR v2.4</h1>
         <p><b>Right Trigger:</b> Draw / Select / Sliders | <b>Left Trigger:</b> Erase / Drop Selection</p>
         <p><b>Grips:</b> Grab to Move, Scale & Rotate World</p>
         <p><b>A & B (Right):</b> Tools & Settings | <b>X & Y (Left):</b> Tool Options & Materials</p>
@@ -214,6 +214,14 @@
         let cylinderCap = true;
         let cylinderDivs = 1;
         let cylinderDivThick = 1;
+
+        let torusMode = 'solid';
+        let torusSides = 0;
+        let torusAxis = 'Y';
+        let torusTubePct = 30;
+        let torusSweep = 360;
+        let torusDivs = 1;
+        let torusDivThick = 1;
         
         let triangleType = 'cone'; 
         let triangleMode = 'solid';
@@ -423,6 +431,7 @@
         let isPreviewingExtrude = false;
         let isPreviewingSphere = false;
         let isPreviewingCylinder = false;
+        let isPreviewingTorus = false;
         let isPreviewingPlane = false;
         let isPreviewingTriangle = false;
         let isPreviewingIcosahedron = false;
@@ -887,9 +896,31 @@
         conePreviewMesh.visible = false;
         worldGroup.add(conePreviewMesh);
 
+        const torusPreviewMesh = new THREE.Mesh(
+            new THREE.BufferGeometry(),
+            new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.3, wireframe: true })
+        );
+        torusPreviewMesh.visible = false;
+        worldGroup.add(torusPreviewMesh);
+
+        function rebuildTorusPreviewGeo() {
+            const tubeR = THREE.MathUtils.clamp(torusTubePct / 100, 0.08, 0.5) * 0.5;
+            const majR = 0.5 - tubeR;
+            const tubularSegments = torusSides >= 3 ? torusSides : 28;
+            const arcRad = THREE.MathUtils.degToRad(torusSweep);
+            const newGeo = new THREE.TorusGeometry(majR, tubeR, 12, tubularSegments, arcRad);
+            newGeo.scale(1, 1, 0.5 / Math.max(0.01, tubeR));
+            if (torusPreviewMesh.geometry) torusPreviewMesh.geometry.dispose();
+            torusPreviewMesh.geometry = newGeo;
+            if (proxyMap.has(torusPreviewMesh)) {
+                proxyMap.get(torusPreviewMesh).forEach(m => m.geometry = newGeo);
+            }
+        }
+        rebuildTorusPreviewGeo();
+
         function hideAllPreviews() {
             boxPreviewMesh.visible = spherePreviewMesh.visible = cylinderPreviewMesh.visible = 
-            conePreviewMesh.visible = polyPreviewMesh.visible = lineWireframeMesh.visible = false;
+            torusPreviewMesh.visible = conePreviewMesh.visible = polyPreviewMesh.visible = lineWireframeMesh.visible = false;
         }
 
 const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false }), 80000);
@@ -1261,7 +1292,7 @@ function updatePreviews() {
             let effSizeLeft = leftOverride !== undefined ? leftOverride : brushSize;
             let effSizeRight = rightOverride !== undefined ? rightOverride : brushSize;
             
-            if (isDropperActive || activeTool === 'box' || activeTool === 'extrude' || activeTool === 'quadsphere' || activeTool === 'cylinder' || activeTool === 'select' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket')) {
+            if (isDropperActive || activeTool === 'box' || activeTool === 'extrude' || activeTool === 'quadsphere' || activeTool === 'cylinder' || activeTool === 'torus' || activeTool === 'select' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket')) {
                 effSizeLeft = 1;
                 effSizeRight = 1;
             }
@@ -1274,7 +1305,7 @@ function updatePreviews() {
                 effSizeRight = rightOverride !== undefined ? rightOverride : bouncyRadius;
             }
 
-            const isBoxShape = isDropperActive || (brushShape === 'cube' && activeTool !== 'sculpt' && activeTool !== 'bouncy') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
+            const isBoxShape = isDropperActive || (brushShape === 'cube' && activeTool !== 'sculpt' && activeTool !== 'bouncy') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'torus' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
             const isRibbonShape = (brushShape === 'ribbon' && activeTool !== 'sculpt' && activeTool !== 'bouncy');
             const isBouncyShape = (activeTool === 'bouncy');
 
@@ -1420,6 +1451,33 @@ function updatePlanePreview(start, end, isPainting) {
             }
             cylinderPreviewMesh.updateMatrix();
             cylinderPreviewMesh.material.color.setHex(isPainting ? 0x4facfe : 0xff0055);
+        }
+
+        function updateTorusPreview(start, end, isPainting) {
+            let s = start, e = end;
+            if (drawFromCenter) {
+                tempPos.copy(end).sub(start);
+                s = tempStart.copy(start).sub(tempPos);
+                e = end;
+            }
+            torusPreviewMesh.visible = true;
+            torusPreviewMesh.position.copy(s).add(e).multiplyScalar(0.5);
+            const dx = Math.abs(e.x - s.x) + VOXEL_SIZE;
+            const dy = Math.abs(e.y - s.y) + VOXEL_SIZE;
+            const dz = Math.abs(e.z - s.z) + VOXEL_SIZE;
+
+            if (torusAxis === 'X') {
+                torusPreviewMesh.scale.set(dz, dy, dx);
+                torusPreviewMesh.rotation.set(0, Math.PI / 2, 0);
+            } else if (torusAxis === 'Y') {
+                torusPreviewMesh.scale.set(dx, dz, dy);
+                torusPreviewMesh.rotation.set(Math.PI / 2, 0, 0);
+            } else {
+                torusPreviewMesh.scale.set(dx, dy, dz);
+                torusPreviewMesh.rotation.set(0, 0, 0);
+            }
+            torusPreviewMesh.updateMatrix();
+            torusPreviewMesh.material.color.setHex(isPainting ? 0x4facfe : 0xff0055);
         }
 
        function updateTrianglePreview(start, end, isPainting) {
@@ -1679,6 +1737,32 @@ function updatePlanePreview(start, end, isPainting) {
                     drawButton(leftMenuCtx, 250, 300, 50, 50, '+', false); 
                     drawButton(leftMenuCtx, 330, 300, 160, 50, `FILL: ${wireFill?'ON':'OFF'}`, wireFill); 
                 }
+            } else if (activeTool === 'torus') {
+                drawButton(leftMenuCtx, 20, 60, 140, 50, 'SOLID', torusMode === 'solid');
+                drawButton(leftMenuCtx, 170, 60, 150, 50, 'SHELL', torusMode === 'shell');
+                drawButton(leftMenuCtx, 330, 60, 160, 50, 'WIRE', torusMode === 'wireframe');
+                drawButton(leftMenuCtx, 20, 120, 140, 50, 'AXIS: X', torusAxis === 'X');
+                drawButton(leftMenuCtx, 170, 120, 150, 50, 'AXIS: Y', torusAxis === 'Y');
+                drawButton(leftMenuCtx, 330, 120, 160, 50, 'AXIS: Z', torusAxis === 'Z');
+                drawButton(leftMenuCtx, 20, 180, 50, 50, '-', false);
+                drawButton(leftMenuCtx, 80, 180, 160, 50, `Sides: ${torusSides === 0 ? 'ROUND' : torusSides}`, false);
+                drawButton(leftMenuCtx, 250, 180, 50, 50, '+', false);
+                drawButton(leftMenuCtx, 310, 180, 180, 50, `SWEEP: ${torusSweep}°`, torusSweep < 360);
+                drawButton(leftMenuCtx, 20, 240, 60, 50, '-', false);
+                drawButton(leftMenuCtx, 90, 240, 330, 50, `Tube Thickness: ${torusTubePct}%`, false);
+                drawButton(leftMenuCtx, 430, 240, 60, 50, '+', false);
+                drawButton(leftMenuCtx, 20, 300, 50, 50, '-', false);
+                drawButton(leftMenuCtx, 80, 300, 120, 50, `Divs: ${torusDivs}`, false);
+                drawButton(leftMenuCtx, 210, 300, 50, 50, '+', false);
+                drawButton(leftMenuCtx, 270, 300, 50, 50, '-', false);
+                drawButton(leftMenuCtx, 330, 300, 100, 50, `DThk: ${torusDivThick}`, false);
+                drawButton(leftMenuCtx, 440, 300, 50, 50, '+', false);
+                if (torusMode === 'wireframe') {
+                    drawButton(leftMenuCtx, 20, 360, 50, 50, '-', false);
+                    drawButton(leftMenuCtx, 80, 360, 160, 50, `Thick: ${wireWidth}`, false);
+                    drawButton(leftMenuCtx, 250, 360, 50, 50, '+', false);
+                    drawButton(leftMenuCtx, 330, 360, 160, 50, `FILL: ${wireFill ? 'ON' : 'OFF'}`, wireFill);
+                }
             } else if (activeTool === 'triangle') {
                 // UI: Cone vs Pyramid
                 drawButton(leftMenuCtx, 20, 60, 225, 50, 'CONE', triangleType === 'cone'); 
@@ -1906,6 +1990,32 @@ if (cy >= 60 && cy <= 90) {
                     if (cx >= 440 && cx <= 490) cylinderDivThick = Math.min(10, cylinderDivThick + 1); 
                 }
                 else if (cy >= 300 && cy <= 350 && cylinderMode === 'wireframe') { if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1); if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1); if (cx >= 330 && cx <= 490) wireFill = !wireFill; }
+            } else if (activeTool === 'torus') {
+                if (cy >= 60 && cy <= 110) {
+                    if (cx >= 20 && cx <= 160) torusMode = 'solid';
+                    if (cx >= 170 && cx <= 320) torusMode = 'shell';
+                    if (cx >= 330 && cx <= 490) torusMode = 'wireframe';
+                } else if (cy >= 120 && cy <= 170) {
+                    if (cx >= 20 && cx <= 160) torusAxis = 'X';
+                    if (cx >= 170 && cx <= 320) torusAxis = 'Y';
+                    if (cx >= 330 && cx <= 490) torusAxis = 'Z';
+                } else if (cy >= 180 && cy <= 230) {
+                    if (cx >= 20 && cx <= 70) { if (torusSides === 0) torusSides = 32; else if (torusSides > 3) torusSides--; else torusSides = 0; rebuildTorusPreviewGeo(); }
+                    if (cx >= 250 && cx <= 300) { if (torusSides === 0) torusSides = 3; else if (torusSides < 32) torusSides++; else torusSides = 0; rebuildTorusPreviewGeo(); }
+                    if (cx >= 310 && cx <= 490) { torusSweep = torusSweep === 360 ? 90 : torusSweep + 90; rebuildTorusPreviewGeo(); }
+                } else if (cy >= 240 && cy <= 290) {
+                    if (cx >= 20 && cx <= 80) { torusTubePct = Math.max(10, torusTubePct - 5); rebuildTorusPreviewGeo(); }
+                    if (cx >= 430 && cx <= 490) { torusTubePct = Math.min(50, torusTubePct + 5); rebuildTorusPreviewGeo(); }
+                } else if (cy >= 300 && cy <= 350) {
+                    if (cx >= 20 && cx <= 70) torusDivs = Math.max(1, torusDivs - 1);
+                    if (cx >= 210 && cx <= 260) torusDivs = Math.min(24, torusDivs + 1);
+                    if (cx >= 270 && cx <= 320) torusDivThick = Math.max(1, torusDivThick - 1);
+                    if (cx >= 440 && cx <= 490) torusDivThick = Math.min(10, torusDivThick + 1);
+                } else if (cy >= 360 && cy <= 410 && torusMode === 'wireframe') {
+                    if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1);
+                    if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1);
+                    if (cx >= 330 && cx <= 490) wireFill = !wireFill;
+                }
             } else if (activeTool === 'icosahedron') {
                 if (cy >= 60 && cy <= 105) { if (cx >= 20 && cx <= 245) platonicType = 'tetrahedron'; if (cx >= 265 && cx <= 490) platonicType = 'octahedron'; } 
                 else if (cy >= 110 && cy <= 155) { if (cx >= 20 && cx <= 245) platonicType = 'icosahedron'; if (cx >= 265 && cx <= 490) platonicType = 'dodecahedron'; } 
@@ -2030,11 +2140,11 @@ if (cy >= 60 && cy <= 90) {
             updateCursors(); colorMenuNeedsUpdate = true;
         }
 
-        const rightMenuCanvas = document.createElement('canvas'); rightMenuCanvas.width = 512; rightMenuCanvas.height = 512;
+        const rightMenuCanvas = document.createElement('canvas'); rightMenuCanvas.width = 512; rightMenuCanvas.height = 600;
         const rightMenuCtx = rightMenuCanvas.getContext('2d', { willReadFrequently: true });
         const rightMenuTexture = new THREE.CanvasTexture(rightMenuCanvas);
-        const rightMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: rightMenuTexture, transparent: true, side: THREE.DoubleSide }));
-        rightMenuMesh.visible = false; rightMenuMesh.position.set(0, 0.15, -0.05); rightMenuMesh.rotation.x = -Math.PI / 4;
+        const rightMenuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.175), new THREE.MeshBasicMaterial({ map: rightMenuTexture, transparent: true, side: THREE.DoubleSide }));
+        rightMenuMesh.visible = false; rightMenuMesh.position.set(0, 0.16, -0.05); rightMenuMesh.rotation.x = -Math.PI / 4;
         xrRight.add(rightMenuMesh);
 
         // Joystick Color Indicator UI
@@ -2076,25 +2186,40 @@ if (cy >= 60 && cy <= 90) {
         }
 
         function updateRightMenuTexture() {
-
-            rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; rightMenuCtx.fillRect(0, 0, 512, 512);
-            rightMenuCtx.fillStyle = '#4facfe'; rightMenuCtx.font = 'bold 28px sans-serif'; rightMenuCtx.textAlign = 'center'; rightMenuCtx.fillText(`Tool Selection`, 256, 28);
-            const tools = [ { id: 'brush', label: 'Brush (Standard)' }, { id: 'extrude', label: 'Extrude (Pull)' }, { id: 'line', label: 'Line & Arc Tool' }, { id: 'paint', label: 'Paint (Recolor)' }, { id: 'sculpt', label: 'Soft Sculpt' }, { id: 'plane', label: 'Plane (2D Grid/Shape)' }, { id: 'box', label: 'Box / Volumes' }, { id: 'quadsphere', label: 'Quad Sphere (Shell)' }, { id: 'cylinder', label: 'Cylinder / Prism' }, { id: 'triangle', label: 'Cone / Pyramid' }, { id: 'icosahedron', label: 'Poly / Platonic' }, { id: 'select', label: 'Select & Transform' }, { id: 'bouncy', label: 'Particle Brush' } ];
-            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 42 + i * 35, 412, 31, tools[i].label, activeTool === tools[i].id);
+            rightMenuCtx.fillStyle = 'rgba(20, 20, 20, 0.95)'; rightMenuCtx.fillRect(0, 0, 512, 600);
+            rightMenuCtx.fillStyle = '#4facfe'; rightMenuCtx.font = 'bold 26px sans-serif'; rightMenuCtx.textAlign = 'center'; rightMenuCtx.fillText(`Tool Selection (v2.4)`, 256, 28);
+            const tools = [
+                { id: 'brush', label: 'Brush (Standard)' },
+                { id: 'extrude', label: 'Extrude (Pull)' },
+                { id: 'line', label: 'Line & Arc Tool' },
+                { id: 'paint', label: 'Paint (Recolor)' },
+                { id: 'sculpt', label: 'Soft Sculpt' },
+                { id: 'plane', label: 'Plane (2D Grid/Shape)' },
+                { id: 'box', label: 'Box / Volumes' },
+                { id: 'quadsphere', label: 'Quad Sphere (Shell)' },
+                { id: 'cylinder', label: 'Cylinder / Prism' },
+                { id: 'triangle', label: 'Cone / Pyramid' },
+                { id: 'icosahedron', label: 'Poly / Platonic' },
+                { id: 'select', label: 'Select & Transform' },
+                { id: 'bouncy', label: 'Particle Brush' },
+                { id: 'torus', label: 'Torus / Ring / Arch' }
+            ];
+            for (let i = 0; i < tools.length; i++) drawButton(rightMenuCtx, 50, 44 + i * 39, 412, 34, tools[i].label, activeTool === tools[i].id);
             rightMenuTexture.needsUpdate = true;
         }
+        updateRightMenuTexture();
 
 function handleRightMenuClick(cx, cy) {
-            if (cx >= 50 && cx <= 462 && cy >= 42 && cy <= 42 + 13 * 35) {
-                const idx = Math.floor((cy - 42) / 35);
+            if (cx >= 50 && cx <= 462 && cy >= 44 && cy <= 44 + 14 * 39) {
+                const idx = Math.floor((cy - 44) / 39);
                 
-                if (idx >= 0 && idx < 13) {
+                if (idx >= 0 && idx < 14) {
                     if (hasSelection) applySelection();
-                    isPreviewingBox = isPreviewingSphere = isPreviewingPlane = isPreviewingTriangle = isPreviewingCylinder = isPreviewingIcosahedron = false;
-                    boxPreviewMesh.visible = spherePreviewMesh.visible = bucketPreviewMesh.visible = linePreviewMesh.visible = lineWireframeMesh.visible = false;
+                    isPreviewingBox = isPreviewingSphere = isPreviewingPlane = isPreviewingTriangle = isPreviewingCylinder = isPreviewingTorus = isPreviewingIcosahedron = false;
+                    hideAllPreviews();
+                    bucketPreviewMesh.visible = linePreviewMesh.visible = false;
 
-                    
-                    const tools = ['brush', 'extrude', 'line', 'paint', 'sculpt', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select', 'bouncy'];
+                    const tools = ['brush', 'extrude', 'line', 'paint', 'sculpt', 'plane', 'box', 'quadsphere', 'cylinder', 'triangle', 'icosahedron', 'select', 'bouncy', 'torus'];
                     
                     activeTool = tools[idx];
                     
@@ -3695,7 +3820,178 @@ function executeCylinderTool(startPos, endPos, isPainting) {
                             }
                         } else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
                     }
+
+
                     if (shouldDraw) setVoxel(gx, gy, gz, isPainting, drawColor, drawMat);
+                }
+            }
+        }
+    }
+    leftMenuNeedsUpdate = true;
+}
+
+function executeTorusTool(startPos, endPos, isPainting) {
+    let s = startPos, e = endPos;
+    if (drawFromCenter) {
+        tempPos.copy(endPos).sub(startPos);
+        s = tempStart.copy(startPos).sub(tempPos);
+        e = endPos;
+    }
+
+    const rMinX = Math.round(s.x / VOXEL_SIZE), rMaxX = Math.round(e.x / VOXEL_SIZE);
+    const rMinY = Math.round(s.y / VOXEL_SIZE), rMaxY = Math.round(e.y / VOXEL_SIZE);
+    const rMinZ = Math.round(s.z / VOXEL_SIZE), rMaxZ = Math.round(e.z / VOXEL_SIZE);
+
+    const minX = Math.min(rMinX, rMaxX), maxX = Math.max(rMinX, rMaxX);
+    const minY = Math.min(rMinY, rMaxY), maxY = Math.max(rMinY, rMaxY);
+    const minZ = Math.min(rMinZ, rMaxZ), maxZ = Math.max(rMinZ, rMaxZ);
+
+    if ((maxX - minX) > 600 || (maxY - minY) > 600 || (maxZ - minZ) > 600) return;
+
+    const cX = (minX + maxX) / 2, cY = (minY + maxY) / 2, cZ = (minZ + maxZ) / 2;
+    const rX = (maxX - minX) / 2, rY = (maxY - minY) / 2, rZ = (maxZ - minZ) / 2;
+
+    const axis = torusAxis;
+    const cu = axis === 'X' ? cY : cX;
+    const cv = axis === 'X' ? cZ : (axis === 'Y' ? cZ : cY);
+    const cw = axis === 'X' ? cX : (axis === 'Y' ? cY : cZ);
+
+    const ru = Math.max(0.5, axis === 'X' ? rY : rX);
+    const rv = Math.max(0.5, axis === 'X' ? rZ : (axis === 'Y' ? rZ : rY));
+    const rw = Math.max(0.5, axis === 'X' ? rX : (axis === 'Y' ? rY : rZ));
+    const invRu = 1 / ru, invRv = 1 / rv, invRw = 1 / rw;
+
+    const N = torusSides < 3 ? 0 : torusSides;
+    const PI_N = N === 0 ? 0 : Math.PI / N;
+    const max_r = N === 0 ? 1 : 1 / Math.cos(PI_N);
+
+    const tubeRatio = THREE.MathUtils.clamp(torusTubePct / 100, 0.08, 0.5);
+    const majR = 1.0 - tubeRatio;
+    const invTubeR = 1.0 / tubeRatio;
+    const sweepRad = THREE.MathUtils.degToRad(torusSweep);
+
+    const loopMinX = axis === 'X' ? minX : Math.floor(cX - rX * max_r);
+    const loopMaxX = axis === 'X' ? maxX : Math.ceil(cX + rX * max_r);
+    const loopMinY = axis === 'Y' ? minY : Math.floor(cY - rY * max_r);
+    const loopMaxY = axis === 'Y' ? maxY : Math.ceil(cY + rY * max_r);
+    const loopMinZ = axis === 'Z' ? minZ : Math.floor(cZ - rZ * max_r);
+    const loopMaxZ = axis === 'Z' ? maxZ : Math.ceil(cZ + rZ * max_r);
+
+    const avgRingR = (ru + rv) * 0.5;
+    const avgTubeR = avgRingR * tubeRatio;
+
+    const isInside = (gx, gy, gz) => {
+        const gu = axis === 'X' ? gy : gx;
+        const gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
+        const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
+
+        const nu = (gu - cu) * invRu;
+        const nv = (gv - cv) * invRv;
+        const nw = (gw - cw) * invRw;
+
+        let phi = Math.atan2(nv, nu);
+        if (phi < 0) phi += 2 * Math.PI;
+        if (torusSweep < 360 && phi > sweepRad + 0.001) return false;
+
+        const r_norm = Math.sqrt(nu * nu + nv * nv);
+        let r_poly = r_norm;
+        if (N !== 0 && r_norm > 0) {
+            const angle = ((phi + PI_N) % (2 * Math.PI / N) + (2 * Math.PI / N)) % (2 * Math.PI / N);
+            const r_limit = 1.0 / Math.cos(angle - PI_N);
+            r_poly = r_norm / r_limit;
+        }
+
+        const dRing = (r_poly - majR) * invTubeR;
+        return (dRing * dRing + nw * nw) <= 1.04;
+    };
+
+    for (let gx = loopMinX; gx <= loopMaxX; gx++) {
+        for (let gy = loopMinY; gy <= loopMaxY; gy++) {
+            for (let gz = loopMinZ; gz <= loopMaxZ; gz++) {
+                if (!isInside(gx, gy, gz)) continue;
+
+                const isSurf = !isInside(gx + 1, gy, gz) || !isInside(gx - 1, gy, gz) ||
+                               !isInside(gx, gy + 1, gz) || !isInside(gx, gy - 1, gz) ||
+                               !isInside(gx, gy, gz + 1) || !isInside(gx, gy, gz - 1);
+
+                const gu = axis === 'X' ? gy : gx;
+                const gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
+                const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
+                const nu = (gu - cu) * invRu, nv = (gv - cv) * invRv, nw = (gw - cw) * invRw;
+                let phi = Math.atan2(nv, nu);
+                if (phi < 0) phi += 2 * Math.PI;
+
+                // Check radial division bands (Divs)
+                let isDivBand = false;
+                if (torusDivs > 1) {
+                    const stepAngle = sweepRad / torusDivs;
+                    const count = torusSweep < 360 ? torusDivs + 1 : torusDivs;
+                    for (let i = 0; i < count; i++) {
+                        const targetA = (i * stepAngle) % (2 * Math.PI);
+                        let diff = Math.abs(phi - targetA);
+                        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+                        if (diff * avgRingR <= (torusDivThick * 0.55)) {
+                            isDivBand = true;
+                            break;
+                        }
+                    }
+                }
+
+                const cMain = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 0);
+                const cSec = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 1);
+
+                if (torusMode === 'solid') {
+                    if (isDivBand && isSurf) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                    else setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                } else if (torusMode === 'shell') {
+                    if (isSurf) {
+                        if (isDivBand) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                        else setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    } else if (clearInterior && isPainting) {
+                        setVoxel(gx, gy, gz, false, null);
+                    }
+                } else if (torusMode === 'wireframe') {
+                    if (isSurf) {
+                        let isRib = isDivBand;
+                        // 4 poloidal (tube-lengthwise) ribs: top, bottom, inner equator, outer equator
+                        if (!isRib) {
+                            const r_norm = Math.sqrt(nu * nu + nv * nv);
+                            let r_poly = r_norm;
+                            if (N !== 0 && r_norm > 0) {
+                                const angle = ((phi + PI_N) % (2 * Math.PI / N) + (2 * Math.PI / N)) % (2 * Math.PI / N);
+                                r_poly = r_norm / (1.0 / Math.cos(angle - PI_N));
+                            }
+                            const dRing = (r_poly - majR) * invTubeR;
+                            let polAngle = Math.atan2(nw, dRing);
+                            if (polAngle < 0) polAngle += 2 * Math.PI;
+                            for (let k = 0; k < 4; k++) {
+                                const targetP = k * (Math.PI / 2);
+                                let diffP = Math.abs(polAngle - targetP);
+                                if (diffP > Math.PI) diffP = 2 * Math.PI - diffP;
+                                if (diffP * Math.max(1.5, avgTubeR) <= (wireWidth - 0.15)) {
+                                    isRib = true;
+                                    break;
+                                }
+                            }
+                            // Also highlight polygon corners if N >= 3
+                            if (!isRib && N >= 3) {
+                                for (let i = 0; i < N; i++) {
+                                    const tp = (i * (2 * Math.PI / N) - PI_N + 2 * Math.PI) % (2 * Math.PI);
+                                    let diff = Math.abs(phi - tp);
+                                    if (diff > Math.PI) diff = 2 * Math.PI - diff;
+                                    if (diff * avgRingR <= (wireWidth - 0.2)) {
+                                        isRib = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isRib) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
+                        else if (wireFill) setVoxel(gx, gy, gz, isPainting, cMain, matTypes[0]);
+                    } else if (clearInterior && isPainting) {
+                        setVoxel(gx, gy, gz, false, null);
+                    }
                 }
             }
         }
@@ -4023,7 +4319,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     return;
                 }
 } else if (this === xrLeft) { 
-                if (rightMenuHovered && rightMenuMesh.visible) { menuClickActive = true; handleRightMenuClick(Math.floor(rightMenuUV.x*512),Math.floor((1-rightMenuUV.y)*512)); return; }
+                if (rightMenuHovered && rightMenuMesh.visible) { menuClickActive = true; handleRightMenuClick(Math.floor(rightMenuUV.x*512),Math.floor((1-rightMenuUV.y)*600)); return; }
                 else if (globalMenuHovered && globalMenuMesh.visible) { menuClickActive = true; handleGlobalMenuClick(Math.floor(globalMenuUV.x*512),Math.floor((1-globalMenuUV.y)*1024)); return; }
             }
             
@@ -4096,6 +4392,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='quadsphere')isPreviewingSphere=true; 
                     if(activeTool==='plane')isPreviewingPlane=true; 
                     if(activeTool==='cylinder')isPreviewingCylinder=true; 
+                    if(activeTool==='torus')isPreviewingTorus=true; 
                     if(activeTool==='triangle')isPreviewingTriangle=true;                     
                     if(activeTool==='icosahedron'){ isDrawing=true; isPreviewingIcosahedron=true; drawStartPos.copy(rightTargetLocal); }
                     if(activeTool==='bouncy'){
@@ -4163,6 +4460,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(activeTool==='quadsphere')isPreviewingSphere=true; 
                     if(activeTool==='plane')isPreviewingPlane=true; 
                     if(activeTool==='cylinder')isPreviewingCylinder=true; 
+                    if(activeTool==='torus')isPreviewingTorus=true; 
                     if(activeTool==='triangle')isPreviewingTriangle=true; 
                     if(activeTool==='icosahedron'){ isErasing=true; isPreviewingIcosahedron=true; drawStartPos.copy(leftTargetLocal); } 
                     if(activeTool==='bouncy'){
@@ -4211,6 +4509,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
                     if(activeTool==='quadsphere'&&isPreviewingSphere){ executeQuadSphereTool(drawStartPos,rightTargetLocal,true); isPreviewingSphere=false; spherePreviewMesh.visible=false; } 
                     if(activeTool==='cylinder'&&isPreviewingCylinder){ executeCylinderTool(drawStartPos,rightTargetLocal,true); isPreviewingCylinder=false; cylinderPreviewMesh.visible=false; } 
+                    if(activeTool==='torus'&&isPreviewingTorus){ executeTorusTool(drawStartPos,rightTargetLocal,true); isPreviewingTorus=false; torusPreviewMesh.visible=false; } 
                     if(activeTool==='plane'&&isPreviewingPlane){ executePlaneTool(drawStartPos,rightTargetLocal,true); isPreviewingPlane=false; boxPreviewMesh.visible=false; } 
                     if(activeTool==='triangle'&&isPreviewingTriangle){ executeTriangleTool(drawStartPos,rightTargetLocal,true); isPreviewingTriangle=false; conePreviewMesh.visible=false; } 
                     if(activeTool==='icosahedron'&&isPreviewingIcosahedron){ executeIcosahedronTool(drawStartPos,rightTargetLocal,true); isPreviewingIcosahedron=false; polyPreviewMesh.visible=false; } 
@@ -4236,7 +4535,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
                 if(activeTool==='quadsphere'&&isPreviewingSphere){ executeQuadSphereTool(drawStartPos,leftTargetLocal,false); isPreviewingSphere=false; spherePreviewMesh.visible=false; } 
                 if(activeTool==='cylinder'&&isPreviewingCylinder){ executeCylinderTool(drawStartPos,leftTargetLocal,false); isPreviewingCylinder=false; cylinderPreviewMesh.visible=false; } 
-                if(activeTool==='plane'&&isPreviewingPlane){ executePlaneTool(drawStartPos,leftTargetLocal,false); isPreviewingPlane=false; boxPreviewMesh.visible=false; } 
+                if(activeTool==='torus'&&isPreviewingTorus){ executeTorusTool(drawStartPos,leftTargetLocal,false); isPreviewingTorus=false; torusPreviewMesh.visible=false; }                 if(activeTool==='plane'&&isPreviewingPlane){ executePlaneTool(drawStartPos,leftTargetLocal,false); isPreviewingPlane=false; boxPreviewMesh.visible=false; } 
                 if(activeTool==='triangle'&&isPreviewingTriangle){ executeTriangleTool(drawStartPos,leftTargetLocal,false); isPreviewingTriangle=false; conePreviewMesh.visible=false; } 
                 if(activeTool==='icosahedron'&&isPreviewingIcosahedron){ executeIcosahedronTool(drawStartPos,leftTargetLocal,false); isPreviewingIcosahedron=false; polyPreviewMesh.visible=false; } 
                 lastErasedPos.set(Infinity,Infinity,Infinity); 
@@ -4642,8 +4941,9 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     else if(isPreviewingSphere) updateSpherePreview(drawStartPos,rightTargetLocal,true);
                     else if(isPreviewingPlane) updatePlanePreview(drawStartPos,rightTargetLocal,true); 
                     else if(isPreviewingCylinder) updateCylinderPreview(drawStartPos,rightTargetLocal,true); 
+                    else if(isPreviewingTorus) updateTorusPreview(drawStartPos,rightTargetLocal,true); 
                     else if(isPreviewingTriangle) updateTrianglePreview(drawStartPos,rightTargetLocal,true); 
-                    else if(isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,rightTargetLocal,true); 
+                    else if(isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,rightTargetLocal,true);  
                 }
                 if(xrLeft&&isErasing&&!isColorPicking){ 
                     hideAllPreviews();
@@ -4697,6 +4997,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     else if(activeTool==='quadsphere'&&isPreviewingSphere) updateSpherePreview(drawStartPos,leftTargetLocal,false); 
  
                     else if(activeTool==='cylinder'&&isPreviewingCylinder) updateCylinderPreview(drawStartPos,leftTargetLocal,false); 
+                    else if(activeTool==='torus'&&isPreviewingTorus) updateTorusPreview(drawStartPos,leftTargetLocal,false); 
                     else if(activeTool==='plane'&&isPreviewingPlane) updatePlanePreview(drawStartPos,leftTargetLocal,false); 
                     else if(activeTool==='triangle'&&isPreviewingTriangle) updateTrianglePreview(drawStartPos,leftTargetLocal,false); 
                     else if(activeTool==='icosahedron'&&isPreviewingIcosahedron) updateIcosahedronPreview(drawStartPos,leftTargetLocal,false); 
@@ -4844,6 +5145,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                 if(needsSync(cursorLeft,showM)) syncMirrorProxies(cursorLeft,getMirrorProxies(cursorLeft),showM); if(needsSync(cursorRight,showRM)) syncMirrorProxies(cursorRight,getMirrorProxies(cursorRight),showRM); if(needsSync(boxPreviewMesh,showM)) syncMirrorProxies(boxPreviewMesh,getMirrorProxies(boxPreviewMesh),showM); if(needsSync(spherePreviewMesh,showM)) syncMirrorProxies(spherePreviewMesh,getMirrorProxies(spherePreviewMesh),showM);
                 if(needsSync(bouncyMesh, showM)) syncMirrorProxies(bouncyMesh, getMirrorProxies(bouncyMesh), showM);
                 if(needsSync(cylinderPreviewMesh, showM)) syncMirrorProxies(cylinderPreviewMesh, getMirrorProxies(cylinderPreviewMesh), showM);
+                if(needsSync(torusPreviewMesh, showM)) syncMirrorProxies(torusPreviewMesh, getMirrorProxies(torusPreviewMesh), showM);
                 if(needsSync(conePreviewMesh, showM)) syncMirrorProxies(conePreviewMesh, getMirrorProxies(conePreviewMesh), showM);
                 if(needsSync(polyPreviewMesh, showM)) syncMirrorProxies(polyPreviewMesh, getMirrorProxies(polyPreviewMesh), showM);
                 if(needsSync(linePreviewMesh, showM)) syncMirrorProxies(linePreviewMesh, getMirrorProxies(linePreviewMesh), showM);
