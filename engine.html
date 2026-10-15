@@ -503,6 +503,8 @@
         const tempArcTiltQuat = new THREE.Quaternion();
         const tempArcCtrlUp = new THREE.Vector3();
         const tempArcProjUp = new THREE.Vector3();
+        const dynamicArcUp = new THREE.Vector3(0, 1, 0);
+        const lastValidArcBulgeVec = new THREE.Vector3(0, 1, 0);
         const tempWireDir = new THREE.Vector3();
         const tempWireU = new THREE.Vector3();
         const tempWireV = new THREE.Vector3();
@@ -2572,21 +2574,36 @@ function updateGlobalMenuTexture() {
             if (dist < 0.0001) {
                 outPoints.length = 0;
                 outPoints.push(p1.clone(), p2.clone());
-                return tempArcBulgeVec.set(0, 1, 0);
+                return tempArcBulgeVec.copy(lastValidArcBulgeVec);
             }
             tempArcLineDir.copy(tempArcDiff).divideScalar(dist);
-            
-            tempArcUpVec.set(0, 1, 0);
-            if (Math.abs(tempArcLineDir.y) > 0.999) tempArcUpVec.set(0, 0, 1);
-            
-            tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
-            if (tempArcSide.lengthSq() < 0.001) tempArcSide.set(1, 0, 0).cross(tempArcLineDir).normalize();
-            
-            tempArcBulgeVec.crossVectors(tempArcLineDir, tempArcSide).normalize();
-            
-            if (arcTilt !== 0) {
-                tempArcTiltQuat.setFromAxisAngle(tempArcLineDir, THREE.MathUtils.degToRad(arcTilt));
-                tempArcBulgeVec.applyQuaternion(tempArcTiltQuat);
+
+            if (arcControlMode === 'dynamic') {
+                // Option 4: Project the Right Controller's local Up vector directly onto the plane perpendicular to the line
+                tempArcBulgeVec.copy(dynamicArcUp).projectOnPlane(tempArcLineDir);
+                if (tempArcBulgeVec.lengthSq() > 0.001) {
+                    tempArcBulgeVec.normalize();
+                    lastValidArcBulgeVec.copy(tempArcBulgeVec);
+                } else {
+                    // Fallback if controller top points dead-on along the chord line
+                    tempArcBulgeVec.copy(lastValidArcBulgeVec).projectOnPlane(tempArcLineDir);
+                    if (tempArcBulgeVec.lengthSq() > 0.001) tempArcBulgeVec.normalize();
+                    else tempArcBulgeVec.set(0, 1, 0);
+                }
+            } else {
+                // Manual Mode: Use standard world-up + manual arcTilt slider
+                tempArcUpVec.set(0, 1, 0);
+                if (Math.abs(tempArcLineDir.y) > 0.999) tempArcUpVec.set(0, 0, 1);
+                
+                tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
+                if (tempArcSide.lengthSq() < 0.001) tempArcSide.set(1, 0, 0).cross(tempArcLineDir).normalize();
+                
+                tempArcBulgeVec.crossVectors(tempArcLineDir, tempArcSide).normalize();
+                
+                if (arcTilt !== 0) {
+                    tempArcTiltQuat.setFromAxisAngle(tempArcLineDir, THREE.MathUtils.degToRad(arcTilt));
+                    tempArcBulgeVec.applyQuaternion(tempArcTiltQuat);
+                }
             }
             
             tempArcCtrlPt.copy(tempArcMid).addScaledVector(tempArcBulgeVec, dist * 0.5 * arcBulge);
@@ -4774,87 +4791,42 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     xrRight.getWorldQuaternion(currentGradientQuat);
                     currentGradientQuat.premultiply(tempQuat2);
 
-                    // Real-time Arc Control: Decoupled Wrist Pitch (Curve Depth) & Wrist Roll (3D Direction)
+                    // Real-time Arc Control (Option 4):
+                    // - Right Controller Local Up Vector -> 3D Arc Bulge Direction (Euler-free, zero flips)
+                    // - Left Controller Forearm Roll     -> Arc Bulge Magnitude (-5.0 to +5.0)
                     const isMenuAiming = (leftMenuHovered && leftMenuMesh.visible) || (colorMenuHovered && colorMenuMesh.visible) || (rightMenuHovered && rightMenuMesh.visible) || (globalMenuHovered && globalMenuMesh.visible);
                     if (activeTool === 'line' && lineType === 'arc' && arcControlMode === 'dynamic' && !isMenuAiming && !activeSliderDrag) {
-                        const activeCtrl = (isErasing && lineMode === 'one-hand' && xrLeft) ? xrLeft : xrRight;
-                        if (activeCtrl) {
-                            // 1. Decompose controller orientation in Room Space using intrinsic 'YXZ'
-                            //    - y (yaw): horizontal heading in room (factored out so turning in room never breaks controls)
-                            //    - x (pitch): elevation above/below horizon -> controls arcBulge
-                            //    - z (roll): forearm twist around controller axis -> controls arcTilt
-                            activeCtrl.getWorldQuaternion(tempQuat);
-                            tempSEuler.setFromQuaternion(tempQuat, 'YXZ');
-                            const yaw = tempSEuler.y;
-                            const pitch = tempSEuler.x;
-                            const roll = tempSEuler.z;
+                        // 1. RIGHT CONTROLLER: Update 3D Bulge Direction from Right Controller's local Up (+Y) vector in worldGroup space
+                        tempArcCtrlUp.set(0, 1, 0).applyQuaternion(currentGradientQuat).normalize();
+                        dynamicArcUp.lerp(tempArcCtrlUp, 0.35).normalize();
 
-                            // 2. Map Wrist Pitch -> Signed Arc Bulge (with neutral flat deadzone & smoothing)
-                            const pitchDeadzone = 0.04;
-                            const effPitch = Math.abs(pitch) > pitchDeadzone ? (pitch - Math.sign(pitch) * pitchDeadzone) : 0;
-                            const targetBulge = THREE.MathUtils.clamp(effPitch * (1.8 + Math.abs(effPitch) * 1.2), -5.0, 5.0);
-                            const nextBulge = Math.round(THREE.MathUtils.lerp(arcBulge, targetBulge, 0.35) * 100) / 100;
-                            if (nextBulge !== arcBulge) {
-                                arcBulge = nextBulge;
-                                if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
-                            }
+                        // Keep the UI Tilt readout updated from Right Controller roll
+                        xrRight.getWorldQuaternion(tempQuat);
+                        tempSEuler.setFromQuaternion(tempQuat, 'YXZ');
+                        const rightRollDeg = Math.round(THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(-tempSEuler.z), -180, 180) / 5) * 5;
+                        if (rightRollDeg !== arcTilt) {
+                            arcTilt = rightRollDeg;
+                            if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
+                        }
 
-                            // 3. Map Forearm Roll -> 3D View-Consistent Arc Direction (arcTilt)
-                            const pStart = (isErasing && lineMode === 'one-hand')
-                                ? drawStartPos
-                                : ((lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos);
-                            const pEnd = (isErasing && lineMode === 'one-hand') ? leftTargetLocal : rightTargetLocal;
+                        // 2. LEFT CONTROLLER: Map Left Forearm Roll -> Arc Bulge (-5.0 to +5.0)
+                        if (xrLeft) {
+                            xrLeft.getWorldQuaternion(tempQuat);
+                            // Check how close the left controller is to pointing straight vertical to prevent Euler pole gimbal jumps
+                            const leftVertAlign = Math.abs(leftDir.y);
+                            const stabilityWeight = 1.0 - THREE.MathUtils.smoothstep(leftVertAlign, 0.80, 0.95);
 
-                            tempArcDiff.subVectors(pEnd, pStart);
-                            const rollDeadzone = 0.05;
-                            const effRoll = Math.abs(roll) > rollDeadzone ? (roll - Math.sign(roll) * rollDeadzone) : 0;
+                            if (stabilityWeight > 0.01) {
+                                tempSEuler.setFromQuaternion(tempQuat, 'YXZ');
+                                const leftRoll = -tempSEuler.z; // Twist inward = positive bulge, twist outward = negative bulge
+                                const rollDeadzone = 0.08;
+                                const effLeftRoll = Math.abs(leftRoll) > rollDeadzone ? (leftRoll - Math.sign(leftRoll) * rollDeadzone) : 0;
 
-                            if (tempArcDiff.lengthSq() > 0.0001) {
-                                tempArcLineDir.copy(tempArcDiff).normalize();
-
-                                // Transform Room Up, Controller Horizontal Forward, and Horizontal Right into worldGroup local space
-                                tempArcCtrlUp.set(0, 1, 0).applyQuaternion(tempQuat2);
-                                tempArcMid.set(-Math.sin(yaw), 0, -Math.cos(yaw)).applyQuaternion(tempQuat2);
-                                tempArcCtrlPt.set(Math.cos(yaw), 0, -Math.sin(yaw)).applyQuaternion(tempQuat2);
-
-                                // Smoothly blend Room Up with Controller Horizontal Forward as the chord approaches vertical
-                                const vertAlign = Math.abs(tempArcLineDir.dot(tempArcCtrlUp));
-                                const blend = THREE.MathUtils.smoothstep(vertAlign, 0.7, 0.96);
-                                tempArcProjUp.copy(tempArcCtrlUp).lerp(tempArcMid, blend).projectOnPlane(tempArcLineDir);
-                                if (tempArcProjUp.lengthSq() < 0.0001) {
-                                    tempArcProjUp.copy(tempArcCtrlPt).projectOnPlane(tempArcLineDir);
-                                }
-                                tempArcProjUp.normalize();
-
-                                // Keep roll direction visually consistent regardless of whether pStart->pEnd is drawn L->R or R->L
-                                const viewSign = (tempArcLineDir.dot(tempArcMid) + tempArcLineDir.dot(tempArcCtrlPt)) >= 0 ? -1 : 1;
-                                const rollAngle = THREE.MathUtils.clamp(effRoll * 1.5, -Math.PI, Math.PI) * viewSign;
-                                tempArcTiltQuat.setFromAxisAngle(tempArcLineDir, rollAngle);
-                                tempArcProjUp.applyQuaternion(tempArcTiltQuat);
-
-                                // Encode the 3D desired bulge direction into calculateArcPoints's exact arcTilt basis
-                                tempArcUpVec.set(0, 1, 0);
-                                if (Math.abs(tempArcLineDir.y) > 0.999) tempArcUpVec.set(0, 0, 1);
-                                tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
-                                if (tempArcSide.lengthSq() < 0.001) tempArcSide.set(1, 0, 0).cross(tempArcLineDir).normalize();
-                                tempArcBulgeVec.crossVectors(tempArcLineDir, tempArcSide).normalize();
-
-                                const cosTilt = tempArcProjUp.dot(tempArcBulgeVec);
-                                const sinTilt = -tempArcProjUp.dot(tempArcSide);
-                                const targetTilt = THREE.MathUtils.radToDeg(Math.atan2(sinTilt, cosTilt));
-
-                                // Shortest-angle interpolation across the -180/+180 boundary
-                                const tiltDiff = ((targetTilt - arcTilt + 540) % 360) - 180;
-                                const nextTilt = Math.round((((arcTilt + tiltDiff * 0.35 + 540) % 360) - 180) * 10) / 10;
-                                if (nextTilt !== arcTilt) {
-                                    arcTilt = nextTilt;
-                                    if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
-                                }
-                            } else {
-                                const targetTilt = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(-effRoll * 1.5), -180, 180);
-                                const nextTilt = Math.round(THREE.MathUtils.lerp(arcTilt, targetTilt, 0.35) * 10) / 10;
-                                if (nextTilt !== arcTilt) {
-                                    arcTilt = nextTilt;
+                                // Full +/- 90 deg twist maps across the full -5.0 to +5.0 bulge range
+                                const targetBulge = THREE.MathUtils.clamp((effLeftRoll / (Math.PI * 0.45)) * 5.0, -5.0, 5.0);
+                                const nextBulge = Math.round(THREE.MathUtils.lerp(arcBulge, targetBulge, 0.30 * stabilityWeight) * 100) / 100;
+                                if (nextBulge !== arcBulge) {
+                                    arcBulge = nextBulge;
                                     if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
                                 }
                             }
