@@ -2569,10 +2569,15 @@ function updateGlobalMenuTexture() {
             tempArcMid.addVectors(p1, p2).multiplyScalar(0.5);
             tempArcDiff.subVectors(p2, p1);
             const dist = tempArcDiff.length();
-            tempArcLineDir.copy(tempArcDiff).normalize();
+            if (dist < 0.0001) {
+                outPoints.length = 0;
+                outPoints.push(p1.clone(), p2.clone());
+                return tempArcBulgeVec.set(0, 1, 0);
+            }
+            tempArcLineDir.copy(tempArcDiff).divideScalar(dist);
             
             tempArcUpVec.set(0, 1, 0);
-            if (Math.abs(tempArcLineDir.y) > 0.9) tempArcUpVec.set(0, 0, 1);
+            if (Math.abs(tempArcLineDir.y) > 0.999) tempArcUpVec.set(0, 0, 1);
             
             tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
             if (tempArcSide.lengthSq() < 0.001) tempArcSide.set(1, 0, 0).cross(tempArcLineDir).normalize();
@@ -4769,22 +4774,90 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     xrRight.getWorldQuaternion(currentGradientQuat);
                     currentGradientQuat.premultiply(tempQuat2);
 
-                    // Real-time Arc Control: Dynamic Bulge via Wrist Pitch
-                    if (activeTool === 'line' && lineType === 'arc' && xrRight && arcControlMode === 'dynamic') {
-                        const pStart = (lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos;
-                        const pEnd = rightTargetLocal;
-                        
-                        tempArcDiff.subVectors(pEnd, pStart);
-                        if (tempArcDiff.lengthSq() > 0.0001) {
-                            tempArcLineDir.copy(tempArcDiff).normalize();
-                            tempArcUpVec.set(0, 1, 0);
-                            if (Math.abs(tempArcLineDir.y) > 0.9) tempArcUpVec.set(0, 0, 1); 
-                            
-                            tempArcCtrlUp.set(0, 1, 0).applyQuaternion(xrRight.quaternion);
-                            tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
-                            tempArcProjUp.copy(tempArcCtrlUp).projectOnPlane(tempArcSide).normalize();
-                            
-                            arcBulge = Math.max(-5.0, Math.min(5.0, Math.round(Math.atan2(tempArcProjUp.dot(tempArcLineDir), tempArcProjUp.dot(tempArcUpVec)) * 2.2 * 10) / 10));
+                    // Real-time Arc Control: Decoupled Wrist Pitch (Curve Depth) & Wrist Roll (3D Direction)
+                    const isMenuAiming = (leftMenuHovered && leftMenuMesh.visible) || (colorMenuHovered && colorMenuMesh.visible) || (rightMenuHovered && rightMenuMesh.visible) || (globalMenuHovered && globalMenuMesh.visible);
+                    if (activeTool === 'line' && lineType === 'arc' && arcControlMode === 'dynamic' && !isMenuAiming && !activeSliderDrag) {
+                        const activeCtrl = (isErasing && lineMode === 'one-hand' && xrLeft) ? xrLeft : xrRight;
+                        if (activeCtrl) {
+                            // 1. Decompose controller orientation in Room Space using intrinsic 'YXZ'
+                            //    - y (yaw): horizontal heading in room (factored out so turning in room never breaks controls)
+                            //    - x (pitch): elevation above/below horizon -> controls arcBulge
+                            //    - z (roll): forearm twist around controller axis -> controls arcTilt
+                            activeCtrl.getWorldQuaternion(tempQuat);
+                            tempSEuler.setFromQuaternion(tempQuat, 'YXZ');
+                            const yaw = tempSEuler.y;
+                            const pitch = tempSEuler.x;
+                            const roll = tempSEuler.z;
+
+                            // 2. Map Wrist Pitch -> Signed Arc Bulge (with neutral flat deadzone & smoothing)
+                            const pitchDeadzone = 0.04;
+                            const effPitch = Math.abs(pitch) > pitchDeadzone ? (pitch - Math.sign(pitch) * pitchDeadzone) : 0;
+                            const targetBulge = THREE.MathUtils.clamp(effPitch * (1.8 + Math.abs(effPitch) * 1.2), -5.0, 5.0);
+                            const nextBulge = Math.round(THREE.MathUtils.lerp(arcBulge, targetBulge, 0.35) * 100) / 100;
+                            if (nextBulge !== arcBulge) {
+                                arcBulge = nextBulge;
+                                if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
+                            }
+
+                            // 3. Map Forearm Roll -> 3D View-Consistent Arc Direction (arcTilt)
+                            const pStart = (isErasing && lineMode === 'one-hand')
+                                ? drawStartPos
+                                : ((lineMode === 'two-hand' && xrLeft) ? leftTargetLocal : drawStartPos);
+                            const pEnd = (isErasing && lineMode === 'one-hand') ? leftTargetLocal : rightTargetLocal;
+
+                            tempArcDiff.subVectors(pEnd, pStart);
+                            const rollDeadzone = 0.05;
+                            const effRoll = Math.abs(roll) > rollDeadzone ? (roll - Math.sign(roll) * rollDeadzone) : 0;
+
+                            if (tempArcDiff.lengthSq() > 0.0001) {
+                                tempArcLineDir.copy(tempArcDiff).normalize();
+
+                                // Transform Room Up, Controller Horizontal Forward, and Horizontal Right into worldGroup local space
+                                tempArcCtrlUp.set(0, 1, 0).applyQuaternion(tempQuat2);
+                                tempArcMid.set(-Math.sin(yaw), 0, -Math.cos(yaw)).applyQuaternion(tempQuat2);
+                                tempArcCtrlPt.set(Math.cos(yaw), 0, -Math.sin(yaw)).applyQuaternion(tempQuat2);
+
+                                // Smoothly blend Room Up with Controller Horizontal Forward as the chord approaches vertical
+                                const vertAlign = Math.abs(tempArcLineDir.dot(tempArcCtrlUp));
+                                const blend = THREE.MathUtils.smoothstep(vertAlign, 0.7, 0.96);
+                                tempArcProjUp.copy(tempArcCtrlUp).lerp(tempArcMid, blend).projectOnPlane(tempArcLineDir);
+                                if (tempArcProjUp.lengthSq() < 0.0001) {
+                                    tempArcProjUp.copy(tempArcCtrlPt).projectOnPlane(tempArcLineDir);
+                                }
+                                tempArcProjUp.normalize();
+
+                                // Keep roll direction visually consistent regardless of whether pStart->pEnd is drawn L->R or R->L
+                                const viewSign = (tempArcLineDir.dot(tempArcMid) + tempArcLineDir.dot(tempArcCtrlPt)) >= 0 ? -1 : 1;
+                                const rollAngle = THREE.MathUtils.clamp(effRoll * 1.5, -Math.PI, Math.PI) * viewSign;
+                                tempArcTiltQuat.setFromAxisAngle(tempArcLineDir, rollAngle);
+                                tempArcProjUp.applyQuaternion(tempArcTiltQuat);
+
+                                // Encode the 3D desired bulge direction into calculateArcPoints's exact arcTilt basis
+                                tempArcUpVec.set(0, 1, 0);
+                                if (Math.abs(tempArcLineDir.y) > 0.999) tempArcUpVec.set(0, 0, 1);
+                                tempArcSide.crossVectors(tempArcUpVec, tempArcLineDir).normalize();
+                                if (tempArcSide.lengthSq() < 0.001) tempArcSide.set(1, 0, 0).cross(tempArcLineDir).normalize();
+                                tempArcBulgeVec.crossVectors(tempArcLineDir, tempArcSide).normalize();
+
+                                const cosTilt = tempArcProjUp.dot(tempArcBulgeVec);
+                                const sinTilt = -tempArcProjUp.dot(tempArcSide);
+                                const targetTilt = THREE.MathUtils.radToDeg(Math.atan2(sinTilt, cosTilt));
+
+                                // Shortest-angle interpolation across the -180/+180 boundary
+                                const tiltDiff = ((targetTilt - arcTilt + 540) % 360) - 180;
+                                const nextTilt = Math.round((((arcTilt + tiltDiff * 0.35 + 540) % 360) - 180) * 10) / 10;
+                                if (nextTilt !== arcTilt) {
+                                    arcTilt = nextTilt;
+                                    if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
+                                }
+                            } else {
+                                const targetTilt = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(-effRoll * 1.5), -180, 180);
+                                const nextTilt = Math.round(THREE.MathUtils.lerp(arcTilt, targetTilt, 0.35) * 10) / 10;
+                                if (nextTilt !== arcTilt) {
+                                    arcTilt = nextTilt;
+                                    if (leftMenuMesh.visible) leftMenuNeedsUpdate = true;
+                                }
+                            }
                         }
                     }
 
@@ -4840,9 +4913,9 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         } else if (isDrawing || (lineMode === 'two-hand' && !isErasing)) {
                             if (lineType === 'arc') {
                                 const arcPoints = [];
-                                // No longer requires both controllers to show the preview
-                                calculateArcPoints(pStart, pEnd, xrLeft, xrRight, arcPoints);
-                                updateLinePreviewFromPoints(arcPoints, true);
+                                // Pass the computed 3D bulge normal so the wireframe cross-section twists with the arc
+                                const arcUp = calculateArcPoints(pStart, pEnd, xrLeft, xrRight, arcPoints);
+                                updateLinePreviewFromPoints(arcPoints, true, arcUp);
                             } else {
                                 updateLinePreviewMesh(pStart, pEnd, true);
                                 linePreviewMesh.visible = true;
@@ -4964,10 +5037,10 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                             }
                             lastArcPoints = currentPoints.map(p => p.clone());
                         } else if (isErasing || (lineMode === 'two-hand' && !isDrawing)) {
-                            if (lineType === 'arc' && xrLeft && xrRight) {
+                            if (lineType === 'arc') {
                                 const arcPoints = [];
-                                calculateArcPoints(pStart, pEnd, xrRight, xrLeft, arcPoints); 
-                                updateLinePreviewFromPoints(arcPoints, false);
+                                const arcUp = calculateArcPoints(pStart, pEnd, xrRight, xrLeft, arcPoints); 
+                                updateLinePreviewFromPoints(arcPoints, false, arcUp);
                             } else {
                                 updateLinePreviewMesh(pStart, pEnd, false);
                                 linePreviewMesh.visible = true;
@@ -5011,11 +5084,10 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     
                     if (lineType === 'arc') {
                         const fixedSteps = (lineDrawMode === 'sheet' && lineSheetType === 'point' && lastArcPoints.length > 0) ? lastArcPoints.length - 1 : 0;
-                        calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, fixedSteps);
+                        up.copy(calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, fixedSteps));
                     } else {
                         currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone());
-                    }
-                    
+                    }                    
                     // If in Point Mode and we have a starting rib, show a lightweight Wireframe "X" preview
                     if (lineDrawMode === 'sheet' && lineSheetType === 'point' && lastArcPoints.length > 0 && lastArcPoints.length === currentPoints.length) {
                         const wirePoints = [];
