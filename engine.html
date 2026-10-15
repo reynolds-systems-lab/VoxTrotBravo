@@ -678,6 +678,7 @@
                 this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
                 this.pointsMesh.visible = false;
                 this.pointsMesh.boundingSphere = this.mesh.boundingSphere;
+                ptsGeo.boundingSphere = this.mesh.boundingSphere;
                 worldGroup.add(this.pointsMesh);
 
                 this.voxelToIndex = new Uint16Array(CHUNK_VOL);
@@ -722,6 +723,7 @@
                 const ptsGeo = new THREE.BufferGeometry();
                 ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
                 ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
+                ptsGeo.boundingSphere = oldMesh.boundingSphere;
                 this.pointsMesh = new THREE.Points(ptsGeo, oldPtsMesh.material);
                 this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
                 this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
@@ -733,7 +735,6 @@
 
                 this.capacity = newCapacity;
             }
-
             addVoxel(localIdx, gx, gy, gz, color) {
                 const r = Math.round(color.r * 255), g = Math.round(color.g * 255), b = Math.round(color.b * 255);
                 if (this.voxelToIndex[localIdx] !== 65535) {
@@ -806,24 +807,30 @@
 
             updateBuffers() {
                 if (this.needsUpdate && this.dirtyMin <= this.dirtyMax) {
-                    this.mesh.instanceMatrix.updateRange.offset = this.dirtyMin * 16;
-                    this.mesh.instanceMatrix.updateRange.count = (this.dirtyMax - this.dirtyMin + 1) * 16;
-                    this.mesh.instanceColor.updateRange.offset = this.dirtyMin * 3;
-                    this.mesh.instanceColor.updateRange.count = (this.dirtyMax - this.dirtyMin + 1) * 3;
-                    this.mesh.instanceMatrix.needsUpdate = true;
-                    this.mesh.instanceColor.needsUpdate = true;
-                    this.needsUpdate = false;
+                    const mergeRange = (attr, offset, count) => {
+                        if (attr.needsUpdate && attr.updateRange.count > 0) {
+                            const start = Math.min(attr.updateRange.offset, offset);
+                            const end = Math.max(attr.updateRange.offset + attr.updateRange.count, offset + count);
+                            attr.updateRange.offset = start;
+                            attr.updateRange.count = end - start;
+                        } else {
+                            attr.updateRange.offset = offset;
+                            attr.updateRange.count = count;
+                        }
+                        attr.needsUpdate = true;
+                    };
+
+                    const countItems = this.dirtyMax - this.dirtyMin + 1;
+                    mergeRange(this.mesh.instanceMatrix, this.dirtyMin * 16, countItems * 16);
+                    mergeRange(this.mesh.instanceColor, this.dirtyMin * 3, countItems * 3);
                     this.mesh.visible = this.count > 0 && renderMode === 'standard';
-                    
-                    this.pointsMesh.geometry.attributes.position.updateRange.offset = this.dirtyMin * 3;
-                    this.pointsMesh.geometry.attributes.position.updateRange.count = (this.dirtyMax - this.dirtyMin + 1) * 3;
-                    this.pointsMesh.geometry.attributes.color.updateRange.offset = this.dirtyMin * 3;
-                    this.pointsMesh.geometry.attributes.color.updateRange.count = (this.dirtyMax - this.dirtyMin + 1) * 3;
-                    this.pointsMesh.geometry.attributes.position.needsUpdate = true;
-                    this.pointsMesh.geometry.attributes.color.needsUpdate = true;
+
+                    mergeRange(this.pointsMesh.geometry.attributes.position, this.dirtyMin * 3, countItems * 3);
+                    mergeRange(this.pointsMesh.geometry.attributes.color, this.dirtyMin * 3, countItems * 3);
                     this.pointsMesh.geometry.setDrawRange(0, this.count);
                     this.pointsMesh.visible = this.count > 0 && renderMode === 'performance';
 
+                    this.needsUpdate = false;
                     this.dirtyMin = Infinity;
                     this.dirtyMax = -1;
                 }
@@ -924,7 +931,8 @@
 
         function hideAllPreviews() {
             boxPreviewMesh.visible = spherePreviewMesh.visible = cylinderPreviewMesh.visible = 
-            torusPreviewMesh.visible = conePreviewMesh.visible = polyPreviewMesh.visible = lineWireframeMesh.visible = false;
+            torusPreviewMesh.visible = conePreviewMesh.visible = polyPreviewMesh.visible = 
+            lineWireframeMesh.visible = linePreviewMesh.visible = false;
         }
 
 const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthTest: false }), 80000);
@@ -1110,8 +1118,16 @@ function updatePreviews() {
                 for (let idx = 0; idx < 8; idx++) { const m = pivotGroup.children[idx]; m.position.set(-pCX, -pCY, -pCZ); m.updateMatrix(); }
                 const bMesh = pivotGroup.children[8]; tempPos.set(pCX, pCY, pCZ); bMesh.position.copy(selBoxMesh.position).sub(tempPos); bMesh.scale.copy(selBoxMesh.scale); bMesh.updateMatrix();
                 bMesh.visible = showWireBox;
-                pivotGroup.rotation.set(THREE.MathUtils.degToRad(copyStepRotX * step), THREE.MathUtils.degToRad(copyStepRotY * step), THREE.MathUtils.degToRad(copyStepRotZ * step), 'XYZ');
-                const stScale = Math.pow(copyStepScale, step); pivotGroup.scale.set(stScale, stScale, stScale); pivotGroup.updateMatrix();
+                const isCopyMode = transformMode === 'copy';
+                pivotGroup.rotation.set(
+                    isCopyMode ? THREE.MathUtils.degToRad(copyStepRotX * step) : 0,
+                    isCopyMode ? THREE.MathUtils.degToRad(copyStepRotY * step) : 0,
+                    isCopyMode ? THREE.MathUtils.degToRad(copyStepRotZ * step) : 0,
+                    'XYZ'
+                );
+                const stScale = isCopyMode ? Math.pow(copyStepScale, step) : 1.0;
+                pivotGroup.scale.set(stScale, stScale, stScale);
+                pivotGroup.updateMatrix();
 		g.position.set(tgtCX, tgtCY, tgtCZ);
 		g.scale.set(sx, sy, sz);
 		g.rotation.set(0, polarAngle, 0, 'XYZ');
@@ -1308,8 +1324,8 @@ function updatePreviews() {
                 effSizeRight = rightOverride !== undefined ? rightOverride : bouncyRadius;
             }
 
-            const isBoxShape = isDropperActive || (brushShape === 'cube' && activeTool !== 'sculpt' && activeTool !== 'bouncy') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'torus' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
-            const isRibbonShape = (brushShape === 'ribbon' && activeTool !== 'sculpt' && activeTool !== 'bouncy');
+            const isRibbonShape = (activeTool === 'brush' && brushShape === 'ribbon');
+            const isBoxShape = isDropperActive || ((brushShape === 'cube' || (brushShape === 'ribbon' && activeTool !== 'brush')) && activeTool !== 'sculpt' && activeTool !== 'bouncy') || activeTool === 'box' || activeTool === 'select' || activeTool === 'cylinder' || activeTool === 'torus' || activeTool === 'quadsphere' || activeTool === 'plane' || activeTool === 'triangle' || activeTool === 'icosahedron' || (activeTool === 'paint' && paintMode === 'bucket');
             const isBouncyShape = (activeTool === 'bouncy');
 
             const widthL = ((effSizeLeft - 1) * 2 + 1) * VOXEL_SIZE;
@@ -1375,10 +1391,10 @@ function updatePreviews() {
         }
 
 function updatePlanePreview(start, end, isPainting) {
-    let s = new THREE.Vector3().copy(start), e = new THREE.Vector3().copy(end);
+    let s = start, e = end;
     if (drawFromCenter) {
-        tempPos.copy(e).sub(s);
-        s.sub(tempPos);
+        tempPos.copy(end).sub(start);
+        s = tempStart.copy(start).sub(tempPos);
     }
 
     const gSX = Math.round(s.x / VOXEL_SIZE), gSY = Math.round(s.y / VOXEL_SIZE), gSZ = Math.round(s.z / VOXEL_SIZE);
@@ -1483,11 +1499,11 @@ function updatePlanePreview(start, end, isPainting) {
             torusPreviewMesh.material.color.setHex(isPainting ? 0x4facfe : 0xff0055);
         }
 
-       function updateTrianglePreview(start, end, isPainting) {
-    let s = new THREE.Vector3().copy(start), e = new THREE.Vector3().copy(end);
+      function updateTrianglePreview(start, end, isPainting) {
+    let s = start, e = end;
     if (drawFromCenter) {
-        tempPos.copy(e).sub(s);
-        s.sub(tempPos);
+        tempPos.copy(end).sub(start);
+        s = tempStart.copy(start).sub(tempPos);
     }
 
     conePreviewMesh.visible = true;
@@ -1552,7 +1568,7 @@ function updatePlanePreview(start, end, isPainting) {
             } else { 
                 const phi=(1+Math.sqrt(5))/2, inv=1/phi;
                 verts=[new THREE.Vector3(1,1,1).normalize(),new THREE.Vector3(1,1,-1).normalize(),new THREE.Vector3(1,-1,1).normalize(),new THREE.Vector3(1,-1,-1).normalize(),new THREE.Vector3(-1,1,1).normalize(),new THREE.Vector3(-1,1,-1).normalize(),new THREE.Vector3(-1,-1,1).normalize(),new THREE.Vector3(-1,-1,-1).normalize(),new THREE.Vector3(0,inv,phi).normalize(),new THREE.Vector3(0,inv,-phi).normalize(),new THREE.Vector3(0,-inv,phi).normalize(),new THREE.Vector3(0,-inv,-phi).normalize(),new THREE.Vector3(inv,phi,0).normalize(),new THREE.Vector3(inv,-phi,0).normalize(),new THREE.Vector3(-inv,phi,0).normalize(),new THREE.Vector3(-inv,-phi,0).normalize(),new THREE.Vector3(phi,0,inv).normalize(),new THREE.Vector3(phi,0,-inv).normalize(),new THREE.Vector3(-phi,0,inv).normalize(),new THREE.Vector3(-phi,0,-inv).normalize()];
-                edges=[[0,12],[12,14],[14,4],[4,8],[8,0],[0,8],[8,10],[10,2],[2,16],[16,0],[16,17],[17,1],[1,12],[12,14],[1,9],[9,11],[11,3],[3,17],[12,14],[14,5],[5,9],[9,12],[2,13],[13,15],[15,6],[6,10],[10,2],[16,17],[17,3],[3,13],[13,16],[3,11],[11,7],[7,15],[15,13],[4,14],[14,5],[5,19],[19,18],[18,4],[4,18],[18,6],[6,10],[10,8],[8,4],[5,19],[19,7],[7,11],[11,9],[9,5],[6,18],[18,19],[19,7],[7,15],[15,6]];
+                edges=[[0,12],[12,14],[14,4],[4,8],[8,0],[8,10],[10,2],[2,16],[16,0],[16,17],[17,1],[1,12],[1,9],[9,11],[11,3],[3,17],[14,5],[5,9],[2,13],[13,15],[15,6],[6,10],[3,13],[11,7],[7,15],[5,19],[19,18],[18,4],[18,6],[19,7]];
             }
             
             const points = [];
@@ -1950,12 +1966,12 @@ if (cy >= 60 && cy <= 90) {
                 }
                 else if (cy >= 355 && cy <= 395) { if (cx >= 50 && cx <= 250) brushShape = 'cube'; if (cx >= 262 && cx <= 462) brushShape = 'sphere'; } 
 
-                else if (cy >= 390 && cy <= 435) {
+                else if (cy >= 400 && cy <= 440) {
                     if (cx >= 50 && cx <= 190) lineColorMode = 'standard';
                     else if (cx >= 200 && cx <= 340) lineColorMode = 'gradient';
                     else if (cx >= 350 && cx <= 470) lineColorMode = 'wild';
                 }
-                else if (cy >= 445 && cy <= 490) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
+                else if (cy >= 445 && cy <= 485) { if (cx >= 50 && cx <= 250) brushVolume = 'solid'; if (cx >= 262 && cx <= 462) brushVolume = 'shell'; }
 
             }
  else if (activeTool === 'paint') {
@@ -2226,11 +2242,15 @@ function handleRightMenuClick(cx, cy) {
                     
                     activeTool = tools[idx];
                     
-                    // Bug Fix: Ensure brushSize is reset to 1 when re-entering Line Tool in Sheet Mode.
-                    // This prevents brush size contamination from other tools (like Brush or Paint).
+                    // Ensure brushSize is reset to 1 when re-entering Line Tool in Sheet Mode,
+                    // and reset ribbon shape when switching to tools that only support cube/sphere.
                     if (activeTool === 'line' && lineDrawMode === 'sheet') {
                         brushSize = 1;
                     }
+                    if ((activeTool === 'line' || activeTool === 'paint') && brushShape === 'ribbon') {
+                        brushShape = 'cube';
+                    }
+
 
                     updateCursors(); 
                     rightMenuNeedsUpdate = leftMenuNeedsUpdate = true;
@@ -2352,36 +2372,40 @@ function updateGlobalMenuTexture() {
         let leftMenuNeedsUpdate = true, rightMenuNeedsUpdate = true, colorMenuNeedsUpdate = true, globalMenuNeedsUpdate = true, lastMenuUpdateTime = 0, lastColorJoystickUpdateTime = 0; 
 
         async function exportToOBJ() {
-            if (!window.showSaveFilePicker) {
-                const msg = "Streaming Export not supported. Use Chrome/Edge on Desktop.";
-                console.error(msg);
-                const box = document.createElement('div');
-                box.style = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;color:#ff4444;padding:20px;border:2px solid red;z-index:9999;border-radius:10px;text-align:center;font-family:sans-serif;";
-                box.innerHTML = `<h3>Export Error</h3><p>${msg}</p><button onclick="this.parentElement.remove()">Close</button>`;
-                document.body.appendChild(box);
-                return;
-            }
-
             const isMesh = exportMode === 'mesh';
             const fileName = isMesh ? 'vox_mesh.obj' : 'voxtrot.obj';
-            
-            let fileHandle;
-            try {
-                fileHandle = await window.showSaveFilePicker({
-                    suggestedName: fileName,
-                    types: [{ description: 'OBJ Model', accept: { 'text/plain': ['.obj'] } }],
-                });
-            } catch (e) { return; }
-
-            const writable = await fileHandle.createWritable();
             const encoder = new TextEncoder();
-            const writer = writable.getWriter();
+
+            let writer = null;
+            let writable = null;
+            const fallbackChunks = [];
+
+            if (window.showSaveFilePicker) {
+                try {
+                    const fileHandle = await window.showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [{ description: 'OBJ Model', accept: { 'text/plain': ['.obj'] } }],
+                    });
+                    writable = await fileHandle.createWritable();
+                    writer = writable.getWriter();
+                } catch (e) {
+                    if (e && e.name === 'AbortError') return;
+                    // If blocked by WebXR SecurityError (no DOM user gesture inside VR), fall back to Blob download
+                }
+            }
+
+            const writeChunk = async (str) => {
+                if (!str) return;
+                const bytes = encoder.encode(str);
+                if (writer) await writer.write(bytes);
+                else fallbackChunks.push(bytes);
+            };
 
             // Pre-allocated objects to avoid millions of allocations
             const vOffset = new THREE.Vector3(); 
             const calcPos = new THREE.Vector3();
 
-            await writer.write(encoder.encode("# VoxTrotBravo High-Efficiency Export\nmtllib voxel_materials.mtl\no VoxModel\n"));
+            await writeChunk("# VoxTrotBravo High-Efficiency Export\nmtllib voxel_materials.mtl\no VoxModel\n");
 
             const hs = 0.5;
             const faceVerts = {
@@ -2394,11 +2418,11 @@ function updateGlobalMenuTexture() {
             };
             const dirs = [{d:[1,0,0],v:faceVerts.px}, {d:[-1,0,0],v:faceVerts.nx}, {d:[0,1,0],v:faceVerts.py}, {d:[0,-1,0],v:faceVerts.ny}, {d:[0,0,1],v:faceVerts.pz}, {d:[0,0,-1],v:faceVerts.nz}];
             
-            function hasV(gx, gy, gz) { 
+            function getNeighborMat(gx, gy, gz) { 
                 const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5;
                 const k = (cx+65536)+(cy+65536)*131072+(cz+65536)*17179869184;
                 const c = chunks.get(k); 
-                return c ? c.voxelMatMap[(gx&31)|((gy&31)<<5)|((gz&31)<<10)] !== -1 : false; 
+                return c ? c.voxelMatMap[(gx&31)|((gy&31)<<5)|((gz&31)<<10)] : -1; 
             }
 
             let vertexOffset = 1;
@@ -2411,7 +2435,7 @@ function updateGlobalMenuTexture() {
             let currentChunkString = "";
 
             for (let m = 0; m < 4; m++) {
-                await writer.write(encoder.encode(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`));
+                await writeChunk(`\ng ${matNames[m]}\nusemtl ${matNames[m]}\n`);
                 
                 for (let [key, chunk] of chunks) {
                     const layer = chunk.layers[m]; 
@@ -2440,10 +2464,12 @@ function updateGlobalMenuTexture() {
                         for (let d = 0; d < 6; d++) {
                             const dir = dirs[d];
                             const nlx = lx + dir.d[0], nly = ly + dir.d[1], nlz = lz + dir.d[2];
-                            const neighborExists = (nlx >= 0 && nlx < 32 && nly >= 0 && nly < 32 && nlz >= 0 && nlz < 32)
-                                ? (vMatMap[nlx | (nly << 5) | (nlz << 10)] !== -1)
-                                : hasV(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2]);
-                            if (!neighborExists) {
+                            const nMat = (nlx >= 0 && nlx < 32 && nly >= 0 && nly < 32 && nlz >= 0 && nlz < 32)
+                                ? vMatMap[nlx | (nly << 5) | (nlz << 10)]
+                                : getNeighborMat(gx + dir.d[0], gy + dir.d[1], gz + dir.d[2]);
+                            // Opaque voxels (m !== 1) should not have their faces culled by transparent Glass (nMat === 1)
+                            const neighborOccludes = (m === 1) ? (nMat !== -1) : (nMat !== -1 && nMat !== 1);
+                            if (!neighborOccludes) {
                                 const fIdx = [];
                                 for (let v = 0; v < 4; v++) {
                                     calcPos.copy(dir.v[v]).add(vOffset).multiplyScalar(VOXEL_SIZE);
@@ -2475,18 +2501,30 @@ function updateGlobalMenuTexture() {
                         voxelCounter++;
                         // Flush more frequently for massive models to keep RAM footprint minimal
                         if (voxelCounter % 500 === 0) {
-                            await writer.write(encoder.encode(currentChunkString));
+                            await writeChunk(currentChunkString);
                             currentChunkString = "";
-                            if (exportBtn) exportBtn.innerText = `Streaming: ${Math.round((voxelCounter / totalActiveVoxels) * 100)}%`;
+                            if (exportBtn) exportBtn.innerText = `Streaming: ${Math.round((voxelCounter / Math.max(1, totalActiveVoxels)) * 100)}%`;
                             await new Promise(resolve => setTimeout(resolve, 0));
                         }
                     }
                 }
             }
 
-            if (currentChunkString.length > 0) await writer.write(encoder.encode(currentChunkString));
-            writer.releaseLock();
-            await writable.close();
+            if (currentChunkString.length > 0) await writeChunk(currentChunkString);
+            if (writer && writable) {
+                writer.releaseLock();
+                await writable.close();
+            } else {
+                const blob = new Blob(fallbackChunks, { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+            }
             if (exportBtn) exportBtn.innerText = originalText;
             console.log("Export Complete");
         }
@@ -3224,7 +3262,7 @@ function updateGlobalMenuTexture() {
             for (let i=0; i<=steps; i++) { tempPos.lerpVectors(start, end, i/steps); const gx=Math.round(tempPos.x/VOXEL_SIZE), gy=Math.round(tempPos.y/VOXEL_SIZE), gz=Math.round(tempPos.z/VOXEL_SIZE); if(gx!==lastGx||gy!==lastGy||gz!==lastGz){ placePaintVoxels(tempPos); lastGx=gx; lastGy=gy; lastGz=gz; } }
         }
 
-        function drawSheetQuad(pL1, pR1, pL2, pR2, isP, thick) {
+        function drawSheetQuad(pL1, pR1, pL2, pR2, isP, thick, uStart = 0, uEnd = 1) {
             // Calculate bounds dynamically from the quad points to ensure gradients are localized to the specific sheet
             const minX = Math.round(Math.min(pL1.x, pR1.x, pL2.x, pR2.x) / VOXEL_SIZE);
             const maxX = Math.round(Math.max(pL1.x, pR1.x, pL2.x, pR2.x) / VOXEL_SIZE);
@@ -3261,10 +3299,10 @@ function updateGlobalMenuTexture() {
                                 const hash = (cx+dx+32768) + (cy+dy+32768)*65536 + (cz+dz+32768)*4294967296;
                                 if (!fillVisited.has(hash)) {
                                     fillVisited.add(hash);
-                                    const uFactor = u / stepsU;
+                                    const uFactor = uStart + (u / stepsU) * (uEnd - uStart);
                                     const vFactor = v / stepsV; 
                                     const finalColor = getLineToolColor(cx+dx, cy+dy, cz+dz, minX, maxX, minY, maxY, minZ, maxZ, vFactor, uFactor);
-                                    setVoxel(cx+dx, cy+dy, cz+dz, isP, finalColor, matTypes[0]);
+                                    setVoxel(cx+dx, cy+dy, cz+dz, isP, finalColor, matTypes[activeMatSlot]);
                                 }
                             }
                         }
@@ -3304,7 +3342,7 @@ function updateGlobalMenuTexture() {
             }
             for (let i = 0; i < hoveredFillCoords.length; i += 3) {
                 const gx = hoveredFillCoords[i], gy = hoveredFillCoords[i+1], gz = hoveredFillCoords[i+2];
-                recolorVoxelSet(gx, gy, gz, getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, 0), matTypes[0]);
+                recolorVoxelSet(gx, gy, gz, getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot), matTypes[activeMatSlot]);
             }
             hoveredFillCoords.length = 0;
             bucketPreviewMesh.visible = false;
@@ -3424,7 +3462,7 @@ function updateGlobalMenuTexture() {
             const gz = Math.floor(hash / 4294967296) - 32768;
             const finalColor = getLineToolColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, pathT);
             if (brushVolume === 'solid' || brushSize === 1) {
-                setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[0]);
+                setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[activeMatSlot]);
             } else {
                 const isShell = !validCandidates.has(hash + 1) ||
                                 !validCandidates.has(hash - 1) ||
@@ -3432,7 +3470,7 @@ function updateGlobalMenuTexture() {
                                 !validCandidates.has(hash - 65536) ||
                                 !validCandidates.has(hash + 4294967296) ||
                                 !validCandidates.has(hash - 4294967296);
-                if (isShell) setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[0]);
+                if (isShell) setVoxel(gx, gy, gz, isPainting, finalColor, matTypes[activeMatSlot]);
                 else if (isPainting) setVoxel(gx, gy, gz, false, null); 
             }
         });
@@ -3480,12 +3518,11 @@ function updateGlobalMenuTexture() {
                         const nx=x+neighbors[i], ny=y+neighbors[i+1], nz=z+neighbors[i+2];
                         const k=(nx+32768)+(ny+32768)*65536+(nz+32768)*4294967296;
                         if (!fillVisited.has(k)) {
-                            const nColor = new THREE.Color();
-                            const nMat = getVoxelMatAndColor(nx, ny, nz, nColor);
+                            const nMat = getVoxelMatAndColor(nx, ny, nz, queryColor);
                             if (nMat === referenceMat) {
-                                const isSameColor = Math.abs(nColor.r - referenceColor.r) < 0.02 &&
-                                                    Math.abs(nColor.g - referenceColor.g) < 0.02 &&
-                                                    Math.abs(nColor.b - referenceColor.b) < 0.02;
+                                const isSameColor = Math.abs(queryColor.r - referenceColor.r) < 0.02 &&
+                                                    Math.abs(queryColor.g - referenceColor.g) < 0.02 &&
+                                                    Math.abs(queryColor.b - referenceColor.b) < 0.02;
                                 if (extrudeAdjoiningFilter === 'all' || isSameColor) {
                                     fillVisited.add(k); fillQueue.push(nx, ny, nz);
                                 }
@@ -3497,6 +3534,19 @@ function updateGlobalMenuTexture() {
                 fillVisited.add((cSx+32768)+(cSy+32768)*65536+(cSz+32768)*4294967296);
                 extrusionList.push({x: cSx, y: cSy, z: cSz, mat: referenceMat, color: referenceColor.clone()});
             }
+
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            for (const v of extrusionList) {
+                if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
+                if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
+                if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
+            }
+            const endOx = snappedAxis === 'X' ? pullDist : 0;
+            const endOy = snappedAxis === 'Y' ? pullDist : 0;
+            const endOz = snappedAxis === 'Z' ? pullDist : 0;
+            minX = Math.min(minX, minX + endOx); maxX = Math.max(maxX, maxX + endOx);
+            minY = Math.min(minY, minY + endOy); maxY = Math.max(maxY, maxY + endOy);
+            minZ = Math.min(minZ, minZ + endOz); maxZ = Math.max(maxZ, maxZ + endOz);
 
             const isBoundary = (v) => {
                 const neighbors = (snappedAxis === 'X') ? [0,1,0, 0,-1,0, 0,0,1, 0,0,-1] : (snappedAxis === 'Y') ? [1,0,0, -1,0,0, 0,0,1, 0,0,-1] : [1,0,0, -1,0,0, 0,1,0, 0,-1,0];
@@ -3512,9 +3562,10 @@ function updateGlobalMenuTexture() {
                 const oz = snappedAxis === 'Z' ? Math.sign(pullDist)*step : 0;
                 for (const v of extrusionList) {
                     if (extrudeVolumeMode === 'hollow' && step < max && !isBoundary(v)) continue;
-                    const finalColor = (extrudeColorMode === 'original') ? v.color : slotColors[activeMatSlot][activeColorSubSlot];
+                    const gx = v.x + ox, gy = v.y + oy, gz = v.z + oz;
+                    const finalColor = (extrudeColorMode === 'original') ? v.color : getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
                     const finalMat = (extrudeColorMode === 'original') ? v.mat : matTypes[activeMatSlot];
-                    setVoxel(v.x + ox, v.y + oy, v.z + oz, isP, finalColor, finalMat);
+                    setVoxel(gx, gy, gz, isP, finalColor, finalMat);
                 }
             }
             leftMenuNeedsUpdate = true;
@@ -3695,6 +3746,7 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
             let rMX=Math.round(s.x/VOXEL_SIZE), rXX=Math.round(e.x/VOXEL_SIZE), rMY=Math.round(s.y/VOXEL_SIZE), rXY=Math.round(e.y/VOXEL_SIZE), rMZ=Math.round(s.z/VOXEL_SIZE), rXZ=Math.round(e.z/VOXEL_SIZE);
             if(icosahedronLock) { const dx=Math.abs(rXX-rMX), dy=Math.abs(rXY-rMY), dz=Math.abs(rXZ-rMZ), max=Math.max(dx,dy,dz); rXX=rMX+Math.sign(rXX-rMX||1)*max; rXY=rMY+Math.sign(rXY-rMY||1)*max; rXZ=rMZ+Math.sign(rXZ-rMZ||1)*max; }
             const minX=Math.min(rMX,rXX), maxX=Math.max(rMX,rXX), minY=Math.min(rMY,rXY), maxY=Math.max(rMY,rXY), minZ=Math.min(rMZ,rXZ), maxZ=Math.max(rMZ,rXZ);
+            if ((maxX - minX) > 600 || (maxY - minY) > 600 || (maxZ - minZ) > 600) return;
             const cX=(minX+maxX)/2, cY=(minY+maxY)/2, cZ=(minZ+maxZ)/2, rX=(maxX-minX)/2, rY=(maxY-minY)/2, rZ=(maxZ-minZ)/2;
             let verts=[], faces=[], edges=[];
             if(platonicType==='tetrahedron') { verts=[new THREE.Vector3(1,1,1).normalize(),new THREE.Vector3(1,-1,-1).normalize(),new THREE.Vector3(-1,1,-1).normalize(),new THREE.Vector3(-1,-1,1).normalize()]; faces=[[0,1,2],[0,2,3],[0,3,1],[1,3,2]]; }
@@ -3708,7 +3760,7 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
             const dV=(gx,gy,gz,col,m)=>{ if(gx<minX||gx>maxX||gy<minY||gy>maxY||gz<minZ||gz>maxZ)return; const h=(gx+32768)+(gy+32768)*65536+(gz+32768)*4294967296; if(!drawn.has(h)){ drawn.add(h); setVoxel(gx,gy,gz,isP,col,m); } updG(gx,gy,gz); };
             if (icosahedronMode === 'wireframe') {
                 for(const e of edges){ const p1=verts[e[0]], p2=verts[e[1]], steps=Math.max(1,Math.ceil(p1.distanceTo(p2)*2)), r=wireWidth-1; for(let i=0; i<=steps; i++){ tempPos.lerpVectors(p1,p2,i/steps); const cx=Math.round(tempPos.x); const cy=Math.round(tempPos.y); const cz=Math.round(tempPos.z); for(let dx=-r;dx<=r;dx++)for(let dy=-r;dy<=r;dy++)for(let dz=-r;dz<=r;dz++) if(dx*dx+dy*dy+dz*dz<=r*r+0.1) dV(cx+dx,cy+dy,cz+dz,getDrawColor(cx,cy,cz,minX,maxX,minY,maxY,minZ,maxZ,1),matTypes[1]); } }
-                if (wireFill) for(const f of faces){ const p1=verts[f[0]], p2=verts[f[1]], p3=verts[f[2]], steps=Math.max(1,Math.ceil(Math.max(p1.distanceTo(p2),p2.distanceTo(p3),p3.distanceTo(p1))*2)); for(let u=0; u<=steps; u++)for(let v=0; v<=steps-u; v++){ const w=steps-u-v, fU=u/steps, fV=v/steps, fW=w/steps, px=Math.round(p1.x*fU+p2.x*fV+p3.x*fW), py=Math.round(p1.y*fU+p2.y*fV+p3.y*fW), pz=Math.round(p1.z*fU+p2.z*fV+p3.z*fW); dV(px,py,pz,getDrawColor(px,py,pz,minX,maxX,minY,maxY,minZ,maxZ,0),matTypes[0]); } }
+                if (wireFill || (clearInterior && isP)) for(const f of faces){ const p1=verts[f[0]], p2=verts[f[1]], p3=verts[f[2]], steps=Math.max(1,Math.ceil(Math.max(p1.distanceTo(p2),p2.distanceTo(p3),p3.distanceTo(p1))*2)); for(let u=0; u<=steps; u++)for(let v=0; v<=steps-u; v++){ const w=steps-u-v, fU=u/steps, fV=v/steps, fW=w/steps, px=Math.round(p1.x*fU+p2.x*fV+p3.x*fW), py=Math.round(p1.y*fU+p2.y*fV+p3.y*fW), pz=Math.round(p1.z*fU+p2.z*fV+p3.z*fW); if (wireFill) dV(px,py,pz,getDrawColor(px,py,pz,minX,maxX,minY,maxY,minZ,maxZ,0),matTypes[0]); else updG(px,py,pz); } }
             } else {
                 for(const f of faces){ const p1=verts[f[0]], p2=verts[f[1]], p3=verts[f[2]], steps=Math.max(1,Math.ceil(Math.max(p1.distanceTo(p2),p2.distanceTo(p3),p3.distanceTo(p1))*2)); for(let u=0; u<=steps; u++)for(let v=0; v<=steps-u; v++){ const w=steps-u-v, fU=u/steps, fV=v/steps, fW=w/steps, px=Math.round(p1.x*fU+p2.x*fV+p3.x*fW), py=Math.round(p1.y*fU+p2.y*fV+p3.y*fW), pz=Math.round(p1.z*fU+p2.z*fV+p3.z*fW); dV(px,py,pz,getDrawColor(px,py,pz,minX,maxX,minY,maxY,minZ,maxZ,0),matTypes[0]); } }
             }
@@ -4186,6 +4238,8 @@ function executeTorusTool(startPos, endPos, isPainting) {
     else if (flat === 'y') bMaxY = bMinY + depth;
     else if (flat === 'z') bMaxZ = bMinZ + depth;
 
+    if ((bMaxX - bMinX) > 600 || (bMaxY - bMinY) > 600 || (bMaxZ - bMinZ) > 600) return;
+
     // Determine 2D coordinate mapping based on orientation
     let minU, maxU, minV, maxV;
     if (flat === 'x') { minU = bMinY; maxU = bMaxY; minV = bMinZ; maxV = bMaxZ; }
@@ -4256,6 +4310,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
 
         function performUndo() {
+            if (hasSelection) cancelSelection();
             if (undoStack.length === 0) return;
             const step = undoStack.pop();
             redoStack.push(step); 
@@ -4280,6 +4335,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         }
 
         function performRedo() {
+            if (hasSelection) cancelSelection();
             if (redoStack.length === 0) return;
             const step = redoStack.pop();
             undoStack.push(step); 
@@ -4441,14 +4497,13 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         if (lineType === 'arc') calculateArcPoints(leftTargetLocal, rightTargetLocal, xrLeft, xrRight, currentPoints, 24);
                         else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
 
+                        const segCount = Math.max(1, currentPoints.length - 1);
                         if (lastArcPoints.length > 0 && lastArcPoints.length === currentPoints.length) {
-                            for (let i = 0; i < currentPoints.length - 1; i++) {
-                                drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize);
+                            for (let i = 0; i < segCount; i++) {
+                                drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize, i / segCount, (i + 1) / segCount);
                             }
                         } else {
-                            for (let i = 0; i < currentPoints.length - 1; i++) {
-                                drawLineVoxels(currentPoints[i], currentPoints[i+1], true);
-                            }
+                            executeLineTool(leftTargetLocal, rightTargetLocal, true);
                         }
                         
                         if (currentStrokeChanges && currentStrokeChanges.count > 0) {
@@ -4462,6 +4517,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         lastArcPoints = currentPoints.map(p => p.clone());
                         currentStrokeChanges = null;
                         currentStrokeVoxelTracker = null;
+                        lockCtx.active = false;
                         return; 
                     }
 
@@ -4473,6 +4529,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         lastArcPoints = [];
                         currentStrokeChanges = null;
                         currentStrokeVoxelTracker = null;
+                        lockCtx.active = false;
                         return; 
                     }
 
@@ -4876,8 +4933,9 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                                 else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
                                 
                                 if (lastArcPoints.length === currentPoints.length) {
-                                    for (let i = 0; i < currentPoints.length - 1; i++) {
-                                        drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize);
+                                    const segCount = Math.max(1, currentPoints.length - 1);
+                                    for (let i = 0; i < segCount; i++) {
+                                        drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], true, brushSize, i / segCount, (i + 1) / segCount);
                                     }
                                 }
                                 lastArcPoints = currentPoints.map(p => p.clone());
@@ -5003,8 +5061,9 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                             else { currentPoints.push(leftTargetLocal.clone(), rightTargetLocal.clone()); }
 
                             if (lastArcPoints.length === currentPoints.length) {
-                                for (let i = 0; i < currentPoints.length - 1; i++) {
-                                    drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], false, brushSize);
+                                const segCount = Math.max(1, currentPoints.length - 1);
+                                for (let i = 0; i < segCount; i++) {
+                                    drawSheetQuad(lastArcPoints[i], lastArcPoints[i+1], currentPoints[i], currentPoints[i+1], false, brushSize, i / segCount, (i + 1) / segCount);
                                 }
                             }
                             lastArcPoints = currentPoints.map(p => p.clone());
@@ -5109,7 +5168,7 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         bucketPreviewMesh.instanceMatrix.updateRange.count = count * 16;
                         bucketPreviewMesh.instanceMatrix.needsUpdate = true;
                     }
-                    bucketPreviewMesh.material.color.copy(slotColors[0][0]);
+                    bucketPreviewMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
                     bucketPreviewMesh.visible = bucketPreviewMesh.count > 0;
                 } else if (bucketPreviewMesh.visible) {
                     bucketPreviewMesh.visible = false;
@@ -5172,9 +5231,9 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                         }
                         
                         const mIdx = i * 16;
-                        mArr[mIdx + 12] = p.pos.x;
-                        mArr[mIdx + 13] = p.pos.y;
-                        mArr[mIdx + 14] = p.pos.z;
+                        mArr[mIdx + 12] = p.pos.x / VOXEL_SIZE;
+                        mArr[mIdx + 13] = p.pos.y / VOXEL_SIZE;
+                        mArr[mIdx + 14] = p.pos.z / VOXEL_SIZE;
                     }
                     bouncyMesh.instanceMatrix.updateRange.offset = 0;
                     bouncyMesh.instanceMatrix.updateRange.count = bouncyCount * 16;
