@@ -221,6 +221,7 @@
         let torusTubePct = 30;
         let torusSweep = 360;
         let torusDivs = 1;
+        let torusTubeDivs = 4;
         let torusDivThick = 1;
         
         let triangleType = 'cone'; 
@@ -1814,18 +1815,22 @@ function updatePlanePreview(start, end, isPainting) {
                 drawButton(leftMenuCtx, 20, 240, 60, 50, '-', false);
                 drawButton(leftMenuCtx, 90, 240, 330, 50, `Tube Thickness: ${torusTubePct}%`, false);
                 drawButton(leftMenuCtx, 430, 240, 60, 50, '+', false);
-                drawButton(leftMenuCtx, 20, 300, 50, 50, '-', false);
-                drawButton(leftMenuCtx, 80, 300, 120, 50, `Divs: ${torusDivs}`, false);
-                drawButton(leftMenuCtx, 210, 300, 50, 50, '+', false);
-                drawButton(leftMenuCtx, 270, 300, 50, 50, '-', false);
-                drawButton(leftMenuCtx, 330, 300, 100, 50, `DThk: ${torusDivThick}`, false);
-                drawButton(leftMenuCtx, 440, 300, 50, 50, '+', false);
+                drawButton(leftMenuCtx, 20, 300, 35, 50, '-', false);
+                drawButton(leftMenuCtx, 60, 300, 90, 50, `DivR:${torusDivs}`, false);
+                drawButton(leftMenuCtx, 155, 300, 35, 50, '+', false);
+                drawButton(leftMenuCtx, 198, 300, 35, 50, '-', false);
+                drawButton(leftMenuCtx, 238, 300, 90, 50, `DivT:${torusTubeDivs}`, false);
+                drawButton(leftMenuCtx, 333, 300, 35, 50, '+', false);
+                drawButton(leftMenuCtx, 376, 300, 32, 50, '-', false);
+                drawButton(leftMenuCtx, 412, 300, 42, 50, `T:${torusDivThick}`, false);
+                drawButton(leftMenuCtx, 458, 300, 32, 50, '+', false);
                 if (torusMode === 'wireframe') {
                     drawButton(leftMenuCtx, 20, 360, 50, 50, '-', false);
                     drawButton(leftMenuCtx, 80, 360, 160, 50, `Thick: ${wireWidth}`, false);
                     drawButton(leftMenuCtx, 250, 360, 50, 50, '+', false);
                     drawButton(leftMenuCtx, 330, 360, 160, 50, `FILL: ${wireFill ? 'ON' : 'OFF'}`, wireFill);
                 }
+
             } else if (activeTool === 'triangle') {
                 // UI: Cone vs Pyramid
                 drawButton(leftMenuCtx, 20, 60, 225, 50, 'CONE', triangleType === 'cone'); 
@@ -2070,10 +2075,12 @@ if (cy >= 60 && cy <= 90) {
                     if (cx >= 20 && cx <= 80) { torusTubePct = Math.max(10, torusTubePct - 5); rebuildTorusPreviewGeo(); }
                     if (cx >= 430 && cx <= 490) { torusTubePct = Math.min(50, torusTubePct + 5); rebuildTorusPreviewGeo(); }
                 } else if (cy >= 300 && cy <= 350) {
-                    if (cx >= 20 && cx <= 70) torusDivs = Math.max(1, torusDivs - 1);
-                    if (cx >= 210 && cx <= 260) torusDivs = Math.min(24, torusDivs + 1);
-                    if (cx >= 270 && cx <= 320) torusDivThick = Math.max(1, torusDivThick - 1);
-                    if (cx >= 440 && cx <= 490) torusDivThick = Math.min(10, torusDivThick + 1);
+                    if (cx >= 20 && cx <= 55) torusDivs = Math.max(1, torusDivs - 1);
+                    if (cx >= 155 && cx <= 190) torusDivs = Math.min(32, torusDivs + 1);
+                    if (cx >= 198 && cx <= 233) torusTubeDivs = Math.max(1, torusTubeDivs - 1);
+                    if (cx >= 333 && cx <= 368) torusTubeDivs = Math.min(32, torusTubeDivs + 1);
+                    if (cx >= 376 && cx <= 408) torusDivThick = Math.max(1, torusDivThick - 1);
+                    if (cx >= 458 && cx <= 490) torusDivThick = Math.min(10, torusDivThick + 1);
                 } else if (cy >= 360 && cy <= 410 && torusMode === 'wireframe') {
                     if (cx >= 20 && cx <= 70) wireWidth = Math.max(1, wireWidth - 1);
                     if (cx >= 250 && cx <= 300) wireWidth = Math.min(5, wireWidth + 1);
@@ -4003,26 +4010,38 @@ function executeTorusTool(startPos, endPos, isPainting) {
     const ru = Math.max(0.5, axis === 'X' ? rY : rX);
     const rv = Math.max(0.5, axis === 'X' ? rZ : (axis === 'Y' ? rZ : rY));
     const rw = Math.max(0.5, axis === 'X' ? rX : (axis === 'Y' ? rY : rZ));
-    const invRu = 1 / ru, invRv = 1 / rv, invRw = 1 / rw;
+    const invRu = 1 / ru, invRv = 1 / rv;
 
     const N = torusSides < 3 ? 0 : torusSides;
     const PI_N = N === 0 ? 0 : Math.PI / N;
+    const sectorAngle = N === 0 ? 0 : (2 * Math.PI) / N;
     const max_r = N === 0 ? 1 : 1 / Math.cos(PI_N);
 
     const tubeRatio = THREE.MathUtils.clamp(torusTubePct / 100, 0.08, 0.5);
     const majR = 1.0 - tubeRatio;
-    const invTubeR = 1.0 / tubeRatio;
     const sweepRad = THREE.MathUtils.degToRad(torusSweep);
 
-    const loopMinX = axis === 'X' ? minX : Math.floor(cX - rX * max_r);
-    const loopMaxX = axis === 'X' ? maxX : Math.ceil(cX + rX * max_r);
-    const loopMinY = axis === 'Y' ? minY : Math.floor(cY - rY * max_r);
-    const loopMaxY = axis === 'Y' ? maxY : Math.ceil(cY + rY * max_r);
-    const loopMinZ = axis === 'Z' ? minZ : Math.floor(cZ - rZ * max_r);
-    const loopMaxZ = axis === 'Z' ? maxZ : Math.ceil(cZ + rZ * max_r);
+    // Half-voxel padding on effective tube radii prevents tangent clipping at the outer bounds
+    const invEffTubeU = 1.0 / (ru * tubeRatio + 0.55);
+    const invEffTubeV = 1.0 / (rv * tubeRatio + 0.55);
+    const invEffRw = 1.0 / (rw + 0.55);
+
+    // Pad iteration bounds by 1 voxel to ensure outer edge bands are never skipped
+    const loopMinX = (axis === 'X' ? minX : Math.floor(cX - rX * max_r)) - 1;
+    const loopMaxX = (axis === 'X' ? maxX : Math.ceil(cX + rX * max_r)) + 1;
+    const loopMinY = (axis === 'Y' ? minY : Math.floor(cY - rY * max_r)) - 1;
+    const loopMaxY = (axis === 'Y' ? maxY : Math.ceil(cY + rY * max_r)) + 1;
+    const loopMinZ = (axis === 'Z' ? minZ : Math.floor(cZ - rZ * max_r)) - 1;
+    const loopMaxZ = (axis === 'Z' ? maxZ : Math.ceil(cZ + rZ * max_r)) + 1;
 
     const avgRingR = (ru + rv) * 0.5;
-    const avgTubeR = avgRingR * tubeRatio;
+    const avgTubeR = Math.max(1.5, avgRingR * tubeRatio);
+
+    // Precompute O(1) division step angles
+    const ringStepAngle = torusDivs > 1 ? (sweepRad / torusDivs) : 0;
+    const ringBandThresh = (torusMode === 'wireframe' ? Math.max(wireWidth, torusDivThick) : torusDivThick) * 0.55;
+    const tubeStepAngle = torusTubeDivs > 0 ? ((2 * Math.PI) / torusTubeDivs) : 0;
+    const tubeBandThresh = (torusMode === 'wireframe' ? (wireWidth - 0.15) : (torusDivThick * 0.55));
 
     const isInside = (gx, gy, gz) => {
         const gu = axis === 'X' ? gy : gx;
@@ -4031,7 +4050,7 @@ function executeTorusTool(startPos, endPos, isPainting) {
 
         const nu = (gu - cu) * invRu;
         const nv = (gv - cv) * invRv;
-        const nw = (gw - cw) * invRw;
+        const nw = (gw - cw) * invEffRw;
 
         let phi = Math.atan2(nv, nu);
         if (phi < 0) phi += 2 * Math.PI;
@@ -4040,13 +4059,19 @@ function executeTorusTool(startPos, endPos, isPainting) {
         const r_norm = Math.sqrt(nu * nu + nv * nv);
         let r_poly = r_norm;
         if (N !== 0 && r_norm > 0) {
-            const angle = ((phi + PI_N) % (2 * Math.PI / N) + (2 * Math.PI / N)) % (2 * Math.PI / N);
-            const r_limit = 1.0 / Math.cos(angle - PI_N);
-            r_poly = r_norm / r_limit;
+            const angle = ((phi + PI_N) % sectorAngle + sectorAngle) % sectorAngle;
+            r_poly = r_norm * Math.cos(angle - PI_N);
         }
 
-        const dRing = (r_poly - majR) * invTubeR;
-        return (dRing * dRing + nw * nw) <= 1.04;
+        const cRatio = r_norm > 0.0001 ? (nu / r_norm) : 1.0;
+        const sRatio = r_norm > 0.0001 ? (nv / r_norm) : 0.0;
+        const invEffTube = Math.sqrt(
+            (cRatio * ru * invEffTubeU) * (cRatio * ru * invEffTubeU) +
+            (sRatio * rv * invEffTubeV) * (sRatio * rv * invEffTubeV)
+        );
+
+        const dRing = (r_poly - majR) * invEffTube;
+        return (dRing * dRing + nw * nw) <= 1.0;
     };
 
     for (let gx = loopMinX; gx <= loopMaxX; gx++) {
@@ -4061,26 +4086,51 @@ function executeTorusTool(startPos, endPos, isPainting) {
                 const gu = axis === 'X' ? gy : gx;
                 const gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
                 const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
-                const nu = (gu - cu) * invRu, nv = (gv - cv) * invRv, nw = (gw - cw) * invRw;
+                const nu = (gu - cu) * invRu, nv = (gv - cv) * invRv, nw = (gw - cw) * invEffRw;
                 let phi = Math.atan2(nv, nu);
                 if (phi < 0) phi += 2 * Math.PI;
 
-                // Check radial division bands (Divs)
-                let isDivBand = false;
+                const r_norm = Math.sqrt(nu * nu + nv * nv);
+                let r_poly = r_norm;
+                if (N !== 0 && r_norm > 0) {
+                    const angle = ((phi + PI_N) % sectorAngle + sectorAngle) % sectorAngle;
+                    r_poly = r_norm * Math.cos(angle - PI_N);
+                }
+                const localRingR = Math.max(1.0, r_norm * avgRingR);
+
+                // Way 1: O(1) Ring / Toroidal division check (DivR)
+                let isRingDiv = false;
                 if (torusDivs > 1) {
-                    const stepAngle = sweepRad / torusDivs;
-                    const count = torusSweep < 360 ? torusDivs + 1 : torusDivs;
-                    for (let i = 0; i < count; i++) {
-                        const targetA = (i * stepAngle) % (2 * Math.PI);
+                    const nearestIdx = Math.round(phi / ringStepAngle);
+                    const maxIdx = torusSweep < 360 ? torusDivs : torusDivs;
+                    if (nearestIdx >= 0 && nearestIdx <= maxIdx) {
+                        const targetA = (nearestIdx % torusDivs) * ringStepAngle;
                         let diff = Math.abs(phi - targetA);
-                        if (diff > Math.PI) diff = 2 * Math.PI - diff;
-                        if (diff * avgRingR <= (torusDivThick * 0.55)) {
-                            isDivBand = true;
-                            break;
-                        }
+                        if (torusSweep === 360 && diff > Math.PI) diff = 2 * Math.PI - diff;
+                        if (diff * localRingR <= ringBandThresh) isRingDiv = true;
+                    }
+                } else if (torusMode === 'wireframe' && torusSweep < 360) {
+                    // Always highlight open arch end-caps in wireframe mode
+                    if (phi * localRingR <= ringBandThresh || Math.abs(sweepRad - phi) * localRingR <= ringBandThresh) {
+                        isRingDiv = true;
                     }
                 }
 
+                // Way 2: O(1) Tube / Poloidal division check (DivT)
+                let isTubeDiv = false;
+                const activeTubeDivs = (torusMode === 'wireframe') ? torusTubeDivs : (torusTubeDivs > 1 ? torusTubeDivs : 0);
+                if (activeTubeDivs >= 1) {
+                    const dRing = (r_poly - majR) / tubeRatio;
+                    let polAngle = Math.atan2(nw, dRing);
+                    if (polAngle < 0) polAngle += 2 * Math.PI;
+                    const nearestPol = Math.round(polAngle / tubeStepAngle) % torusTubeDivs;
+                    const targetP = nearestPol * tubeStepAngle;
+                    let diffP = Math.abs(polAngle - targetP);
+                    if (diffP > Math.PI) diffP = 2 * Math.PI - diffP;
+                    if (diffP * avgTubeR <= tubeBandThresh) isTubeDiv = true;
+                }
+
+                const isDivBand = isRingDiv || (torusMode !== 'wireframe' && torusTubeDivs > 1 && isTubeDiv);
                 const cMain = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 0);
                 const cSec = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 1);
 
@@ -4096,39 +4146,15 @@ function executeTorusTool(startPos, endPos, isPainting) {
                     }
                 } else if (torusMode === 'wireframe') {
                     if (isSurf) {
-                        let isRib = isDivBand;
-                        // 4 poloidal (tube-lengthwise) ribs: top, bottom, inner equator, outer equator
-                        if (!isRib) {
-                            const r_norm = Math.sqrt(nu * nu + nv * nv);
-                            let r_poly = r_norm;
-                            if (N !== 0 && r_norm > 0) {
-                                const angle = ((phi + PI_N) % (2 * Math.PI / N) + (2 * Math.PI / N)) % (2 * Math.PI / N);
-                                r_poly = r_norm / (1.0 / Math.cos(angle - PI_N));
-                            }
-                            const dRing = (r_poly - majR) * invTubeR;
-                            let polAngle = Math.atan2(nw, dRing);
-                            if (polAngle < 0) polAngle += 2 * Math.PI;
-                            for (let k = 0; k < 4; k++) {
-                                const targetP = k * (Math.PI / 2);
-                                let diffP = Math.abs(polAngle - targetP);
-                                if (diffP > Math.PI) diffP = 2 * Math.PI - diffP;
-                                if (diffP * Math.max(1.5, avgTubeR) <= (wireWidth - 0.15)) {
-                                    isRib = true;
-                                    break;
-                                }
-                            }
-                            // Also highlight polygon corners if N >= 3
-                            if (!isRib && N >= 3) {
-                                for (let i = 0; i < N; i++) {
-                                    const tp = (i * (2 * Math.PI / N) - PI_N + 2 * Math.PI) % (2 * Math.PI);
-                                    let diff = Math.abs(phi - tp);
-                                    if (diff > Math.PI) diff = 2 * Math.PI - diff;
-                                    if (diff * avgRingR <= (wireWidth - 0.2)) {
-                                        isRib = true;
-                                        break;
-                                    }
-                                }
-                            }
+                        let isRib = isRingDiv || isTubeDiv;
+                        // O(1) polygon corner check if N >= 3
+                        if (!isRib && N >= 3) {
+                            const shiftedPhi = (phi + PI_N) % (2 * Math.PI);
+                            const nearestCorner = Math.round(shiftedPhi / sectorAngle);
+                            const targetCorner = nearestCorner * sectorAngle;
+                            let diff = Math.abs(shiftedPhi - targetCorner);
+                            if (diff > Math.PI) diff = 2 * Math.PI - diff;
+                            if (diff * localRingR <= (wireWidth - 0.2)) isRib = true;
                         }
 
                         if (isRib) setVoxel(gx, gy, gz, isPainting, cSec, matTypes[1]);
