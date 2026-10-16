@@ -502,7 +502,9 @@
         const tempCorePrevColor = new THREE.Color();
         const tempBrushWQuat = new THREE.Quaternion();
         const tempBrushInvCtrlQuat = new THREE.Quaternion();
+        const tempBrushCombinedQuat = new THREE.Quaternion();
         const tempBrushLocalOffset = new THREE.Vector3();
+        const strokeInteriorSet = new Set();
         const tempCursorWQuat = new THREE.Quaternion();
         const tempCursorCQuat = new THREE.Quaternion();
         const tempStrokeQuat = new THREE.Quaternion();
@@ -3228,71 +3230,84 @@ function updateGlobalMenuTexture() {
 
         function placeBrushVoxels(pos, isP, overrideSize = brushSize, ctrlQuat = null) {
             const r = overrideSize - 1;
-            const loopR = (brushShape === 'ribbon') ? Math.ceil(overrideSize * 1.5) : r;
-            // We use a slightly tighter rSq for the outer boundary to keep the shell thin
+            const isRibbon = (brushShape === 'ribbon' && ctrlQuat !== null);
+            const isSphere = (brushShape === 'sphere');
+            const isShellDraw = (isP && brushVolume === 'shell' && r > 0);
+            const loopR = isRibbon ? Math.ceil(overrideSize * 1.5) : r;
             const rSqOuter = (r + 0.4) * (r + 0.4);
             const cGx = Math.round(pos.x / VOXEL_SIZE);
             const cGy = Math.round(pos.y / VOXEL_SIZE);
             const cGz = Math.round(pos.z / VOXEL_SIZE);
 
-            if (brushShape === 'ribbon' && ctrlQuat) {
+            const halfW = overrideSize * VOXEL_SIZE;
+            const innerHalfW = Math.max(0, (overrideSize - 1) * VOXEL_SIZE);
+            const halfHD = VOXEL_SIZE * 0.75;
+
+            if (isRibbon) {
                 worldGroup.getWorldQuaternion(tempBrushWQuat);
                 tempBrushInvCtrlQuat.copy(ctrlQuat).invert();
+                tempBrushCombinedQuat.multiplyQuaternions(tempBrushInvCtrlQuat, tempBrushWQuat);
             }
-
-            // Helper to determine if a relative coordinate is within the brush shape
-            const isInside = (dx, dy, dz) => {
-                if (brushShape === 'sphere') {
-                    return (dx * dx + dy * dy + dz * dz <= rSqOuter);
-                } else if (brushShape === 'ribbon' && ctrlQuat) {
-                    tempBrushLocalOffset.set(dx * VOXEL_SIZE, dy * VOXEL_SIZE, dz * VOXEL_SIZE);
-                    tempBrushLocalOffset.applyQuaternion(tempBrushWQuat);
-                    tempBrushLocalOffset.applyQuaternion(tempBrushInvCtrlQuat);
-                    const halfW = overrideSize * VOXEL_SIZE;
-                    const halfH = VOXEL_SIZE * 0.75;
-                    const halfD = VOXEL_SIZE * 0.75;
-                    return Math.abs(tempBrushLocalOffset.x) <= halfW && Math.abs(tempBrushLocalOffset.y) <= halfH && Math.abs(tempBrushLocalOffset.z) <= halfD;
-                } else {
-                    return (Math.abs(dx) <= r && Math.abs(dy) <= r && Math.abs(dz) <= r);
-                }
-            };
 
             // Determine the bounds for color gradients
             const minX = cGx - loopR, maxX = cGx + loopR;
             const minY = cGy - loopR, maxY = cGy + loopR;
             const minZ = cGz - loopR, maxZ = cGz + loopR;
+            const matType = matTypes[activeMatSlot];
 
             for (let dx = -loopR; dx <= loopR; dx++) {
+                const absDx = Math.abs(dx);
+                const dxSq = dx * dx;
                 for (let dy = -loopR; dy <= loopR; dy++) {
+                    const absDy = Math.abs(dy);
+                    const dxySq = dxSq + dy * dy;
+                    if (isSphere && dxySq > rSqOuter) continue;
+                    const maxDxy = absDx > absDy ? absDx : absDy;
+
                     for (let dz = -loopR; dz <= loopR; dz++) {
-                        // Skip coordinates outside the primary brush volume
-                        if (!isInside(dx, dy, dz)) continue;
+                        let isSurface = false;
+
+                        if (isSphere) {
+                            const dSq = dxySq + dz * dz;
+                            if (dSq > rSqOuter) continue;
+                            if (isShellDraw) {
+                                const absDz = Math.abs(dz);
+                                const maxAxis = maxDxy > absDz ? maxDxy : absDz;
+                                isSurface = (dSq + (maxAxis << 1) + 1) > rSqOuter;
+                            }
+                        } else if (isRibbon) {
+                            tempBrushLocalOffset.set(dx * VOXEL_SIZE, dy * VOXEL_SIZE, dz * VOXEL_SIZE).applyQuaternion(tempBrushCombinedQuat);
+                            const lx = Math.abs(tempBrushLocalOffset.x);
+                            if (lx > halfW || Math.abs(tempBrushLocalOffset.y) > halfHD || Math.abs(tempBrushLocalOffset.z) > halfHD) continue;
+                            if (isShellDraw) {
+                                isSurface = lx >= innerHalfW;
+                            }
+                        } else {
+                            // Cube brush
+                            if (isShellDraw) {
+                                isSurface = (absDx === r || absDy === r || Math.abs(dz) === r);
+                            }
+                        }
 
                         const gx = cGx + dx;
                         const gy = cGy + dy;
                         const gz = cGz + dz;
 
                         if (isP) {
-                            // DRAWING LOGIC
-                            if (brushVolume === 'shell' && r > 0) {
-                                // A voxel is on the surface if ANY neighbor is outside the shape.
-                                // We check the 6 immediate faces.
-                                const isSurface = !isInside(dx + 1, dy, dz) || 
-                                                  !isInside(dx - 1, dy, dz) || 
-                                                  !isInside(dx, dy + 1, dz) || 
-                                                  !isInside(dx, dy - 1, dz) || 
-                                                  !isInside(dx, dy, dz + 1) || 
-                                                  !isInside(dx, dy, dz - 1);
-                                
+                            if (isShellDraw) {
+                                const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
                                 if (isSurface) {
-                                    const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                                    setVoxel(gx, gy, gz, true, color, matTypes[activeMatSlot]);
-                                } else {
+                                    if (!strokeInteriorSet.has(vHash)) {
+                                        const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
+                                        setVoxel(gx, gy, gz, true, color, matType);
+                                    }
+                                } else if (!strokeInteriorSet.has(vHash)) {
+                                    strokeInteriorSet.add(vHash);
                                     setVoxel(gx, gy, gz, false, null);
                                 }
                             } else {
                                 const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                                setVoxel(gx, gy, gz, true, color, matTypes[activeMatSlot]);
+                                setVoxel(gx, gy, gz, true, color, matType);
                             }
                         } else {
                             setVoxel(gx, gy, gz, false, null);
@@ -3317,18 +3332,34 @@ function updateGlobalMenuTexture() {
         function drawLineVoxels(start, end, isP, startSize = brushSize, endSize = brushSize, startQuat = null, endQuat = null) {
             const dist = start.distanceTo(end);
             const steps = Math.min(600, Math.max(1, Math.ceil(dist / (VOXEL_SIZE * 0.25)))); 
-            let lastGx = Infinity, lastGy = Infinity, lastGz = Infinity;
-            let lastSize = -1;
-            for (let i = 0; i <= steps; i++) { 
-                const t = steps === 0 ? 1 : i / steps;
+            let lastGx = Math.round(start.x / VOXEL_SIZE);
+            let lastGy = Math.round(start.y / VOXEL_SIZE);
+            let lastGz = Math.round(start.z / VOXEL_SIZE);
+            let lastSize = startSize;
+            const useConnectedSteps = (isP && brushVolume === 'shell');
+
+            for (let i = 1; i <= steps; i++) { 
+                const t = i / steps;
                 tempPos.lerpVectors(start, end, t); 
                 const currentSize = Math.round(startSize + (endSize - startSize) * t);
                 const gx = Math.round(tempPos.x / VOXEL_SIZE), gy = Math.round(tempPos.y / VOXEL_SIZE), gz = Math.round(tempPos.z / VOXEL_SIZE); 
                 if (gx !== lastGx || gy !== lastGy || gz !== lastGz || currentSize !== lastSize) { 
                     if (startQuat && endQuat) tempLerpQuat.slerpQuaternions(startQuat, endQuat, t);
-                    placeBrushVoxels(tempPos, isP, currentSize, startQuat && endQuat ? tempLerpQuat : null); 
-                    lastGx = gx; lastGy = gy; lastGz = gz; 
-                    lastSize = currentSize;
+                    const q = (startQuat && endQuat) ? tempLerpQuat : null;
+                    if (useConnectedSteps) {
+                        while (lastGx !== gx || lastGy !== gy || lastGz !== gz || lastSize !== currentSize) {
+                            if (lastGx !== gx) lastGx += Math.sign(gx - lastGx);
+                            else if (lastGy !== gy) lastGy += Math.sign(gy - lastGy);
+                            else if (lastGz !== gz) lastGz += Math.sign(gz - lastGz);
+                            if (lastSize !== currentSize) lastSize += Math.sign(currentSize - lastSize);
+                            tempPos.set(lastGx * VOXEL_SIZE, lastGy * VOXEL_SIZE, lastGz * VOXEL_SIZE);
+                            placeBrushVoxels(tempPos, isP, lastSize, q);
+                        }
+                    } else {
+                        placeBrushVoxels(tempPos, isP, currentSize, q); 
+                        lastGx = gx; lastGy = gy; lastGz = gz; 
+                        lastSize = currentSize;
+                    }
                 } 
             }
         }
@@ -4465,6 +4496,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             menuClickActive = false; // Reset on every press
             currentStrokeChanges = new StrokeBuffer(); // Start recording typed-array changes
             currentStrokeVoxelTracker = new Map();
+            strokeInteriorSet.clear();
             if (this === xrRight) {  
                 if (leftMenuHovered && leftMenuMesh.visible) {
                     menuClickActive = true;
@@ -4492,10 +4524,10 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                     if(cy>=155&&cy<=335&&cx>=20&&cx<=492) { isColorPicking=true; isPaletteMagnified=true; updateColorMenuTexture(); } else handleColorMenuClick(cx,cy);
                     return;
                 }
-} else if (this === xrLeft) { 
+		} else if (this === xrLeft) { 
                 if (rightMenuHovered && rightMenuMesh.visible) { menuClickActive = true; handleRightMenuClick(Math.floor(rightMenuUV.x*512),Math.floor((1-rightMenuUV.y)*600)); return; }
                 else if (globalMenuHovered && globalMenuMesh.visible) { menuClickActive = true; handleGlobalMenuClick(Math.floor(globalMenuUV.x*512),Math.floor((1-globalMenuUV.y)*1024)); return; }
-            }
+		}
             
             const startTarget = (this === xrRight) ? rightTargetLocal : leftTargetLocal;
             lockCtx.startG.x = Math.round(startTarget.x / VOXEL_SIZE);
@@ -4744,6 +4776,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
             currentStrokeChanges = null;
             currentStrokeVoxelTracker = null;
+            strokeInteriorSet.clear();
         }
 
 
