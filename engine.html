@@ -323,6 +323,10 @@
         const woodScales = [12, 12];               // 1 to 50 (ring spacing / grain scale)
         const woodTurbs = [4, 4];                  // 0 to 10 (organic ring distortion / knots)
         const woodAxes = ['Y', 'Y'];               // 'X', 'Y', 'Z' (tree trunk orientation)
+        const stoneTypes = ['marble', 'marble'];   // 'marble', 'granite', 'slate', 'cobble'
+        const stoneScales = [12, 12];              // 1 to 50 (vein / strata / block scale)
+        const stoneDetails = [5, 5];               // 0 to 10 (turbulence / grain / mortar width)
+        const stoneStyles = ['natural', 'natural'];// 'natural', 'polished', 'craggy'
         const slotColors = [
             [new THREE.Color(0x4facfe), new THREE.Color(0xff0055)],
             [new THREE.Color(0x00ffcc), new THREE.Color(0xffff00)]  
@@ -2209,13 +2213,14 @@ if (cy >= 60 && cy <= 90) {
 
                 drawColorPickerUI(colorMenuCtx, 256, 212, 68, 40, 290, 432, 15, targetColor, false);
                 const cMode = colorModes[activeMatSlot];
-                drawButton(colorMenuCtx, 16, 316, 62, 38, 'SOLID', cMode === 'solid');
-                drawButton(colorMenuCtx, 82, 316, 66, 38, 'GRAD-H', cMode === 'grad_h');
-                drawButton(colorMenuCtx, 152, 316, 66, 38, 'GRAD-V', cMode === 'grad_v');
-                drawButton(colorMenuCtx, 222, 316, 60, 38, 'SHIFT', cMode === 'shift');
-                drawButton(colorMenuCtx, 286, 316, 72, 38, 'FRACTAL', cMode === 'fractal');
-                drawButton(colorMenuCtx, 362, 316, 60, 38, 'WOOD', cMode === 'wood');
-                drawButton(colorMenuCtx, 426, 316, 70, 38, 'DROPPER', isDropperActive);
+                drawButton(colorMenuCtx, 12, 316, 56, 38, 'SOLID', cMode === 'solid');
+                drawButton(colorMenuCtx, 72, 316, 60, 38, 'GRAD-H', cMode === 'grad_h');
+                drawButton(colorMenuCtx, 136, 316, 60, 38, 'GRAD-V', cMode === 'grad_v');
+                drawButton(colorMenuCtx, 200, 316, 54, 38, 'SHIFT', cMode === 'shift');
+                drawButton(colorMenuCtx, 258, 316, 60, 38, 'FRACT', cMode === 'fractal');
+                drawButton(colorMenuCtx, 322, 316, 54, 38, 'WOOD', cMode === 'wood');
+                drawButton(colorMenuCtx, 380, 316, 56, 38, 'STONE', cMode === 'stone');
+                drawButton(colorMenuCtx, 440, 316, 60, 38, 'DROP', isDropperActive);
 
                 const cA = slotColors[activeMatSlot][0], cB = slotColors[activeMatSlot][1];
                 colorMenuCtx.fillStyle = '#' + cA.getHexString(); colorMenuCtx.fillRect(30, 362, 216, 52); 
@@ -2271,6 +2276,26 @@ if (cy >= 60 && cy <= 90) {
                     drawButton(colorMenuCtx, 358, 466, 38, 38, '+', false);
 
                     drawButton(colorMenuCtx, 404, 466, 88, 38, `AXIS: ${wAxis}`, wAxis !== 'Y');
+                } else if (cMode === 'stone') {
+                    const sType = stoneTypes[activeMatSlot];
+                    const sScale = stoneScales[activeMatSlot];
+                    const sDetail = stoneDetails[activeMatSlot];
+                    const sStyle = stoneStyles[activeMatSlot];
+
+                    drawButton(colorMenuCtx, 20, 422, 112, 38, 'MARBLE', sType === 'marble');
+                    drawButton(colorMenuCtx, 140, 422, 112, 38, 'GRANITE', sType === 'granite');
+                    drawButton(colorMenuCtx, 260, 422, 112, 38, 'SLATE', sType === 'slate');
+                    drawButton(colorMenuCtx, 380, 422, 112, 38, 'COBBLE', sType === 'cobble');
+
+                    drawButton(colorMenuCtx, 20, 466, 38, 38, '-', false);
+                    drawButton(colorMenuCtx, 62, 466, 104, 38, `Scl: ${sScale}`, false);
+                    drawButton(colorMenuCtx, 170, 466, 38, 38, '+', false);
+
+                    drawButton(colorMenuCtx, 216, 466, 38, 38, '-', false);
+                    drawButton(colorMenuCtx, 258, 466, 96, 38, `Dtl: ${sDetail}`, false);
+                    drawButton(colorMenuCtx, 358, 466, 38, 38, '+', false);
+
+                    drawButton(colorMenuCtx, 404, 466, 88, 38, sStyle.toUpperCase(), sStyle !== 'natural');
                 }
             }
             colorMenuTexture.needsUpdate = true;
@@ -2296,13 +2321,14 @@ if (cy >= 60 && cy <= 90) {
                 if (cx >= 260 && cx <= 365) matTypes[activeMatSlot] = 2;
                 if (cx >= 375 && cx <= 482) matTypes[activeMatSlot] = 3;
             } else if (cy >= 316 && cy <= 354) {
-                if (cx >= 16 && cx <= 78) { colorModes[activeMatSlot] = 'solid'; activeColorSubSlot = 0; }
-                else if (cx >= 82 && cx <= 148) colorModes[activeMatSlot] = 'grad_h';
-                else if (cx >= 152 && cx <= 218) colorModes[activeMatSlot] = 'grad_v';
-                else if (cx >= 222 && cx <= 282) colorModes[activeMatSlot] = 'shift';
-                else if (cx >= 286 && cx <= 358) colorModes[activeMatSlot] = 'fractal';
-                else if (cx >= 362 && cx <= 422) colorModes[activeMatSlot] = 'wood';
-                else if (cx >= 426 && cx <= 496) isDropperActive = !isDropperActive;
+                if (cx >= 12 && cx <= 68) { colorModes[activeMatSlot] = 'solid'; activeColorSubSlot = 0; }
+                else if (cx >= 72 && cx <= 132) colorModes[activeMatSlot] = 'grad_h';
+                else if (cx >= 136 && cx <= 196) colorModes[activeMatSlot] = 'grad_v';
+                else if (cx >= 200 && cx <= 254) colorModes[activeMatSlot] = 'shift';
+                else if (cx >= 258 && cx <= 318) colorModes[activeMatSlot] = 'fractal';
+                else if (cx >= 322 && cx <= 376) colorModes[activeMatSlot] = 'wood';
+                else if (cx >= 380 && cx <= 436) colorModes[activeMatSlot] = 'stone';
+                else if (cx >= 440 && cx <= 500) isDropperActive = !isDropperActive;
             } else if (cy >= 362 && cy <= 414) {
                 const sBase = activeMatSlot * 2;
                 if (cy >= 388) {
@@ -2348,6 +2374,24 @@ if (cy >= 60 && cy <= 90) {
                     else if (cx >= 404 && cx <= 492) {
                         const cur = woodAxes[activeMatSlot];
                         woodAxes[activeMatSlot] = cur === 'Y' ? 'X' : (cur === 'X' ? 'Z' : 'Y');
+                    }
+                }
+            } else if (colorModes[activeMatSlot] === 'stone') {
+                if (cy >= 422 && cy <= 460) {
+                    if (cx >= 20 && cx <= 132) stoneTypes[activeMatSlot] = 'marble';
+                    else if (cx >= 140 && cx <= 252) stoneTypes[activeMatSlot] = 'granite';
+                    else if (cx >= 260 && cx <= 372) stoneTypes[activeMatSlot] = 'slate';
+                    else if (cx >= 380 && cx <= 492) stoneTypes[activeMatSlot] = 'cobble';
+                } else if (cy >= 466 && cy <= 504) {
+                    if (cx >= 20 && cx <= 58) stoneScales[activeMatSlot] = Math.max(1, stoneScales[activeMatSlot] - 1);
+                    else if (cx >= 62 && cx <= 166) stoneScales[activeMatSlot] = 12;
+                    else if (cx >= 170 && cx <= 208) stoneScales[activeMatSlot] = Math.min(50, stoneScales[activeMatSlot] + 1);
+                    else if (cx >= 216 && cx <= 254) stoneDetails[activeMatSlot] = Math.max(0, stoneDetails[activeMatSlot] - 1);
+                    else if (cx >= 258 && cx <= 354) stoneDetails[activeMatSlot] = 5;
+                    else if (cx >= 358 && cx <= 396) stoneDetails[activeMatSlot] = Math.min(10, stoneDetails[activeMatSlot] + 1);
+                    else if (cx >= 404 && cx <= 492) {
+                        const cur = stoneStyles[activeMatSlot];
+                        stoneStyles[activeMatSlot] = cur === 'natural' ? 'polished' : (cur === 'polished' ? 'craggy' : 'natural');
                     }
                 }
             }
@@ -2922,6 +2966,123 @@ function updateGlobalMenuTexture() {
             return THREE.MathUtils.clamp(t, 0, 1);
         }
 
+        function evaluateStone(gx, gy, gz, slotIndex) {
+            const sType = stoneTypes[slotIndex];
+            const scale = stoneScales[slotIndex];
+            const detail = stoneDetails[slotIndex];
+            const style = stoneStyles[slotIndex];
+            const invScale = 1.0 / Math.max(1.0, scale * 0.9);
+
+            const u = gx * invScale;
+            const v = gy * invScale;
+            const w = gz * invScale;
+            let t = 0.5;
+
+            if (sType === 'marble') {
+                // 3D Domain-Warped Metamorphic Veining
+                const turbAmt = 0.25 + detail * 0.28;
+                const n1 = fastNoise3D(u * 0.75, v * 0.75, w * 0.75) - 0.5;
+                const n2 = fastNoise3D(u * 1.65 + n1 * 1.4, v * 1.65 - n1 * 1.2, w * 1.65 + n1 * 1.1) - 0.5;
+                const n3 = fastNoise3D(u * 3.4 + n2 * 1.2, v * 3.4 + n1 * 1.2, w * 3.4 - n2 * 1.2) - 0.5;
+
+                const phase = (u * 0.85 + v * 1.15 + w * 0.65) + (n1 * 1.5 + n2 * 0.75 + n3 * 0.35) * turbAmt;
+                const mainRidge = 1.0 - Math.abs(Math.sin(phase * Math.PI));
+                const primaryVein = Math.pow(Math.max(0.0, mainRidge), 3.2);
+
+                // Secondary sharp cross-fissures & mineral seams
+                const secRidge = 1.0 - Math.abs(n2 * 2.8 + n3 * 1.6);
+                const secondaryVein = Math.pow(Math.max(0.0, secRidge), 4.5) * (0.15 + detail * 0.05);
+
+                // Subtle translucent calcite bed clouding
+                const bedCloud = (n1 + 0.5) * 0.26 + (n2 + 0.5) * 0.12;
+                t = bedCloud * (1.0 - primaryVein * 0.6) + primaryVein * 0.85 + secondaryVein;
+            } else if (sType === 'granite') {
+                // Multi-frequency Plutonic Crystalline Speckle (Quartz, Feldspar, Biotite Mica)
+                const grainFreq = 2.2 + detail * 0.32;
+                const c1 = fastNoise3D(u * 1.1, v * 1.1, w * 1.1);
+                const c2 = fastNoise3D(u * grainFreq, v * grainFreq, w * grainFreq);
+                const c3 = fastNoise3D(u * grainFreq * 2.15 + 7.3, v * grainFreq * 2.15 + 2.9, w * grainFreq * 2.15 + 5.1);
+                const microCrystal = hash3i(gx, gy, gz);
+
+                // Sharp mineral phase boundaries
+                const feldspar = Math.pow(c2, 1.4) * 0.52;
+                const micaFlecks = (c3 > (0.76 - detail * 0.022)) ? 0.42 : 0.0;
+                const quartzCluster = (c1 - 0.5) * 0.28;
+                const sparkle = (microCrystal - 0.5) * (0.08 + detail * 0.018);
+
+                t = 0.28 + feldspar + micaFlecks + quartzCluster + sparkle;
+            } else if (sType === 'slate') {
+                // Foliated Sedimentary / Metamorphic Strata with Tectonic Folding & Cleavage
+                const foldAmt = detail * 0.22;
+                const fold1 = fastNoise3D(u * 0.45, v * 0.25, w * 0.45) - 0.5;
+                const fold2 = fastNoise3D(u * 1.35, v * 0.65, w * 1.35) - 0.5;
+                const shear = fastNoise3D(u * 2.6, v * 5.2, w * 2.6) - 0.5;
+
+                const strataCoord = v * 2.6 + fold1 * foldAmt * 2.2 + fold2 * foldAmt * 0.85;
+                const band1 = 0.5 + 0.5 * Math.sin(strataCoord * Math.PI * 2.0);
+                const band2 = 0.5 + 0.5 * Math.sin(strataCoord * Math.PI * 5.4 + fold2 * 4.0);
+                const cleavage = Math.pow(1.0 - Math.abs(shear * 2.0), 3.0) * 0.28;
+                const fineGrit = (fastNoise3D(gx * 0.55, gy * 1.2, gz * 0.55) - 0.5) * 0.14;
+
+                t = band1 * 0.48 + band2 * 0.28 + cleavage + fineGrit;
+            } else {
+                // Cobble: Domain-Warped 3D Worley / Voronoi Cellular Stone Blocks with Mortar Crevices
+                const warp = detail * 0.065;
+                const wx = u * 1.35 + (fastNoise3D(u * 2.1, v * 2.1, w * 2.1) - 0.5) * warp;
+                const wy = v * 1.35 + (fastNoise3D(u * 2.1 + 5.2, v * 2.1 + 1.3, w * 2.1 + 8.7) - 0.5) * warp;
+                const wz = w * 1.35 + (fastNoise3D(u * 2.1 + 9.1, v * 2.1 + 4.8, w * 2.1 + 3.4) - 0.5) * warp;
+
+                const ix = Math.floor(wx), iy = Math.floor(wy), iz = Math.floor(wz);
+                let d1 = 999.0, d2 = 999.0, cellShade = 0.5;
+
+                for (let dx = -1; dx <= 1; dx++) {
+                    const cx = ix + dx;
+                    for (let dy = -1; dy <= 1; dy++) {
+                        const cy = iy + dy;
+                        for (let dz = -1; dz <= 1; dz++) {
+                            const cz = iz + dz;
+                            const px = cx + 0.15 + hash3i(cx, cy, cz) * 0.70;
+                            const py = cy + 0.15 + hash3i(cx + 19, cy + 73, cz + 41) * 0.70;
+                            const pz = cz + 0.15 + hash3i(cx + 97, cy + 31, cz + 67) * 0.70;
+
+                            const ddx = wx - px, ddy = wy - py, ddz = wz - pz;
+                            const dist = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+                            if (dist < d1) {
+                                d2 = d1;
+                                d1 = dist;
+                                cellShade = hash3i(cx + 131, cy + 257, cz + 389);
+                            } else if (dist < d2) {
+                                d2 = dist;
+                            }
+                        }
+                    }
+                }
+
+                const edgeDist = d2 - d1;
+                const mortarWidth = 0.04 + detail * 0.016;
+                const rockGrain = (fastNoise3D(u * 3.8, v * 3.8, w * 3.8) - 0.5) * 0.22;
+
+                if (edgeDist < mortarWidth) {
+                    const seamT = edgeDist / Math.max(0.001, mortarWidth);
+                    t = 1.0 - seamT * seamT * (0.45 + cellShade * 0.35);
+                } else {
+                    const bevel = Math.min(1.0, (edgeDist - mortarWidth) / 0.18);
+                    t = (0.12 + cellShade * 0.45 + rockGrain) * bevel + (1.0 - bevel) * 0.72;
+                }
+            }
+
+            if (style === 'polished') {
+                t = THREE.MathUtils.clamp(t, 0, 1);
+                t = t * t * (3.0 - 2.0 * t);
+                t = Math.pow(t, 1.15);
+            } else if (style === 'craggy') {
+                const pit = (hash3i(gx, gy, gz) - 0.5) * 0.22 + (fastNoise3D(gx * 0.75, gy * 0.75, gz * 0.75) - 0.5) * 0.18;
+                t = THREE.MathUtils.clamp(t + pit, 0, 1);
+            }
+
+            return THREE.MathUtils.clamp(t, 0, 1);
+        }
+
         function getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, slotIndex, pathT = -1, uT = -1) {
             const mode = colorModes[slotIndex], subSlot = (slotIndex === activeMatSlot) ? activeColorSubSlot : 0;
             const cA = slotColors[slotIndex][0], cB = slotColors[slotIndex][1];
@@ -2932,6 +3093,10 @@ function updateGlobalMenuTexture() {
             }
             if (mode === 'wood') {
                 const t = evaluateWood(gx, gy, gz, slotIndex);
+                return tempColorForDraw[slotIndex].copy(cA).lerp(cB, t);
+            }
+            if (mode === 'stone') {
+                const t = evaluateStone(gx, gy, gz, slotIndex);
                 return tempColorForDraw[slotIndex].copy(cA).lerp(cB, t);
             }
             if (mode === 'grad_h' || mode === 'grad_v') {
