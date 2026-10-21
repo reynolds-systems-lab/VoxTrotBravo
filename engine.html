@@ -88,6 +88,13 @@
             background: #5b4bc4;
             box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
         }
+        #folder-button-overlay {
+            background: #e17055;
+        }
+        #folder-button-overlay:hover {
+            background: #d65f43;
+            box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
+        }
         
         /* Loading Overlay Styles */
 
@@ -139,9 +146,11 @@
     <div id="file-controls-overlay">
         <button id="save-button-overlay" class="overlay-action-btn">Save .VTB</button>
         <button id="load-button-overlay" class="overlay-action-btn">Load .VTB</button>
+        <button id="folder-button-overlay" class="overlay-action-btn">Set Disk Folder</button>
         <button id="export-button-overlay" class="overlay-action-btn">Export .OBJ (Current Mode)</button>
         <input type="file" id="vtb-file-input" accept=".vtb" style="display: none;" />
     </div>
+
 
     <script type="module">
         import * as THREE from 'three';
@@ -2599,8 +2608,14 @@ function updateGlobalMenuTexture() {
                 }
             }
             if (cy >= 510 && cy <= 555) {
-                if (cx >= 40 && cx <= 240) saveToVTB();
-                if (cx >= 272 && cx <= 472) triggerLoadVTB();
+                if (cx >= 40 && cx <= 240) {
+                    if (renderer.xr.isPresenting) openVRFileModal('save');
+                    else saveToVTB();
+                }
+                if (cx >= 272 && cx <= 472) {
+                    if (renderer.xr.isPresenting) openVRFileModal('load');
+                    else triggerLoadVTB();
+                }
             }
 
             let arrayChanged = false;
@@ -2826,173 +2841,192 @@ function updateGlobalMenuTexture() {
             return new Uint8Array(buf);
         }
 
-        async function saveToVTB() {
+        async function buildVTBPayload() {
+            if (hasSelection) applySelection();
+            flushDirtyChunks();
+
+            // 1. Collect complete lossless application & environment state
+            const meta = {
+                v: 1,
+                wp: [worldGroup.position.x, worldGroup.position.y, worldGroup.position.z],
+                wq: [worldGroup.quaternion.x, worldGroup.quaternion.y, worldGroup.quaternion.z, worldGroup.quaternion.w],
+                ws: [worldGroup.scale.x, worldGroup.scale.y, worldGroup.scale.z],
+                ms: [activeMatSlot, activeColorSubSlot, joyLTarget, joyRTarget],
+                mt: [matTypes[0], matTypes[1]],
+                cm: [colorModes[0], colorModes[1]],
+                sc: [
+                    [slotColors[0][0].getHex(), slotColors[0][1].getHex()],
+                    [slotColors[1][0].getHex(), slotColors[1][1].getHex()]
+                ],
+                fr: [fractalTypes.slice(), fractalScales.slice(), fractalIters.slice(), fractalStyles.slice()],
+                wd: [woodTypes.slice(), woodScales.slice(), woodTurbs.slice(), woodAxes.slice()],
+                st: [stoneTypes.slice(), stoneScales.slice(), stoneDetails.slice(), stoneStyles.slice()],
+                sym: [isVerticalLock, clearInterior, mirrorX, mirrorY, mirrorZ, polarSymmetry, drawFromCenter, renderMode, exportMode],
+                gc: [gridCopyX, gridCopyXSpace, gridCopyXCopies, gridCopyY, gridCopyYSpace, gridCopyYCopies, gridCopyZ, gridCopyZSpace, gridCopyZCopies],
+                tl: {
+                    activeTool, extrudeAxis, extrudeAdjoining, extrudeColorMode, extrudeAdjoiningFilter, extrudeVolumeMode,
+                    brushShape, brushVolume, brushSize, brushPressureMode, sculptSize, sculptDensity, sculptPressureMode,
+                    bouncyRadius, bouncySpeed, bouncyCount, bouncyColorMode, boxMode, boxGridMode, boxDivX, boxDivY, boxDivZ, boxDivThick,
+                    sphereMode, cylinderMode, cylinderSides, cylinderAxis, cylinderCap, cylinderDivs, cylinderDivThick,
+                    torusMode, torusSides, torusAxis, torusTubePct, torusSweep, torusDivs, torusTubeDivs, torusDivThick,
+                    triangleType, triangleMode, triangleAxis, triangleGridMode, triangleDivs, triangleDivThick, triangleCap, pyramidLegs,
+                    icosahedronMode, icosahedronDivs, icosahedronLock, platonicType, wireWidth, wireFill,
+                    paintMode, paintAction, paintStrength, planeOutline, planeOutlineThick, planeFill, planeGrid, planeGridThick, planeDivU, planeDivV, planeThick,
+                    lineMode, lineType, lineDrawMode, lineSheetType, lineColorMode, arcBulge, arcControlMode, arcTilt
+                }
+            };
+
+            const metaBytes = new TextEncoder().encode(JSON.stringify(meta));
+            const activeChunks = [];
+            let countedVoxels = 0;
+
+            for (const [, chunk] of chunks) {
+                let mask = 0;
+                for (let m = 0; m < 4; m++) {
+                    if (chunk.layers[m] && chunk.layers[m].count > 0) {
+                        mask |= (1 << m);
+                        countedVoxels += chunk.layers[m].count;
+                    }
+                }
+                if (mask !== 0) activeChunks.push({ chunk, mask });
+            }
+
+            // 2. Allocate single contiguous buffer for worst-case uncompressed payload
+            const maxPayloadSize = 4 + metaBytes.length + 4 + (activeChunks.length * 15) + (countedVoxels * 5);
+            const rawBuf = new Uint8Array(maxPayloadSize);
+            const rawView = new DataView(rawBuf.buffer);
+            let ptr = 0;
+
+            rawView.setUint32(ptr, metaBytes.length, true); ptr += 4;
+            rawBuf.set(metaBytes, ptr); ptr += metaBytes.length;
+            rawView.setUint32(ptr, activeChunks.length, true); ptr += 4;
+
+            // 3. Encode each chunk using VarInt spatial delta indices + planar RGB channels
+            for (let cIdx = 0; cIdx < activeChunks.length; cIdx++) {
+                const { chunk, mask } = activeChunks[cIdx];
+                rawView.setInt16(ptr, chunk.cx, true); ptr += 2;
+                rawView.setInt16(ptr, chunk.cy, true); ptr += 2;
+                rawView.setInt16(ptr, chunk.cz, true); ptr += 2;
+                rawBuf[ptr++] = mask;
+
+                for (let m = 0; m < 4; m++) {
+                    if ((mask & (1 << m)) === 0) continue;
+                    const layer = chunk.layers[m];
+                    const count = layer.count;
+                    rawView.setUint16(ptr, count, true); ptr += 2;
+
+                    const cArr = layer.mesh.instanceColor.array;
+                    let prevLocalIdx = -1;
+                    let vIdx = 0;
+
+                    if (count < 2048) {
+                        const iToL = layer.indexToLocal;
+                        for (let i = 0; i < count; i++) {
+                            vtbScratchPairs[i] = (iToL[i] << 16) | i;
+                        }
+                        const subPairs = vtbScratchPairs.subarray(0, count);
+                        subPairs.sort();
+                        for (let i = 0; i < count; i++) {
+                            const packed = subPairs[i];
+                            const localIdx = packed >>> 16;
+                            const instIdx = packed & 0xFFFF;
+                            const d = localIdx - prevLocalIdx - 1;
+                            prevLocalIdx = localIdx;
+
+                            if (d < 128) {
+                                rawBuf[ptr++] = d;
+                            } else {
+                                rawBuf[ptr++] = (d & 0x7F) | 0x80;
+                                rawBuf[ptr++] = d >>> 7;
+                            }
+
+                            const colOffset = instIdx * 3;
+                            vtbScratchR[vIdx] = cArr[colOffset];
+                            vtbScratchG[vIdx] = cArr[colOffset + 1];
+                            vtbScratchB[vIdx] = cArr[colOffset + 2];
+                            vIdx++;
+                        }
+                    } else {
+                        const vToI = layer.voxelToIndex;
+                        for (let localIdx = 0; localIdx < CHUNK_VOL; localIdx++) {
+                            const instIdx = vToI[localIdx];
+                            if (instIdx === 65535) continue;
+                            const d = localIdx - prevLocalIdx - 1;
+                            prevLocalIdx = localIdx;
+
+                            if (d < 128) {
+                                rawBuf[ptr++] = d;
+                            } else {
+                                rawBuf[ptr++] = (d & 0x7F) | 0x80;
+                                rawBuf[ptr++] = d >>> 7;
+                            }
+
+                            const colOffset = instIdx * 3;
+                            vtbScratchR[vIdx] = cArr[colOffset];
+                            vtbScratchG[vIdx] = cArr[colOffset + 1];
+                            vtbScratchB[vIdx] = cArr[colOffset + 2];
+                            vIdx++;
+                        }
+                    }
+
+                    rawBuf.set(vtbScratchR.subarray(0, count), ptr); ptr += count;
+                    rawBuf.set(vtbScratchG.subarray(0, count), ptr); ptr += count;
+                    rawBuf.set(vtbScratchB.subarray(0, count), ptr); ptr += count;
+                }
+            }
+
+            const uncompressedSlice = rawBuf.subarray(0, ptr);
+            const { compressed, data: payloadBytes } = await compressBytes(uncompressedSlice);
+
+            // 4. Build final 9-byte VTB1 header + compressed payload
+            const finalFile = new Uint8Array(9 + payloadBytes.length);
+            const finalView = new DataView(finalFile.buffer);
+            finalFile[0] = 0x56; // 'V'
+            finalFile[1] = 0x54; // 'T'
+            finalFile[2] = 0x42; // 'B'
+            finalFile[3] = 0x31; // '1'
+            finalFile[4] = compressed ? 1 : 0;
+            finalView.setUint32(5, ptr, true);
+            finalFile.set(payloadBytes, 9);
+            return finalFile;
+        }
+
+        function triggerBrowserDownload(uint8Bytes, fileName) {
+            const blob = new Blob([uint8Bytes], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }
+
+        async function saveToVTB(customName = null) {
             const saveBtn = document.getElementById('save-button-overlay');
             const origText = saveBtn ? saveBtn.innerText : 'Save .VTB';
             if (saveBtn) saveBtn.innerText = 'Saving...';
 
             try {
-                if (hasSelection) applySelection();
-                flushDirtyChunks();
-
-                // 1. Collect complete lossless application & environment state
-                const meta = {
-                    v: 1,
-                    wp: [worldGroup.position.x, worldGroup.position.y, worldGroup.position.z],
-                    wq: [worldGroup.quaternion.x, worldGroup.quaternion.y, worldGroup.quaternion.z, worldGroup.quaternion.w],
-                    ws: [worldGroup.scale.x, worldGroup.scale.y, worldGroup.scale.z],
-                    ms: [activeMatSlot, activeColorSubSlot, joyLTarget, joyRTarget],
-                    mt: [matTypes[0], matTypes[1]],
-                    cm: [colorModes[0], colorModes[1]],
-                    sc: [
-                        [slotColors[0][0].getHex(), slotColors[0][1].getHex()],
-                        [slotColors[1][0].getHex(), slotColors[1][1].getHex()]
-                    ],
-                    fr: [fractalTypes.slice(), fractalScales.slice(), fractalIters.slice(), fractalStyles.slice()],
-                    wd: [woodTypes.slice(), woodScales.slice(), woodTurbs.slice(), woodAxes.slice()],
-                    st: [stoneTypes.slice(), stoneScales.slice(), stoneDetails.slice(), stoneStyles.slice()],
-                    sym: [isVerticalLock, clearInterior, mirrorX, mirrorY, mirrorZ, polarSymmetry, drawFromCenter, renderMode, exportMode],
-                    gc: [gridCopyX, gridCopyXSpace, gridCopyXCopies, gridCopyY, gridCopyYSpace, gridCopyYCopies, gridCopyZ, gridCopyZSpace, gridCopyZCopies],
-                    tl: {
-                        activeTool, extrudeAxis, extrudeAdjoining, extrudeColorMode, extrudeAdjoiningFilter, extrudeVolumeMode,
-                        brushShape, brushVolume, brushSize, brushPressureMode, sculptSize, sculptDensity, sculptPressureMode,
-                        bouncyRadius, bouncySpeed, bouncyCount, bouncyColorMode, boxMode, boxGridMode, boxDivX, boxDivY, boxDivZ, boxDivThick,
-                        sphereMode, cylinderMode, cylinderSides, cylinderAxis, cylinderCap, cylinderDivs, cylinderDivThick,
-                        torusMode, torusSides, torusAxis, torusTubePct, torusSweep, torusDivs, torusTubeDivs, torusDivThick,
-                        triangleType, triangleMode, triangleAxis, triangleGridMode, triangleDivs, triangleDivThick, triangleCap, pyramidLegs,
-                        icosahedronMode, icosahedronDivs, icosahedronLock, platonicType, wireWidth, wireFill,
-                        paintMode, paintAction, paintStrength, planeOutline, planeOutlineThick, planeFill, planeGrid, planeGridThick, planeDivU, planeDivV, planeThick,
-                        lineMode, lineType, lineDrawMode, lineSheetType, lineColorMode, arcBulge, arcControlMode, arcTilt
-                    }
-                };
-
-                const metaBytes = new TextEncoder().encode(JSON.stringify(meta));
-                const activeChunks = [];
-                let countedVoxels = 0;
-
-                for (const [, chunk] of chunks) {
-                    let mask = 0;
-                    for (let m = 0; m < 4; m++) {
-                        if (chunk.layers[m] && chunk.layers[m].count > 0) {
-                            mask |= (1 << m);
-                            countedVoxels += chunk.layers[m].count;
-                        }
-                    }
-                    if (mask !== 0) activeChunks.push({ chunk, mask });
-                }
-
-                // 2. Allocate single contiguous buffer for worst-case uncompressed payload
-                const maxPayloadSize = 4 + metaBytes.length + 4 + (activeChunks.length * 15) + (countedVoxels * 5);
-                const rawBuf = new Uint8Array(maxPayloadSize);
-                const rawView = new DataView(rawBuf.buffer);
-                let ptr = 0;
-
-                rawView.setUint32(ptr, metaBytes.length, true); ptr += 4;
-                rawBuf.set(metaBytes, ptr); ptr += metaBytes.length;
-                rawView.setUint32(ptr, activeChunks.length, true); ptr += 4;
-
-                // 3. Encode each chunk using VarInt spatial delta indices + planar RGB channels
-                for (let cIdx = 0; cIdx < activeChunks.length; cIdx++) {
-                    const { chunk, mask } = activeChunks[cIdx];
-                    rawView.setInt16(ptr, chunk.cx, true); ptr += 2;
-                    rawView.setInt16(ptr, chunk.cy, true); ptr += 2;
-                    rawView.setInt16(ptr, chunk.cz, true); ptr += 2;
-                    rawBuf[ptr++] = mask;
-
-                    for (let m = 0; m < 4; m++) {
-                        if ((mask & (1 << m)) === 0) continue;
-                        const layer = chunk.layers[m];
-                        const count = layer.count;
-                        rawView.setUint16(ptr, count, true); ptr += 2;
-
-                        const cArr = layer.mesh.instanceColor.array;
-                        let prevLocalIdx = -1;
-                        let vIdx = 0;
-
-                        if (count < 2048) {
-                            // Fast path for sparse chunks: sort active (localIdx, instIdx) pairs
-                            const iToL = layer.indexToLocal;
-                            for (let i = 0; i < count; i++) {
-                                vtbScratchPairs[i] = (iToL[i] << 16) | i;
-                            }
-                            const subPairs = vtbScratchPairs.subarray(0, count);
-                            subPairs.sort();
-                            for (let i = 0; i < count; i++) {
-                                const packed = subPairs[i];
-                                const localIdx = packed >>> 16;
-                                const instIdx = packed & 0xFFFF;
-                                const d = localIdx - prevLocalIdx - 1;
-                                prevLocalIdx = localIdx;
-
-                                if (d < 128) {
-                                    rawBuf[ptr++] = d;
-                                } else {
-                                    rawBuf[ptr++] = (d & 0x7F) | 0x80;
-                                    rawBuf[ptr++] = d >>> 7;
-                                }
-
-                                const colOffset = instIdx * 3;
-                                vtbScratchR[vIdx] = cArr[colOffset];
-                                vtbScratchG[vIdx] = cArr[colOffset + 1];
-                                vtbScratchB[vIdx] = cArr[colOffset + 2];
-                                vIdx++;
-                            }
-                        } else {
-                            // Linear spatial scan for dense chunks (already ordered 0..32767)
-                            const vToI = layer.voxelToIndex;
-                            for (let localIdx = 0; localIdx < CHUNK_VOL; localIdx++) {
-                                const instIdx = vToI[localIdx];
-                                if (instIdx === 65535) continue;
-                                const d = localIdx - prevLocalIdx - 1;
-                                prevLocalIdx = localIdx;
-
-                                if (d < 128) {
-                                    rawBuf[ptr++] = d;
-                                } else {
-                                    rawBuf[ptr++] = (d & 0x7F) | 0x80;
-                                    rawBuf[ptr++] = d >>> 7;
-                                }
-
-                                const colOffset = instIdx * 3;
-                                vtbScratchR[vIdx] = cArr[colOffset];
-                                vtbScratchG[vIdx] = cArr[colOffset + 1];
-                                vtbScratchB[vIdx] = cArr[colOffset + 2];
-                                vIdx++;
-                            }
-                        }
-
-                        rawBuf.set(vtbScratchR.subarray(0, count), ptr); ptr += count;
-                        rawBuf.set(vtbScratchG.subarray(0, count), ptr); ptr += count;
-                        rawBuf.set(vtbScratchB.subarray(0, count), ptr); ptr += count;
-                    }
-                }
-
-                const uncompressedSlice = rawBuf.subarray(0, ptr);
-                const { compressed, data: payloadBytes } = await compressBytes(uncompressedSlice);
-
-                // 4. Build final 9-byte VTB1 header + compressed payload
-                const finalFile = new Uint8Array(9 + payloadBytes.length);
-                const finalView = new DataView(finalFile.buffer);
-                finalFile[0] = 0x56; // 'V'
-                finalFile[1] = 0x54; // 'T'
-                finalFile[2] = 0x42; // 'B'
-                finalFile[3] = 0x31; // '1'
-                finalFile[4] = compressed ? 1 : 0;
-                finalView.setUint32(5, ptr, true);
-                finalFile.set(payloadBytes, 9);
-
-                const fileName = 'project.vtb';
+                const finalFile = await buildVTBPayload();
+                const baseName = (customName || vrFileName || 'project').replace(/\.vtb$/i, '');
+                const fileName = `${baseName}.vtb`;
                 let savedViaPicker = false;
-                if (window.showSaveFilePicker) {
+
+                if (!renderer.xr.isPresenting && window.showSaveFilePicker) {
                     try {
-                        const fileHandle = await window.showSaveFilePicker({
+                        const pickerOpts = {
                             suggestedName: fileName,
                             types: [{ description: 'VoxTrotBravo Scene (.vtb)', accept: { 'application/octet-stream': ['.vtb'] } }]
-                        });
+                        };
+                        if (linkedDiskRootHandle) pickerOpts.startIn = linkedDiskRootHandle;
+                        const fileHandle = await window.showSaveFilePicker(pickerOpts);
                         const writable = await fileHandle.createWritable();
                         await writable.write(finalFile);
                         await writable.close();
                         savedViaPicker = true;
+                        vrFileName = fileHandle.name.replace(/\.vtb$/i, '');
                     } catch (err) {
                         if (err && err.name === 'AbortError') {
                             if (saveBtn) saveBtn.innerText = origText;
@@ -3001,21 +3035,679 @@ function updateGlobalMenuTexture() {
                     }
                 }
 
+                // Always keep a copy in the VR Vault so files saved on desktop are visible inside VR
+                await vtbVaultSaveFile(vrCurrentFolder, fileName, finalFile);
+
                 if (!savedViaPicker) {
-                    const blob = new Blob([finalFile], { type: 'application/octet-stream' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = fileName;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    setTimeout(() => URL.revokeObjectURL(url), 10000);
+                    triggerBrowserDownload(finalFile, fileName);
                 }
             } catch (err) {
                 console.error('Failed to save .VTB file:', err);
             } finally {
                 if (saveBtn) saveBtn.innerText = origText;
+            }
+        }
+
+        // --- In-VR File Manager, Virtual Keyboard, IndexedDB Vault & Disk Folder System ---
+        let vrFileModalOpen = false;
+        let vrFileModalMode = 'save'; // 'save' | 'load'
+        let vrFileLocation = 'vault_dl'; // 'vault_dl' | 'vault' | 'disk'
+        let vrCurrentFolder = '/Projects';
+        let vrFileName = 'scene_01';
+        let vrFolderInputMode = false;
+        let vrNewFolderName = 'NewFolder';
+        let vrFileList = []; // [{ isDir: true/false, name: string, size: number, path: string }]
+        let vrFileScroll = 0;
+        let vrFileStatusMsg = 'Select a location & folder, type a file name, and press Confirm.';
+        let vrFileModalNeedsUpdate = false;
+        let vrFileModalHovered = false;
+        const vrFileModalUV = { x: 0, y: 0 };
+
+        let linkedDiskRootHandle = null;
+        let linkedDiskPathStack = []; // Array of { name, handle }
+
+        const VTB_DB_NAME = 'VoxTrotBravoStorageDB';
+        const VTB_DB_VERSION = 1;
+
+        function openVTBDatabase() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(VTB_DB_NAME, VTB_DB_VERSION);
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains('files')) {
+                        db.createObjectStore('files', { keyPath: 'path' });
+                    }
+                    if (!db.objectStoreNames.contains('folders')) {
+                        const fStore = db.createObjectStore('folders', { keyPath: 'path' });
+                        fStore.put({ path: '/Projects' });
+                        fStore.put({ path: '/Scenes' });
+                        fStore.put({ path: '/Backups' });
+                    }
+                    if (!db.objectStoreNames.contains('handles')) {
+                        db.createObjectStore('handles', { keyPath: 'id' });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function vtbVaultSaveFile(folder, fileName, uint8Data) {
+            try {
+                const cleanFolder = folder.endsWith('/') && folder.length > 1 ? folder.slice(0, -1) : (folder || '/Projects');
+                const fullPath = `${cleanFolder === '/' ? '' : cleanFolder}/${fileName}`;
+                const db = await openVTBDatabase();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(['files', 'folders'], 'readwrite');
+                    tx.objectStore('folders').put({ path: cleanFolder });
+                    tx.objectStore('files').put({
+                        path: fullPath,
+                        folder: cleanFolder,
+                        name: fileName,
+                        data: new Uint8Array(uint8Data),
+                        size: uint8Data.byteLength,
+                        updated: Date.now()
+                    });
+                    tx.oncomplete = () => resolve(true);
+                    tx.onerror = () => reject(tx.error);
+                });
+            } catch (e) {
+                console.warn('Vault save warning:', e);
+                return false;
+            }
+        }
+
+        async function vtbVaultCreateFolder(folderPath) {
+            const db = await openVTBDatabase();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(['folders'], 'readwrite');
+                tx.objectStore('folders').put({ path: folderPath });
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => reject(tx.error);
+            });
+        }
+
+        async function vtbVaultDeleteFile(fullPath) {
+            const db = await openVTBDatabase();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(['files'], 'readwrite');
+                tx.objectStore('files').delete(fullPath);
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => reject(tx.error);
+            });
+        }
+
+        async function vtbVaultLoadFile(fullPath) {
+            const db = await openVTBDatabase();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(['files'], 'readonly');
+                const req = tx.objectStore('files').get(fullPath);
+                req.onsuccess = () => resolve(req.result ? req.result.data : null);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function linkLocalDiskFolder() {
+            if (!window.showDirectoryPicker) {
+                alert('Your browser does not support showDirectoryPicker. Use VR Vault or Downloads instead.');
+                return false;
+            }
+            try {
+                const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                linkedDiskRootHandle = handle;
+                linkedDiskPathStack = [{ name: handle.name, handle }];
+                vrFileLocation = 'disk';
+                const folderBtn = document.getElementById('folder-button-overlay');
+                if (folderBtn) folderBtn.innerText = `Disk: ${handle.name}`;
+                try {
+                    const db = await openVTBDatabase();
+                    const tx = db.transaction(['handles'], 'readwrite');
+                    tx.objectStore('handles').put({ id: 'diskRoot', handle });
+                } catch (e) {}
+                if (vrFileModalOpen) await refreshVRFileList();
+                return true;
+            } catch (err) {
+                return false;
+            }
+        }
+
+        // Restore previously linked directory handle if permission is still granted
+        (async () => {
+            try {
+                const db = await openVTBDatabase();
+                const tx = db.transaction(['handles'], 'readonly');
+                const req = tx.objectStore('handles').get('diskRoot');
+                req.onsuccess = async () => {
+                    if (req.result && req.result.handle) {
+                        const h = req.result.handle;
+                        if (h.queryPermission && (await h.queryPermission({ mode: 'readwrite' })) === 'granted') {
+                            linkedDiskRootHandle = h;
+                            linkedDiskPathStack = [{ name: h.name, handle: h }];
+                            const folderBtn = document.getElementById('folder-button-overlay');
+                            if (folderBtn) folderBtn.innerText = `Disk: ${h.name}`;
+                        }
+                    }
+                };
+            } catch (e) {}
+        })();
+
+        async function refreshVRFileList() {
+            const items = [];
+            try {
+                if (vrFileLocation === 'disk') {
+                    if (!linkedDiskRootHandle || linkedDiskPathStack.length === 0) {
+                        vrFileList = [];
+                        vrFileStatusMsg = 'No Disk Folder linked! Exit VR once & click "Set Disk Folder", or use VR Vault.';
+                        vrFileModalNeedsUpdate = true;
+                        return;
+                    }
+                    const curDirHandle = linkedDiskPathStack[linkedDiskPathStack.length - 1].handle;
+                    const dirs = [];
+                    const files = [];
+                    for await (const [name, entry] of curDirHandle.entries()) {
+                        if (entry.kind === 'directory') {
+                            dirs.push({ isDir: true, name, handle: entry });
+                        } else if (entry.kind === 'file' && name.toLowerCase().endsWith('.vtb')) {
+                            let size = 0;
+                            try { const f = await entry.getFile(); size = f.size; } catch (e) {}
+                            files.push({ isDir: false, name, size, handle: entry });
+                        }
+                    }
+                    dirs.sort((a, b) => a.name.localeCompare(b.name));
+                    files.sort((a, b) => a.name.localeCompare(b.name));
+                    vrFileList = [...dirs, ...files];
+                } else {
+                    const db = await openVTBDatabase();
+                    const cur = vrCurrentFolder || '/';
+                    const prefix = cur === '/' ? '/' : `${cur}/`;
+                    const subDirs = new Set();
+                    const files = [];
+
+                    await new Promise((resolve) => {
+                        const tx = db.transaction(['folders', 'files'], 'readonly');
+                        tx.objectStore('folders').openCursor().onsuccess = (e) => {
+                            const cursor = e.target.result;
+                            if (cursor) {
+                                const p = cursor.value.path;
+                                if (p !== cur && p.startsWith(prefix)) {
+                                    const rem = p.slice(prefix.length);
+                                    const firstSeg = rem.split('/')[0];
+                                    if (firstSeg) subDirs.add(firstSeg);
+                                }
+                                cursor.continue();
+                            }
+                        };
+                        tx.objectStore('files').openCursor().onsuccess = (e) => {
+                            const cursor = e.target.result;
+                            if (cursor) {
+                                const rec = cursor.value;
+                                if (rec.folder === cur) {
+                                    files.push({ isDir: false, name: rec.name, size: rec.size, path: rec.path });
+                                } else if (rec.folder && rec.folder.startsWith(prefix)) {
+                                    const rem = rec.folder.slice(prefix.length);
+                                    const firstSeg = rem.split('/')[0];
+                                    if (firstSeg) subDirs.add(firstSeg);
+                                }
+                                cursor.continue();
+                            }
+                        };
+                        tx.oncomplete = () => resolve();
+                        tx.onerror = () => resolve();
+                    });
+
+                    const dirItems = Array.from(subDirs).sort().map(d => ({
+                        isDir: true,
+                        name: d,
+                        path: cur === '/' ? `/${d}` : `${cur}/${d}`
+                    }));
+                    files.sort((a, b) => a.name.localeCompare(b.name));
+                    vrFileList = [...dirItems, ...files];
+                }
+            } catch (err) {
+                console.warn('Error listing VR files:', err);
+                vrFileList = [];
+            }
+            vrFileScroll = Math.max(0, Math.min(vrFileScroll, Math.max(0, vrFileList.length - 4)));
+            vrFileModalNeedsUpdate = true;
+        }
+
+        // --- 3D VR File Modal Canvas & Mesh Setup ---
+        const vrFileModalCanvas = document.createElement('canvas');
+        vrFileModalCanvas.width = 768;
+        vrFileModalCanvas.height = 768;
+        const vrFileModalCtx = vrFileModalCanvas.getContext('2d', { willReadFrequently: true });
+        const vrFileModalTexture = new THREE.CanvasTexture(vrFileModalCanvas);
+        const vrFileModalMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.46, 0.46),
+            new THREE.MeshBasicMaterial({ map: vrFileModalTexture, transparent: true, side: THREE.DoubleSide, depthTest: false })
+        );
+        vrFileModalMesh.renderOrder = 999;
+        vrFileModalMesh.visible = false;
+        scene.add(vrFileModalMesh);
+
+        const VR_KB_ROWS = [
+            ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+            ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+            ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '_'],
+            ['z', 'x', 'c', 'v', 'b', 'n', 'm', '-', 'BS', 'CLR']
+        ];
+
+        function getActiveLocationPathDisplay() {
+            if (vrFileLocation === 'disk') {
+                if (linkedDiskPathStack.length === 0) return 'Disk: (Not Linked)';
+                return 'Disk:/' + linkedDiskPathStack.map(s => s.name).join('/');
+            }
+            return `Vault:${vrCurrentFolder}`;
+        }
+
+        function updateVRFileModalTexture() {
+            const ctx = vrFileModalCtx;
+            ctx.fillStyle = 'rgba(16, 18, 24, 0.98)';
+            ctx.fillRect(0, 0, 768, 768);
+            ctx.strokeStyle = '#4facfe';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(4, 4, 760, 760);
+
+            // Title Bar
+            const isSave = vrFileModalMode === 'save';
+            ctx.fillStyle = isSave ? '#00b894' : '#6c5ce7';
+            ctx.fillRect(8, 8, 752, 48);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 26px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(isSave ? 'SAVE .VTB SCENE (FILE NAME & LOCATION)' : 'LOAD .VTB SCENE (CHOOSE LOCATION & FILE)', 384, 32);
+
+            // Row 1: Storage Location Selector (y: 66..110)
+            drawButton(ctx, 20, 66, 236, 44, 'LOC: VAULT + DOWNLOAD', vrFileLocation === 'vault_dl');
+            drawButton(ctx, 266, 66, 236, 44, 'LOC: VR VAULT ONLY', vrFileLocation === 'vault');
+            const diskLabel = linkedDiskRootHandle ? `DISK: ${linkedDiskRootHandle.name.slice(0, 10)}` : 'LOC: PC DISK FOLDER';
+            drawButton(ctx, 512, 66, 236, 44, diskLabel, vrFileLocation === 'disk');
+
+            // Row 2: Current Folder Path & Navigation (y: 120..162)
+            ctx.fillStyle = '#222';
+            ctx.fillRect(20, 120, 420, 42);
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(20, 120, 420, 42);
+            ctx.fillStyle = '#00ffcc';
+            ctx.font = 'bold 17px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(getActiveLocationPathDisplay(), 30, 141, 400);
+
+            drawButton(ctx, 450, 120, 105, 42, '.. UP DIR', false);
+            drawButton(ctx, 565, 120, 183, 42, vrFolderInputMode ? 'CANCEL FOLDER' : '+ NEW FOLDER', vrFolderInputMode);
+
+            // Row 3: Directory & File Browser List (y: 172..360)
+            ctx.fillStyle = '#181a20';
+            ctx.fillRect(20, 172, 650, 188);
+            ctx.strokeStyle = '#444';
+            ctx.strokeRect(20, 172, 650, 188);
+
+            if (vrFileList.length === 0) {
+                ctx.fillStyle = '#888';
+                ctx.font = 'italic 18px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No subfolders or .vtb files in this location yet.', 345, 266);
+            } else {
+                for (let i = 0; i < 4; i++) {
+                    const idx = vrFileScroll + i;
+                    if (idx >= vrFileList.length) break;
+                    const item = vrFileList[idx];
+                    const ry = 178 + i * 44;
+                    const isSelected = !item.isDir && (item.name.replace(/\.vtb$/i, '') === vrFileName);
+
+                    ctx.fillStyle = isSelected ? 'rgba(79, 172, 254, 0.35)' : (item.isDir ? 'rgba(255, 190, 0, 0.12)' : '#252830');
+                    ctx.fillRect(26, ry, 558, 38);
+                    ctx.strokeStyle = isSelected ? '#4facfe' : '#3a3f4b';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(26, ry, 558, 38);
+
+                    ctx.fillStyle = item.isDir ? '#ffd166' : '#fff';
+                    ctx.font = 'bold 18px sans-serif';
+                    ctx.textAlign = 'left';
+                    const label = item.isDir ? `[FOLDER]  ${item.name}` : `[FILE]  ${item.name}`;
+                    ctx.fillText(label, 38, ry + 19, 410);
+
+                    if (!item.isDir) {
+                        ctx.fillStyle = '#aaa';
+                        ctx.font = '15px monospace';
+                        ctx.textAlign = 'right';
+                        const kb = Math.max(1, Math.round((item.size || 0) / 1024));
+                        ctx.fillText(`${kb} KB`, 574, ry + 19);
+
+                        if (vrFileLocation !== 'disk') {
+                            drawButton(ctx, 590, ry, 72, 38, 'DEL', false);
+                        }
+                    } else {
+                        drawButton(ctx, 590, ry, 72, 38, 'OPEN', false);
+                    }
+                }
+            }
+
+            // Scroll Buttons (x: 680..748)
+            drawButton(ctx, 680, 172, 68, 90, '▲ UP', false);
+            drawButton(ctx, 680, 270, 68, 90, '▼ DN', false);
+
+            // Row 4: File Name (or New Folder Name) Input Box (y: 372..422)
+            ctx.fillStyle = '#111';
+            ctx.fillRect(20, 372, 505, 50);
+            ctx.strokeStyle = vrFolderInputMode ? '#ffd166' : '#00ffcc';
+            ctx.lineWidth = 2.5;
+            ctx.strokeRect(20, 372, 505, 50);
+
+            ctx.fillStyle = vrFolderInputMode ? '#ffd166' : '#fff';
+            ctx.font = 'bold 22px monospace';
+            ctx.textAlign = 'left';
+            if (vrFolderInputMode) {
+                ctx.fillText(`New Folder: ${vrNewFolderName}_`, 32, 397, 480);
+                drawButton(ctx, 535, 372, 213, 50, 'CREATE FOLDER', true);
+            } else {
+                ctx.fillText(`File: ${vrFileName}_.vtb`, 32, 397, 480);
+                drawButton(ctx, 535, 372, 102, 50, 'NAME +1', false);
+                drawButton(ctx, 646, 372, 102, 50, 'DESKTOP', false);
+            }
+
+            // Row 5: Virtual Keyboard (y: 434..666)
+            for (let r = 0; r < VR_KB_ROWS.length; r++) {
+                const row = VR_KB_ROWS[r];
+                const ky = 434 + r * 58;
+                for (let c = 0; c < row.length; c++) {
+                    const kx = 20 + c * 73;
+                    const keyLabel = row[c];
+                    drawButton(ctx, kx, ky, 68, 52, keyLabel.toUpperCase(), false);
+                }
+            }
+
+            // Status Line (y: 680)
+            ctx.fillStyle = '#ffd166';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(vrFileStatusMsg, 384, 684, 720);
+
+            // Row 6: Action Footer Buttons (y: 702..752)
+            drawButton(ctx, 20, 702, 470, 50, isSave ? `CONFIRM SAVE (${vrFileName}.vtb)` : `CONFIRM LOAD (${vrFileName}.vtb)`, true);
+            drawButton(ctx, 508, 702, 240, 50, 'CANCEL / CLOSE', false);
+
+            vrFileModalTexture.needsUpdate = true;
+        }
+
+        async function openVRFileModal(mode) {
+            vrFileModalMode = mode;
+            vrFolderInputMode = false;
+            vrFileModalOpen = true;
+            isDrawing = false;
+            isErasing = false;
+            hideAllPreviews();
+
+            // Position floating modal comfortably in front of the VR camera
+            const xrCam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+            const camPos = new THREE.Vector3();
+            const camDir = new THREE.Vector3();
+            xrCam.getWorldPosition(camPos);
+            xrCam.getWorldDirection(camDir);
+            camDir.y = 0;
+            if (camDir.lengthSq() < 0.001) camDir.set(0, 0, -1);
+            camDir.normalize();
+
+            vrFileModalMesh.position.copy(camPos).addScaledVector(camDir, 0.62);
+            vrFileModalMesh.position.y = camPos.y - 0.05;
+            vrFileModalMesh.lookAt(camPos.x, vrFileModalMesh.position.y, camPos.z);
+            vrFileModalMesh.updateMatrix();
+            vrFileModalMesh.visible = true;
+
+            vrFileStatusMsg = mode === 'save'
+                ? 'Choose location/folder, type a file name, and press CONFIRM SAVE.'
+                : 'Select a .vtb file from the list (or type its name) and press CONFIRM LOAD.';
+            await refreshVRFileList();
+            updateVRFileModalTexture();
+        }
+
+        function closeVRFileModal() {
+            vrFileModalOpen = false;
+            vrFileModalMesh.visible = false;
+            vrFileModalHovered = false;
+        }
+
+        async function executeVRModalSave() {
+            const cleanBase = (vrFileName || 'project').trim().replace(/[^a-zA-Z0-9_\-]/g, '_') || 'project';
+            const finalName = `${cleanBase}.vtb`;
+            vrFileStatusMsg = `Saving ${finalName}...`;
+            updateVRFileModalTexture();
+
+            try {
+                const payload = await buildVTBPayload();
+
+                if (vrFileLocation === 'disk') {
+                    if (!linkedDiskRootHandle || linkedDiskPathStack.length === 0) {
+                        vrFileStatusMsg = 'Disk folder not linked! Saved to VR Vault + Downloads instead.';
+                        await vtbVaultSaveFile(vrCurrentFolder, finalName, payload);
+                        triggerBrowserDownload(payload, finalName);
+                    } else {
+                        const dirHandle = linkedDiskPathStack[linkedDiskPathStack.length - 1].handle;
+                        const fileHandle = await dirHandle.getFileHandle(finalName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(payload);
+                        await writable.close();
+                        await vtbVaultSaveFile(vrCurrentFolder, finalName, payload);
+                    }
+                } else if (vrFileLocation === 'vault_dl') {
+                    await vtbVaultSaveFile(vrCurrentFolder, finalName, payload);
+                    triggerBrowserDownload(payload, finalName);
+                } else {
+                    await vtbVaultSaveFile(vrCurrentFolder, finalName, payload);
+                }
+
+                closeVRFileModal();
+            } catch (err) {
+                console.error('VR Save Error:', err);
+                vrFileStatusMsg = `Save error: ${err.message || 'Check permissions'}`;
+                vrFileModalNeedsUpdate = true;
+            }
+        }
+
+        async function executeVRModalLoad() {
+            const cleanBase = (vrFileName || '').trim().replace(/\.vtb$/i, '');
+            const targetFileName = `${cleanBase}.vtb`;
+            vrFileStatusMsg = `Loading ${targetFileName}...`;
+            updateVRFileModalTexture();
+
+            try {
+                if (vrFileLocation === 'disk') {
+                    if (!linkedDiskRootHandle || linkedDiskPathStack.length === 0) {
+                        vrFileStatusMsg = 'No Disk Folder linked! Switch to VR Vault or link a folder on desktop.';
+                        vrFileModalNeedsUpdate = true;
+                        return;
+                    }
+                    const dirHandle = linkedDiskPathStack[linkedDiskPathStack.length - 1].handle;
+                    const fileHandle = await dirHandle.getFileHandle(targetFileName);
+                    const file = await fileHandle.getFile();
+                    const buf = await file.arrayBuffer();
+                    await loadFromVTB(buf);
+                    closeVRFileModal();
+                } else {
+                    const cleanFolder = vrCurrentFolder === '/' ? '' : vrCurrentFolder;
+                    const fullPath = `${cleanFolder}/${targetFileName}`;
+                    const bytes = await vtbVaultLoadFile(fullPath);
+                    if (!bytes) {
+                        vrFileStatusMsg = `File "${targetFileName}" not found in ${vrCurrentFolder}!`;
+                        vrFileModalNeedsUpdate = true;
+                        return;
+                    }
+                    await loadFromVTB(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+                    closeVRFileModal();
+                }
+            } catch (err) {
+                console.error('VR Load Error:', err);
+                vrFileStatusMsg = `Failed to load "${targetFileName}".`;
+                vrFileModalNeedsUpdate = true;
+            }
+        }
+
+        async function handleVRFileModalClick(cx, cy) {
+            // Row 1: Location Selector (y: 66..110)
+            if (cy >= 66 && cy <= 110) {
+                if (cx >= 20 && cx <= 256) {
+                    vrFileLocation = 'vault_dl';
+                    await refreshVRFileList();
+                } else if (cx >= 266 && cx <= 502) {
+                    vrFileLocation = 'vault';
+                    await refreshVRFileList();
+                } else if (cx >= 512 && cx <= 748) {
+                    vrFileLocation = 'disk';
+                    if (!linkedDiskRootHandle && window.showDirectoryPicker) {
+                        linkLocalDiskFolder();
+                    }
+                    await refreshVRFileList();
+                }
+                return;
+            }
+
+            // Row 2: Folder Navigation (y: 120..162)
+            if (cy >= 120 && cy <= 162) {
+                if (cx >= 450 && cx <= 555) {
+                    if (vrFileLocation === 'disk') {
+                        if (linkedDiskPathStack.length > 1) linkedDiskPathStack.pop();
+                    } else {
+                        if (vrCurrentFolder !== '/' && vrCurrentFolder.length > 1) {
+                            const lastSlash = vrCurrentFolder.lastIndexOf('/');
+                            vrCurrentFolder = lastSlash <= 0 ? '/' : vrCurrentFolder.slice(0, lastSlash);
+                        }
+                    }
+                    await refreshVRFileList();
+                } else if (cx >= 565 && cx <= 748) {
+                    vrFolderInputMode = !vrFolderInputMode;
+                    if (vrFolderInputMode) {
+                        vrNewFolderName = 'Folder_1';
+                        vrFileStatusMsg = 'Type new folder name on keyboard, then press CREATE FOLDER.';
+                    }
+                    vrFileModalNeedsUpdate = true;
+                }
+                return;
+            }
+
+            // Row 3: File & Directory List + Scroll (y: 172..360)
+            if (cy >= 172 && cy <= 360) {
+                if (cx >= 680 && cx <= 748) {
+                    if (cy <= 262) vrFileScroll = Math.max(0, vrFileScroll - 1);
+                    else vrFileScroll = Math.min(Math.max(0, vrFileList.length - 4), vrFileScroll + 1);
+                    vrFileModalNeedsUpdate = true;
+                    return;
+                }
+                const rowIdx = Math.floor((cy - 178) / 44);
+                const itemIdx = vrFileScroll + rowIdx;
+                if (rowIdx >= 0 && rowIdx < 4 && itemIdx < vrFileList.length) {
+                    const item = vrFileList[itemIdx];
+                    if (cx >= 590 && cx <= 662) {
+                        if (item.isDir) {
+                            if (vrFileLocation === 'disk') {
+                                linkedDiskPathStack.push({ name: item.name, handle: item.handle });
+                            } else {
+                                vrCurrentFolder = item.path;
+                            }
+                            vrFileScroll = 0;
+                            await refreshVRFileList();
+                        } else if (vrFileLocation !== 'disk') {
+                            await vtbVaultDeleteFile(item.path);
+                            vrFileStatusMsg = `Deleted ${item.name}`;
+                            await refreshVRFileList();
+                        }
+                    } else if (cx >= 26 && cx <= 584) {
+                        if (item.isDir) {
+                            if (vrFileLocation === 'disk') {
+                                linkedDiskPathStack.push({ name: item.name, handle: item.handle });
+                            } else {
+                                vrCurrentFolder = item.path;
+                            }
+                            vrFileScroll = 0;
+                            await refreshVRFileList();
+                        } else {
+                            vrFileName = item.name.replace(/\.vtb$/i, '');
+                            vrFolderInputMode = false;
+                            vrFileStatusMsg = `Selected "${item.name}".`;
+                            vrFileModalNeedsUpdate = true;
+                        }
+                    }
+                }
+                return;
+            }
+
+            // Row 4: Name Controls / Create Folder / Desktop Picker (y: 372..422)
+            if (cy >= 372 && cy <= 422) {
+                if (vrFolderInputMode && cx >= 535 && cx <= 748) {
+                    const cleanFolder = (vrNewFolderName || 'NewFolder').trim().replace(/[^a-zA-Z0-9_\-]/g, '_') || 'NewFolder';
+                    try {
+                        if (vrFileLocation === 'disk' && linkedDiskPathStack.length > 0) {
+                            const curH = linkedDiskPathStack[linkedDiskPathStack.length - 1].handle;
+                            const newH = await curH.getDirectoryHandle(cleanFolder, { create: true });
+                            linkedDiskPathStack.push({ name: cleanFolder, handle: newH });
+                        } else {
+                            const newPath = vrCurrentFolder === '/' ? `/${cleanFolder}` : `${vrCurrentFolder}/${cleanFolder}`;
+                            await vtbVaultCreateFolder(newPath);
+                            vrCurrentFolder = newPath;
+                        }
+                        vrFolderInputMode = false;
+                        vrFileStatusMsg = `Created & opened folder "${cleanFolder}".`;
+                        await refreshVRFileList();
+                    } catch (e) {
+                        vrFileStatusMsg = 'Could not create folder.';
+                        vrFileModalNeedsUpdate = true;
+                    }
+                } else if (!vrFolderInputMode) {
+                    if (cx >= 535 && cx <= 637) {
+                        // Auto-increment trailing number (e.g. scene_01 -> scene_02)
+                        const m = vrFileName.match(/^(.*?)(\d+)$/);
+                        if (m) {
+                            const nextNum = String(parseInt(m[2], 10) + 1).padStart(m[2].length, '0');
+                            vrFileName = `${m[1]}${nextNum}`;
+                        } else {
+                            vrFileName = `${vrFileName}_02`;
+                        }
+                        vrFileModalNeedsUpdate = true;
+                    } else if (cx >= 646 && cx <= 748) {
+                        // Trigger Desktop File Input / Save fallback
+                        if (vrFileModalMode === 'load') {
+                            const fileInput = document.getElementById('vtb-file-input');
+                            if (fileInput) { fileInput.value = ''; fileInput.click(); }
+                            vrFileStatusMsg = 'Opened Desktop file dialog on PC monitor.';
+                        } else {
+                            await executeVRModalSave();
+                        }
+                        vrFileModalNeedsUpdate = true;
+                    }
+                }
+                return;
+            }
+
+            // Row 5: Virtual Keyboard (y: 434..666)
+            if (cy >= 434 && cy <= 666) {
+                const r = Math.floor((cy - 434) / 58);
+                const c = Math.floor((cx - 20) / 73);
+                if (r >= 0 && r < VR_KB_ROWS.length && c >= 0 && c < VR_KB_ROWS[r].length) {
+                    const key = VR_KB_ROWS[r][c];
+                    let targetStr = vrFolderInputMode ? vrNewFolderName : vrFileName;
+                    if (key === 'BS') {
+                        targetStr = targetStr.slice(0, -1);
+                    } else if (key === 'CLR') {
+                        targetStr = '';
+                    } else if (targetStr.length < 24) {
+                        targetStr += key;
+                    }
+                    if (vrFolderInputMode) vrNewFolderName = targetStr;
+                    else vrFileName = targetStr;
+                    vrFileModalNeedsUpdate = true;
+                }
+                return;
+            }
+
+            // Row 6: Confirm Save/Load or Cancel (y: 702..752)
+            if (cy >= 702 && cy <= 752) {
+                if (cx >= 20 && cx <= 490) {
+                    if (vrFileModalMode === 'save') await executeVRModalSave();
+                    else await executeVRModalLoad();
+                } else if (cx >= 508 && cx <= 748) {
+                    closeVRFileModal();
+                }
             }
         }
 
@@ -5593,6 +6285,17 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
 
         function onSelectStart(event) {
+            // Route clicks to the In-VR File Manager Modal when it is open
+            if (vrFileModalOpen && vrFileModalMesh.visible) {
+                menuClickActive = true;
+                if (vrFileModalHovered) {
+                    const cx = Math.floor(vrFileModalUV.x * 768);
+                    const cy = Math.floor((1 - vrFileModalUV.y) * 768);
+                    handleVRFileModalClick(cx, cy);
+                }
+                return;
+            }
+
             // Completely bypass native select events when analog pressure is driving the brush or sculpt
             if (event && ((activeTool === 'brush' && brushPressureMode) || (activeTool === 'sculpt' && sculptPressureMode))) return;
             
@@ -5601,7 +6304,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             currentStrokeVoxelTracker = new Map();
             strokeInteriorSet.clear();
             paintVoxelTimeMap.clear();
-            if (this === xrRight) {  
+            if (this === xrRight) { 
                 if (leftMenuHovered && leftMenuMesh.visible) {
                     menuClickActive = true;
                     const cx=Math.floor(leftMenuUV.x*512), cy=Math.floor((1-leftMenuUV.y)*512);
@@ -6019,8 +6722,34 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                     updateCursors();
                 }
 
-                if(Date.now()-lastMenuUpdateTime>100){ if(leftMenuMesh.visible&&leftMenuNeedsUpdate){ updateLeftMenuTexture(); leftMenuNeedsUpdate=false; } if(rightMenuMesh.visible&&rightMenuNeedsUpdate){ updateRightMenuTexture(); rightMenuNeedsUpdate=false; } if(colorMenuMesh.visible&&colorMenuNeedsUpdate){ updateColorMenuTexture(); colorMenuNeedsUpdate=false; } if(globalMenuMesh.visible&&globalMenuNeedsUpdate){ updateGlobalMenuTexture(); globalMenuNeedsUpdate=false; } lastMenuUpdateTime=Date.now(); }                if((rightMenuMesh.visible||globalMenuMesh.visible)&&xrLeft){ raycaster.set(leftPointerPos, leftDir); if(rightMenuMesh.visible){ const inters=raycaster.intersectObject(rightMenuMesh); if(inters.length>0){ rightMenuHovered=true; rightMenuUV.x=inters[0].uv.x; rightMenuUV.y=inters[0].uv.y; leftLaserLine.scale.z=inters[0].distance; } else rightMenuHovered=false; } else if(globalMenuMesh.visible){ const inters=raycaster.intersectObject(globalMenuMesh); if(inters.length>0){ globalMenuHovered=true; globalMenuUV.x=inters[0].uv.x; globalMenuUV.y=inters[0].uv.y; leftLaserLine.scale.z=inters[0].distance; } else globalMenuHovered=false; } leftLaserLine.visible=true; } else { rightMenuHovered=globalMenuHovered=false; if(leftLaserLine)leftLaserLine.visible=false; }
+                if(Date.now()-lastMenuUpdateTime>100){ if(leftMenuMesh.visible&&leftMenuNeedsUpdate){ updateLeftMenuTexture(); leftMenuNeedsUpdate=false; } if(rightMenuMesh.visible&&rightMenuNeedsUpdate){ updateRightMenuTexture(); rightMenuNeedsUpdate=false; } if(colorMenuMesh.visible&&colorMenuNeedsUpdate){ updateColorMenuTexture(); colorMenuNeedsUpdate=false; } if(globalMenuMesh.visible&&globalMenuNeedsUpdate){ updateGlobalMenuTexture(); globalMenuNeedsUpdate=false; } if(vrFileModalMesh.visible&&vrFileModalNeedsUpdate){ updateVRFileModalTexture(); vrFileModalNeedsUpdate=false; } lastMenuUpdateTime=Date.now(); }
+                if((rightMenuMesh.visible||globalMenuMesh.visible)&&xrLeft){ raycaster.set(leftPointerPos, leftDir); if(rightMenuMesh.visible){ const inters=raycaster.intersectObject(rightMenuMesh); if(inters.length>0){ rightMenuHovered=true; rightMenuUV.x=inters[0].uv.x; rightMenuUV.y=inters[0].uv.y; leftLaserLine.scale.z=inters[0].distance; } else rightMenuHovered=false; } else if(globalMenuMesh.visible){ const inters=raycaster.intersectObject(globalMenuMesh); if(inters.length>0){ globalMenuHovered=true; globalMenuUV.x=inters[0].uv.x; globalMenuUV.y=inters[0].uv.y; leftLaserLine.scale.z=inters[0].distance; } else globalMenuHovered=false; } leftLaserLine.visible=true; } else { rightMenuHovered=globalMenuHovered=false; if(leftLaserLine)leftLaserLine.visible=false; }
                 if((leftMenuMesh.visible||colorMenuMesh.visible)&&xrRight){ raycaster.set(rightPointerPos, rightDir); if(leftMenuMesh.visible){ const inters=raycaster.intersectObject(leftMenuMesh); if(inters.length>0){ leftMenuHovered=true; leftMenuUV.x=inters[0].uv.x; leftMenuUV.y=inters[0].uv.y; rightLaserLine.scale.z=inters[0].distance; } else leftMenuHovered=false; } else if(colorMenuMesh.visible){ const inters=raycaster.intersectObject(colorMenuMesh); if(inters.length>0){ colorMenuHovered=true; colorMenuUV.x=inters[0].uv.x; colorMenuUV.y=inters[0].uv.y; rightLaserLine.scale.z=inters[0].distance; } else colorMenuHovered=false; } rightLaserLine.visible=true; } else { leftMenuHovered=colorMenuHovered=false; if(rightLaserLine)rightLaserLine.visible=false; }
+                if (vrFileModalOpen && vrFileModalMesh.visible) {
+                    vrFileModalHovered = false;
+                    if (xrRight) {
+                        raycaster.set(rightPointerPos, rightDir);
+                        const intersR = raycaster.intersectObject(vrFileModalMesh);
+                        if (intersR.length > 0) {
+                            vrFileModalHovered = true;
+                            vrFileModalUV.x = intersR[0].uv.x;
+                            vrFileModalUV.y = intersR[0].uv.y;
+                            rightLaserLine.scale.z = intersR[0].distance;
+                            rightLaserLine.visible = true;
+                        }
+                    }
+                    if (!vrFileModalHovered && xrLeft) {
+                        raycaster.set(leftPointerPos, leftDir);
+                        const intersL = raycaster.intersectObject(vrFileModalMesh);
+                        if (intersL.length > 0) {
+                            vrFileModalHovered = true;
+                            vrFileModalUV.x = intersL[0].uv.x;
+                            vrFileModalUV.y = intersL[0].uv.y;
+                            leftLaserLine.scale.z = intersL[0].distance;
+                            leftLaserLine.visible = true;
+                        }
+                    }
+                }
                 if(activeSliderDrag&&leftMenuHovered){
                     const pct=Math.max(0,Math.min(1,(leftMenuUV.x*512-50)/412));
                     let ch=false;
@@ -6546,6 +7275,13 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
         if (loadBtn) {
             loadBtn.addEventListener('click', () => {
                 triggerLoadVTB();
+            });
+        }
+
+        const folderBtn = document.getElementById('folder-button-overlay');
+        if (folderBtn) {
+            folderBtn.addEventListener('click', () => {
+                linkLocalDiskFolder();
             });
         }
 
