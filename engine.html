@@ -42,32 +42,51 @@
             padding-top: 8px;
         }
 
-        /* Browser Export Button Styling */
-        #export-button-overlay {
+        /* Browser File & Export Controls Bar Styling */
+        #file-controls-overlay {
             position: absolute;
             bottom: 85px; /* Positioned just above the standard WebXR button */
             left: 50%;
             transform: translateX(-50%);
-            padding: 12px 24px;
+            display: flex;
+            gap: 10px;
+            z-index: 1001;
+            pointer-events: auto;
+        }
+        .overlay-action-btn {
+            padding: 12px 20px;
             background: #4facfe;
             color: white;
             border: 1px solid rgba(255,255,255,0.3);
             border-radius: 8px;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            z-index: 1001;
-            pointer-events: auto;
             transition: all 0.2s ease;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            white-space: nowrap;
         }
-        #export-button-overlay:hover {
+        .overlay-action-btn:hover {
             background: #0088ff;
             box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
-            transform: translateX(-50%) translateY(-2px);
+            transform: translateY(-2px);
         }
-        #export-button-overlay:active {
-            transform: translateX(-50%) translateY(0);
+        .overlay-action-btn:active {
+            transform: translateY(0);
+        }
+        #save-button-overlay {
+            background: #00b894;
+        }
+        #save-button-overlay:hover {
+            background: #00a383;
+            box-shadow: 0 6px 20px rgba(0, 184, 148, 0.4);
+        }
+        #load-button-overlay {
+            background: #6c5ce7;
+        }
+        #load-button-overlay:hover {
+            background: #5b4bc4;
+            box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
         }
         
         /* Loading Overlay Styles */
@@ -117,7 +136,12 @@
     </div>
 
 
-<button id="export-button-overlay">Export .OBJ (Current Mode)</button>
+    <div id="file-controls-overlay">
+        <button id="save-button-overlay" class="overlay-action-btn">Save .VTB</button>
+        <button id="load-button-overlay" class="overlay-action-btn">Load .VTB</button>
+        <button id="export-button-overlay" class="overlay-action-btn">Export .OBJ (Current Mode)</button>
+        <input type="file" id="vtb-file-input" accept=".vtb" style="display: none;" />
+    </div>
 
     <script type="module">
         import * as THREE from 'three';
@@ -2523,20 +2547,22 @@ function updateGlobalMenuTexture() {
             drawButton(globalMenuCtx, 272, 390, 200, 45, 'Export: MESH', exportMode === 'mesh');
             drawButton(globalMenuCtx, 40, 450, 280, 50, 'EXPORT .OBJ', false);
             drawButton(globalMenuCtx, 330, 450, 142, 50, 'EXIT VR', false);
+            drawButton(globalMenuCtx, 40, 510, 200, 45, 'SAVE .VTB', false);
+            drawButton(globalMenuCtx, 272, 510, 200, 45, 'LOAD .VTB', false);
 
-	globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Grid Copy Array`, 256, 540);
+            globalMenuCtx.fillStyle = '#4facfe'; globalMenuCtx.font = 'bold 28px sans-serif'; globalMenuCtx.textAlign = 'center'; globalMenuCtx.fillText(`Grid Copy Array`, 256, 595);
             
-            drawButton(globalMenuCtx, 20, 560, 60, 45, `X:${gridCopyX ? 'ON' : 'OFF'}`, gridCopyX);
-            drawButton(globalMenuCtx, 85, 560, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 560, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 560, 95, 45, `Spc: ${gridCopyXSpace}`, false); drawButton(globalMenuCtx, 255, 560, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 560, 35, 45, '>>', false);
-            drawButton(globalMenuCtx, 330, 560, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 560, 100, 45, `Num: ${gridCopyXCopies}`, false); drawButton(globalMenuCtx, 470, 560, 30, 45, '+', false);
+            drawButton(globalMenuCtx, 20, 615, 60, 45, `X:${gridCopyX ? 'ON' : 'OFF'}`, gridCopyX);
+            drawButton(globalMenuCtx, 85, 615, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 615, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 615, 95, 45, `Spc: ${gridCopyXSpace}`, false); drawButton(globalMenuCtx, 255, 615, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 615, 35, 45, '>>', false);
+            drawButton(globalMenuCtx, 330, 615, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 615, 100, 45, `Num: ${gridCopyXCopies}`, false); drawButton(globalMenuCtx, 470, 615, 30, 45, '+', false);
 
-            drawButton(globalMenuCtx, 20, 620, 60, 45, `Y:${gridCopyY ? 'ON' : 'OFF'}`, gridCopyY);
-            drawButton(globalMenuCtx, 85, 620, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 620, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 620, 95, 45, `Spc: ${gridCopyYSpace}`, false); drawButton(globalMenuCtx, 255, 620, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 620, 35, 45, '>>', false);
-            drawButton(globalMenuCtx, 330, 620, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 620, 100, 45, `Num: ${gridCopyYCopies}`, false); drawButton(globalMenuCtx, 470, 620, 30, 45, '+', false);
+            drawButton(globalMenuCtx, 20, 675, 60, 45, `Y:${gridCopyY ? 'ON' : 'OFF'}`, gridCopyY);
+            drawButton(globalMenuCtx, 85, 675, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 675, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 675, 95, 45, `Spc: ${gridCopyYSpace}`, false); drawButton(globalMenuCtx, 255, 675, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 675, 35, 45, '>>', false);
+            drawButton(globalMenuCtx, 330, 675, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 675, 100, 45, `Num: ${gridCopyYCopies}`, false); drawButton(globalMenuCtx, 470, 675, 30, 45, '+', false);
 
-            drawButton(globalMenuCtx, 20, 680, 60, 45, `Z:${gridCopyZ ? 'ON' : 'OFF'}`, gridCopyZ);
-            drawButton(globalMenuCtx, 85, 680, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 680, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 680, 95, 45, `Spc: ${gridCopyZSpace}`, false); drawButton(globalMenuCtx, 255, 680, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 680, 35, 45, '>>', false);
-            drawButton(globalMenuCtx, 330, 680, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 680, 100, 45, `Num: ${gridCopyZCopies}`, false); drawButton(globalMenuCtx, 470, 680, 30, 45, '+', false);
+            drawButton(globalMenuCtx, 20, 735, 60, 45, `Z:${gridCopyZ ? 'ON' : 'OFF'}`, gridCopyZ);
+            drawButton(globalMenuCtx, 85, 735, 35, 45, '<<', false); drawButton(globalMenuCtx, 125, 735, 25, 45, '<', false); drawButton(globalMenuCtx, 155, 735, 95, 45, `Spc: ${gridCopyZSpace}`, false); drawButton(globalMenuCtx, 255, 735, 25, 45, '>', false); drawButton(globalMenuCtx, 285, 735, 35, 45, '>>', false);
+            drawButton(globalMenuCtx, 330, 735, 30, 45, '-', false); drawButton(globalMenuCtx, 365, 735, 100, 45, `Num: ${gridCopyZCopies}`, false); drawButton(globalMenuCtx, 470, 735, 30, 45, '+', false);
 
             globalMenuTexture.needsUpdate = true;
         }
@@ -2572,9 +2598,13 @@ function updateGlobalMenuTexture() {
                     if (session) session.end().catch(console.warn);
                 }
             }
+            if (cy >= 510 && cy <= 555) {
+                if (cx >= 40 && cx <= 240) saveToVTB();
+                if (cx >= 272 && cx <= 472) triggerLoadVTB();
+            }
 
-	let arrayChanged = false;
-            if (cy >= 560 && cy <= 605) {
+            let arrayChanged = false;
+            if (cy >= 615 && cy <= 660) {
                 if (cx >= 20 && cx <= 80) { gridCopyX = !gridCopyX; arrayChanged = true; }
                 if (cx >= 85 && cx <= 120) { gridCopyXSpace = Math.max(-100, gridCopyXSpace - 16); arrayChanged = true; }
                 if (cx >= 125 && cx <= 150) { gridCopyXSpace = Math.max(-100, gridCopyXSpace - 1); arrayChanged = true; }
@@ -2583,7 +2613,7 @@ function updateGlobalMenuTexture() {
                 if (cx >= 330 && cx <= 360) { gridCopyXCopies = Math.max(1, gridCopyXCopies - 1); arrayChanged = true; }
                 if (cx >= 470 && cx <= 500) { gridCopyXCopies = Math.min(20, gridCopyXCopies + 1); arrayChanged = true; }
             }
-            if (cy >= 620 && cy <= 665) {
+            if (cy >= 675 && cy <= 720) {
                 if (cx >= 20 && cx <= 80) { gridCopyY = !gridCopyY; arrayChanged = true; }
                 if (cx >= 85 && cx <= 120) { gridCopyYSpace = Math.max(-100, gridCopyYSpace - 16); arrayChanged = true; }
                 if (cx >= 125 && cx <= 150) { gridCopyYSpace = Math.max(-100, gridCopyYSpace - 1); arrayChanged = true; }
@@ -2592,7 +2622,7 @@ function updateGlobalMenuTexture() {
                 if (cx >= 330 && cx <= 360) { gridCopyYCopies = Math.max(1, gridCopyYCopies - 1); arrayChanged = true; }
                 if (cx >= 470 && cx <= 500) { gridCopyYCopies = Math.min(20, gridCopyYCopies + 1); arrayChanged = true; }
             }
-            if (cy >= 680 && cy <= 725) {
+            if (cy >= 735 && cy <= 780) {
                 if (cx >= 20 && cx <= 80) { gridCopyZ = !gridCopyZ; arrayChanged = true; }
                 if (cx >= 85 && cx <= 120) { gridCopyZSpace = Math.max(-100, gridCopyZSpace - 16); arrayChanged = true; }
                 if (cx >= 125 && cx <= 150) { gridCopyZSpace = Math.max(-100, gridCopyZSpace - 1); arrayChanged = true; }
@@ -2601,7 +2631,6 @@ function updateGlobalMenuTexture() {
                 if (cx >= 330 && cx <= 360) { gridCopyZCopies = Math.max(1, gridCopyZCopies - 1); arrayChanged = true; }
                 if (cx >= 470 && cx <= 500) { gridCopyZCopies = Math.min(20, gridCopyZCopies + 1); arrayChanged = true; }
             }
-
             if (arrayChanged) {
                 updateActiveSymmetries();
             }
@@ -2766,6 +2795,519 @@ function updateGlobalMenuTexture() {
             }
             if (exportBtn) exportBtn.innerText = originalText;
             console.log("Export Complete");
+        }
+
+        // --- Reusable Scratch Buffers for Zero-GC .VTB Serialization ---
+        const vtbScratchR = new Uint8Array(CHUNK_VOL);
+        const vtbScratchG = new Uint8Array(CHUNK_VOL);
+        const vtbScratchB = new Uint8Array(CHUNK_VOL);
+        const vtbScratchPairs = new Uint32Array(2048);
+
+        async function compressBytes(uint8Data) {
+            if (typeof CompressionStream === 'undefined') return { compressed: false, data: uint8Data };
+            try {
+                const cs = new CompressionStream('deflate-raw');
+                const writer = cs.writable.getWriter();
+                writer.write(uint8Data);
+                writer.close();
+                const buf = await new Response(cs.readable).arrayBuffer();
+                return { compressed: true, data: new Uint8Array(buf) };
+            } catch (e) {
+                return { compressed: false, data: uint8Data };
+            }
+        }
+
+        async function decompressBytes(uint8Data, expectedLength) {
+            const ds = new DecompressionStream('deflate-raw');
+            const writer = ds.writable.getWriter();
+            writer.write(uint8Data);
+            writer.close();
+            const buf = await new Response(ds.readable).arrayBuffer();
+            return new Uint8Array(buf);
+        }
+
+        async function saveToVTB() {
+            const saveBtn = document.getElementById('save-button-overlay');
+            const origText = saveBtn ? saveBtn.innerText : 'Save .VTB';
+            if (saveBtn) saveBtn.innerText = 'Saving...';
+
+            try {
+                if (hasSelection) applySelection();
+                flushDirtyChunks();
+
+                // 1. Collect complete lossless application & environment state
+                const meta = {
+                    v: 1,
+                    wp: [worldGroup.position.x, worldGroup.position.y, worldGroup.position.z],
+                    wq: [worldGroup.quaternion.x, worldGroup.quaternion.y, worldGroup.quaternion.z, worldGroup.quaternion.w],
+                    ws: [worldGroup.scale.x, worldGroup.scale.y, worldGroup.scale.z],
+                    ms: [activeMatSlot, activeColorSubSlot, joyLTarget, joyRTarget],
+                    mt: [matTypes[0], matTypes[1]],
+                    cm: [colorModes[0], colorModes[1]],
+                    sc: [
+                        [slotColors[0][0].getHex(), slotColors[0][1].getHex()],
+                        [slotColors[1][0].getHex(), slotColors[1][1].getHex()]
+                    ],
+                    fr: [fractalTypes.slice(), fractalScales.slice(), fractalIters.slice(), fractalStyles.slice()],
+                    wd: [woodTypes.slice(), woodScales.slice(), woodTurbs.slice(), woodAxes.slice()],
+                    st: [stoneTypes.slice(), stoneScales.slice(), stoneDetails.slice(), stoneStyles.slice()],
+                    sym: [isVerticalLock, clearInterior, mirrorX, mirrorY, mirrorZ, polarSymmetry, drawFromCenter, renderMode, exportMode],
+                    gc: [gridCopyX, gridCopyXSpace, gridCopyXCopies, gridCopyY, gridCopyYSpace, gridCopyYCopies, gridCopyZ, gridCopyZSpace, gridCopyZCopies],
+                    tl: {
+                        activeTool, extrudeAxis, extrudeAdjoining, extrudeColorMode, extrudeAdjoiningFilter, extrudeVolumeMode,
+                        brushShape, brushVolume, brushSize, brushPressureMode, sculptSize, sculptDensity, sculptPressureMode,
+                        bouncyRadius, bouncySpeed, bouncyCount, bouncyColorMode, boxMode, boxGridMode, boxDivX, boxDivY, boxDivZ, boxDivThick,
+                        sphereMode, cylinderMode, cylinderSides, cylinderAxis, cylinderCap, cylinderDivs, cylinderDivThick,
+                        torusMode, torusSides, torusAxis, torusTubePct, torusSweep, torusDivs, torusTubeDivs, torusDivThick,
+                        triangleType, triangleMode, triangleAxis, triangleGridMode, triangleDivs, triangleDivThick, triangleCap, pyramidLegs,
+                        icosahedronMode, icosahedronDivs, icosahedronLock, platonicType, wireWidth, wireFill,
+                        paintMode, paintAction, paintStrength, planeOutline, planeOutlineThick, planeFill, planeGrid, planeGridThick, planeDivU, planeDivV, planeThick,
+                        lineMode, lineType, lineDrawMode, lineSheetType, lineColorMode, arcBulge, arcControlMode, arcTilt
+                    }
+                };
+
+                const metaBytes = new TextEncoder().encode(JSON.stringify(meta));
+                const activeChunks = [];
+                let countedVoxels = 0;
+
+                for (const [, chunk] of chunks) {
+                    let mask = 0;
+                    for (let m = 0; m < 4; m++) {
+                        if (chunk.layers[m] && chunk.layers[m].count > 0) {
+                            mask |= (1 << m);
+                            countedVoxels += chunk.layers[m].count;
+                        }
+                    }
+                    if (mask !== 0) activeChunks.push({ chunk, mask });
+                }
+
+                // 2. Allocate single contiguous buffer for worst-case uncompressed payload
+                const maxPayloadSize = 4 + metaBytes.length + 4 + (activeChunks.length * 15) + (countedVoxels * 5);
+                const rawBuf = new Uint8Array(maxPayloadSize);
+                const rawView = new DataView(rawBuf.buffer);
+                let ptr = 0;
+
+                rawView.setUint32(ptr, metaBytes.length, true); ptr += 4;
+                rawBuf.set(metaBytes, ptr); ptr += metaBytes.length;
+                rawView.setUint32(ptr, activeChunks.length, true); ptr += 4;
+
+                // 3. Encode each chunk using VarInt spatial delta indices + planar RGB channels
+                for (let cIdx = 0; cIdx < activeChunks.length; cIdx++) {
+                    const { chunk, mask } = activeChunks[cIdx];
+                    rawView.setInt16(ptr, chunk.cx, true); ptr += 2;
+                    rawView.setInt16(ptr, chunk.cy, true); ptr += 2;
+                    rawView.setInt16(ptr, chunk.cz, true); ptr += 2;
+                    rawBuf[ptr++] = mask;
+
+                    for (let m = 0; m < 4; m++) {
+                        if ((mask & (1 << m)) === 0) continue;
+                        const layer = chunk.layers[m];
+                        const count = layer.count;
+                        rawView.setUint16(ptr, count, true); ptr += 2;
+
+                        const cArr = layer.mesh.instanceColor.array;
+                        let prevLocalIdx = -1;
+                        let vIdx = 0;
+
+                        if (count < 2048) {
+                            // Fast path for sparse chunks: sort active (localIdx, instIdx) pairs
+                            const iToL = layer.indexToLocal;
+                            for (let i = 0; i < count; i++) {
+                                vtbScratchPairs[i] = (iToL[i] << 16) | i;
+                            }
+                            const subPairs = vtbScratchPairs.subarray(0, count);
+                            subPairs.sort();
+                            for (let i = 0; i < count; i++) {
+                                const packed = subPairs[i];
+                                const localIdx = packed >>> 16;
+                                const instIdx = packed & 0xFFFF;
+                                const d = localIdx - prevLocalIdx - 1;
+                                prevLocalIdx = localIdx;
+
+                                if (d < 128) {
+                                    rawBuf[ptr++] = d;
+                                } else {
+                                    rawBuf[ptr++] = (d & 0x7F) | 0x80;
+                                    rawBuf[ptr++] = d >>> 7;
+                                }
+
+                                const colOffset = instIdx * 3;
+                                vtbScratchR[vIdx] = cArr[colOffset];
+                                vtbScratchG[vIdx] = cArr[colOffset + 1];
+                                vtbScratchB[vIdx] = cArr[colOffset + 2];
+                                vIdx++;
+                            }
+                        } else {
+                            // Linear spatial scan for dense chunks (already ordered 0..32767)
+                            const vToI = layer.voxelToIndex;
+                            for (let localIdx = 0; localIdx < CHUNK_VOL; localIdx++) {
+                                const instIdx = vToI[localIdx];
+                                if (instIdx === 65535) continue;
+                                const d = localIdx - prevLocalIdx - 1;
+                                prevLocalIdx = localIdx;
+
+                                if (d < 128) {
+                                    rawBuf[ptr++] = d;
+                                } else {
+                                    rawBuf[ptr++] = (d & 0x7F) | 0x80;
+                                    rawBuf[ptr++] = d >>> 7;
+                                }
+
+                                const colOffset = instIdx * 3;
+                                vtbScratchR[vIdx] = cArr[colOffset];
+                                vtbScratchG[vIdx] = cArr[colOffset + 1];
+                                vtbScratchB[vIdx] = cArr[colOffset + 2];
+                                vIdx++;
+                            }
+                        }
+
+                        rawBuf.set(vtbScratchR.subarray(0, count), ptr); ptr += count;
+                        rawBuf.set(vtbScratchG.subarray(0, count), ptr); ptr += count;
+                        rawBuf.set(vtbScratchB.subarray(0, count), ptr); ptr += count;
+                    }
+                }
+
+                const uncompressedSlice = rawBuf.subarray(0, ptr);
+                const { compressed, data: payloadBytes } = await compressBytes(uncompressedSlice);
+
+                // 4. Build final 9-byte VTB1 header + compressed payload
+                const finalFile = new Uint8Array(9 + payloadBytes.length);
+                const finalView = new DataView(finalFile.buffer);
+                finalFile[0] = 0x56; // 'V'
+                finalFile[1] = 0x54; // 'T'
+                finalFile[2] = 0x42; // 'B'
+                finalFile[3] = 0x31; // '1'
+                finalFile[4] = compressed ? 1 : 0;
+                finalView.setUint32(5, ptr, true);
+                finalFile.set(payloadBytes, 9);
+
+                const fileName = 'project.vtb';
+                let savedViaPicker = false;
+                if (window.showSaveFilePicker) {
+                    try {
+                        const fileHandle = await window.showSaveFilePicker({
+                            suggestedName: fileName,
+                            types: [{ description: 'VoxTrotBravo Scene (.vtb)', accept: { 'application/octet-stream': ['.vtb'] } }]
+                        });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(finalFile);
+                        await writable.close();
+                        savedViaPicker = true;
+                    } catch (err) {
+                        if (err && err.name === 'AbortError') {
+                            if (saveBtn) saveBtn.innerText = origText;
+                            return;
+                        }
+                    }
+                }
+
+                if (!savedViaPicker) {
+                    const blob = new Blob([finalFile], { type: 'application/octet-stream' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 10000);
+                }
+            } catch (err) {
+                console.error('Failed to save .VTB file:', err);
+            } finally {
+                if (saveBtn) saveBtn.innerText = origText;
+            }
+        }
+
+        async function loadFromVTB(arrayBuffer) {
+            const loadBtn = document.getElementById('load-button-overlay');
+            const origText = loadBtn ? loadBtn.innerText : 'Load .VTB';
+            if (loadBtn) loadBtn.innerText = 'Loading...';
+
+            try {
+                const fileBytes = new Uint8Array(arrayBuffer);
+                if (fileBytes.length < 9 || fileBytes[0] !== 0x56 || fileBytes[1] !== 0x54 || fileBytes[2] !== 0x42 || fileBytes[3] !== 0x31) {
+                    throw new Error('Invalid .VTB file header.');
+                }
+
+                const isCompressed = fileBytes[4] === 1;
+                const headView = new DataView(fileBytes.buffer, fileBytes.byteOffset, fileBytes.byteLength);
+                const uncompressedLength = headView.getUint32(5, true);
+                const rawSlice = fileBytes.subarray(9);
+                const payload = isCompressed ? await decompressBytes(rawSlice, uncompressedLength) : rawSlice;
+                const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+
+                let ptr = 0;
+                const metaLen = view.getUint32(ptr, true); ptr += 4;
+                const metaJson = new TextDecoder().decode(payload.subarray(ptr, ptr + metaLen)); ptr += metaLen;
+                const meta = JSON.parse(metaJson);
+
+                // 1. Clear active selection, undo/redo stacks, and dispose existing GPU chunk meshes
+                if (hasSelection) cancelSelection();
+                hideAllPreviews();
+                undoStack.length = 0;
+                redoStack.length = 0;
+                dirtyChunks.clear();
+
+                for (const [, chunk] of chunks) {
+                    for (let m = 0; m < 4; m++) {
+                        const layer = chunk.layers[m];
+                        if (layer) {
+                            worldGroup.remove(layer.mesh);
+                            worldGroup.remove(layer.pointsMesh);
+                            layer.mesh.dispose();
+                            layer.pointsMesh.geometry.dispose();
+                        }
+                    }
+                }
+                chunks.clear();
+                totalActiveVoxels = 0;
+
+                // 2. Restore world transform, palette, materials, symmetry, and tool settings
+                if (meta.wp) worldGroup.position.set(meta.wp[0], meta.wp[1], meta.wp[2]);
+                if (meta.wq) worldGroup.quaternion.set(meta.wq[0], meta.wq[1], meta.wq[2], meta.wq[3]);
+                if (meta.ws) worldGroup.scale.set(meta.ws[0], meta.ws[1], meta.ws[2]);
+
+                if (meta.ms) {
+                    activeMatSlot = meta.ms[0];
+                    activeColorSubSlot = meta.ms[1];
+                    joyLTarget = meta.ms[2];
+                    joyRTarget = meta.ms[3];
+                }
+                if (meta.mt) { matTypes[0] = meta.mt[0]; matTypes[1] = meta.mt[1]; }
+                if (meta.cm) { colorModes[0] = meta.cm[0]; colorModes[1] = meta.cm[1]; }
+                if (meta.sc) {
+                    slotColors[0][0].setHex(meta.sc[0][0]);
+                    slotColors[0][1].setHex(meta.sc[0][1]);
+                    slotColors[1][0].setHex(meta.sc[1][0]);
+                    slotColors[1][1].setHex(meta.sc[1][1]);
+                }
+                if (meta.fr) {
+                    for (let i = 0; i < 2; i++) {
+                        fractalTypes[i] = meta.fr[0][i];
+                        fractalScales[i] = meta.fr[1][i];
+                        fractalIters[i] = meta.fr[2][i];
+                        fractalStyles[i] = meta.fr[3][i];
+                    }
+                }
+                if (meta.wd) {
+                    for (let i = 0; i < 2; i++) {
+                        woodTypes[i] = meta.wd[0][i];
+                        woodScales[i] = meta.wd[1][i];
+                        woodTurbs[i] = meta.wd[2][i];
+                        woodAxes[i] = meta.wd[3][i];
+                    }
+                }
+                if (meta.st) {
+                    for (let i = 0; i < 2; i++) {
+                        stoneTypes[i] = meta.st[0][i];
+                        stoneScales[i] = meta.st[1][i];
+                        stoneDetails[i] = meta.st[2][i];
+                        stoneStyles[i] = meta.st[3][i];
+                    }
+                }
+                if (meta.sym) {
+                    isVerticalLock = meta.sym[0];
+                    clearInterior = meta.sym[1];
+                    mirrorX = meta.sym[2];
+                    mirrorY = meta.sym[3];
+                    mirrorZ = meta.sym[4];
+                    polarSymmetry = meta.sym[5];
+                    drawFromCenter = meta.sym[6];
+                    renderMode = meta.sym[7] || 'standard';
+                    exportMode = meta.sym[8] || 'boxes';
+                }
+                if (meta.gc) {
+                    gridCopyX = meta.gc[0]; gridCopyXSpace = meta.gc[1]; gridCopyXCopies = meta.gc[2];
+                    gridCopyY = meta.gc[3]; gridCopyYSpace = meta.gc[4]; gridCopyYCopies = meta.gc[5];
+                    gridCopyZ = meta.gc[6]; gridCopyZSpace = meta.gc[7]; gridCopyZCopies = meta.gc[8];
+                }
+                if (meta.tl) {
+                    const t = meta.tl;
+                    if (t.activeTool !== undefined) activeTool = t.activeTool;
+                    if (t.extrudeAxis !== undefined) extrudeAxis = t.extrudeAxis;
+                    if (t.extrudeAdjoining !== undefined) extrudeAdjoining = t.extrudeAdjoining;
+                    if (t.extrudeColorMode !== undefined) extrudeColorMode = t.extrudeColorMode;
+                    if (t.extrudeAdjoiningFilter !== undefined) extrudeAdjoiningFilter = t.extrudeAdjoiningFilter;
+                    if (t.extrudeVolumeMode !== undefined) extrudeVolumeMode = t.extrudeVolumeMode;
+                    if (t.brushShape !== undefined) brushShape = t.brushShape;
+                    if (t.brushVolume !== undefined) brushVolume = t.brushVolume;
+                    if (t.brushSize !== undefined) brushSize = t.brushSize;
+                    if (t.brushPressureMode !== undefined) brushPressureMode = t.brushPressureMode;
+                    if (t.sculptSize !== undefined) sculptSize = t.sculptSize;
+                    if (t.sculptDensity !== undefined) sculptDensity = t.sculptDensity;
+                    if (t.sculptPressureMode !== undefined) sculptPressureMode = t.sculptPressureMode;
+                    if (t.bouncyRadius !== undefined) bouncyRadius = t.bouncyRadius;
+                    if (t.bouncySpeed !== undefined) bouncySpeed = t.bouncySpeed;
+                    if (t.bouncyCount !== undefined) bouncyCount = t.bouncyCount;
+                    if (t.bouncyColorMode !== undefined) bouncyColorMode = t.bouncyColorMode;
+                    if (t.boxMode !== undefined) boxMode = t.boxMode;
+                    if (t.boxGridMode !== undefined) boxGridMode = t.boxGridMode;
+                    if (t.boxDivX !== undefined) boxDivX = t.boxDivX;
+                    if (t.boxDivY !== undefined) boxDivY = t.boxDivY;
+                    if (t.boxDivZ !== undefined) boxDivZ = t.boxDivZ;
+                    if (t.boxDivThick !== undefined) boxDivThick = t.boxDivThick;
+                    if (t.sphereMode !== undefined) sphereMode = t.sphereMode;
+                    if (t.cylinderMode !== undefined) cylinderMode = t.cylinderMode;
+                    if (t.cylinderSides !== undefined) cylinderSides = t.cylinderSides;
+                    if (t.cylinderAxis !== undefined) cylinderAxis = t.cylinderAxis;
+                    if (t.cylinderCap !== undefined) cylinderCap = t.cylinderCap;
+                    if (t.cylinderDivs !== undefined) cylinderDivs = t.cylinderDivs;
+                    if (t.cylinderDivThick !== undefined) cylinderDivThick = t.cylinderDivThick;
+                    if (t.torusMode !== undefined) torusMode = t.torusMode;
+                    if (t.torusSides !== undefined) torusSides = t.torusSides;
+                    if (t.torusAxis !== undefined) torusAxis = t.torusAxis;
+                    if (t.torusTubePct !== undefined) torusTubePct = t.torusTubePct;
+                    if (t.torusSweep !== undefined) torusSweep = t.torusSweep;
+                    if (t.torusDivs !== undefined) torusDivs = t.torusDivs;
+                    if (t.torusTubeDivs !== undefined) torusTubeDivs = t.torusTubeDivs;
+                    if (t.torusDivThick !== undefined) torusDivThick = t.torusDivThick;
+                    if (t.triangleType !== undefined) triangleType = t.triangleType;
+                    if (t.triangleMode !== undefined) triangleMode = t.triangleMode;
+                    if (t.triangleAxis !== undefined) triangleAxis = t.triangleAxis;
+                    if (t.triangleGridMode !== undefined) triangleGridMode = t.triangleGridMode;
+                    if (t.triangleDivs !== undefined) triangleDivs = t.triangleDivs;
+                    if (t.triangleDivThick !== undefined) triangleDivThick = t.triangleDivThick;
+                    if (t.triangleCap !== undefined) triangleCap = t.triangleCap;
+                    if (t.pyramidLegs !== undefined) pyramidLegs = t.pyramidLegs;
+                    if (t.icosahedronMode !== undefined) icosahedronMode = t.icosahedronMode;
+                    if (t.icosahedronDivs !== undefined) icosahedronDivs = t.icosahedronDivs;
+                    if (t.icosahedronLock !== undefined) icosahedronLock = t.icosahedronLock;
+                    if (t.platonicType !== undefined) platonicType = t.platonicType;
+                    if (t.wireWidth !== undefined) wireWidth = t.wireWidth;
+                    if (t.wireFill !== undefined) wireFill = t.wireFill;
+                    if (t.paintMode !== undefined) paintMode = t.paintMode;
+                    if (t.paintAction !== undefined) paintAction = t.paintAction;
+                    if (t.paintStrength !== undefined) paintStrength = t.paintStrength;
+                    if (t.planeOutline !== undefined) planeOutline = t.planeOutline;
+                    if (t.planeOutlineThick !== undefined) planeOutlineThick = t.planeOutlineThick;
+                    if (t.planeFill !== undefined) planeFill = t.planeFill;
+                    if (t.planeGrid !== undefined) planeGrid = t.planeGrid;
+                    if (t.planeGridThick !== undefined) planeGridThick = t.planeGridThick;
+                    if (t.planeDivU !== undefined) planeDivU = t.planeDivU;
+                    if (t.planeDivV !== undefined) planeDivV = t.planeDivV;
+                    if (t.planeThick !== undefined) planeThick = t.planeThick;
+                    if (t.lineMode !== undefined) lineMode = t.lineMode;
+                    if (t.lineType !== undefined) lineType = t.lineType;
+                    if (t.lineDrawMode !== undefined) lineDrawMode = t.lineDrawMode;
+                    if (t.lineSheetType !== undefined) lineSheetType = t.lineSheetType;
+                    if (t.lineColorMode !== undefined) lineColorMode = t.lineColorMode;
+                    if (t.arcBulge !== undefined) arcBulge = t.arcBulge;
+                    if (t.arcControlMode !== undefined) arcControlMode = t.arcControlMode;
+                    if (t.arcTilt !== undefined) arcTilt = t.arcTilt;
+                }
+
+                // 3. Reconstruct chunks directly into GPU-backed TypedArrays
+                const chunkCount = view.getUint32(ptr, true); ptr += 4;
+                for (let c = 0; c < chunkCount; c++) {
+                    const cx = view.getInt16(ptr, true); ptr += 2;
+                    const cy = view.getInt16(ptr, true); ptr += 2;
+                    const cz = view.getInt16(ptr, true); ptr += 2;
+                    const mask = payload[ptr++];
+
+                    const k = (cx + 65536) + (cy + 65536) * 131072 + (cz + 65536) * 17179869184;
+                    const chunk = new Chunk(cx, cy, cz);
+                    chunks.set(k, chunk);
+                    const vMatMap = chunk.voxelMatMap;
+                    const baseGx = cx * 32, baseGy = cy * 32, baseGz = cz * 32;
+
+                    for (let m = 0; m < 4; m++) {
+                        if ((mask & (1 << m)) === 0) continue;
+                        const count = view.getUint16(ptr, true); ptr += 2;
+
+                        const layer = new ChunkLayer(cx, cy, cz, m);
+                        if (count > layer.capacity) {
+                            let reqCap = layer.capacity;
+                            while (reqCap < count) reqCap *= 2;
+                            layer.resizeCapacity(Math.min(CHUNK_VOL, reqCap));
+                        }
+                        chunk.layers[m] = layer;
+
+                        const vToI = layer.voxelToIndex;
+                        const iToL = layer.indexToLocal;
+                        const mArr = layer.mesh.instanceMatrix.array;
+                        const ptsPos = layer.ptsPos;
+                        const cArr = layer.mesh.instanceColor.array;
+
+                        let prevLocalIdx = -1;
+                        for (let i = 0; i < count; i++) {
+                            let d = payload[ptr++];
+                            if (d & 0x80) d = (d & 0x7F) | (payload[ptr++] << 7);
+                            const localIdx = prevLocalIdx + d + 1;
+                            prevLocalIdx = localIdx;
+
+                            vMatMap[localIdx] = m;
+                            vToI[localIdx] = i;
+                            iToL[i] = localIdx;
+
+                            const gx = baseGx + (localIdx & 31);
+                            const gy = baseGy + ((localIdx >> 5) & 31);
+                            const gz = baseGz + (localIdx >> 10);
+
+                            const mIdx = i * 16;
+                            mArr[mIdx + 12] = gx;
+                            mArr[mIdx + 13] = gy;
+                            mArr[mIdx + 14] = gz;
+
+                            const pIdx = i * 3;
+                            ptsPos[pIdx] = gx;
+                            ptsPos[pIdx + 1] = gy;
+                            ptsPos[pIdx + 2] = gz;
+                        }
+
+                        const rOffset = ptr;
+                        const gOffset = ptr + count;
+                        const bOffset = ptr + count * 2;
+                        for (let i = 0; i < count; i++) {
+                            const cIdx = i * 3;
+                            cArr[cIdx]     = payload[rOffset + i];
+                            cArr[cIdx + 1] = payload[gOffset + i];
+                            cArr[cIdx + 2] = payload[bOffset + i];
+                        }
+                        ptr += count * 3;
+
+                        layer.count = count;
+                        layer.mesh.count = count;
+                        layer.dirtyMin = 0;
+                        layer.dirtyMax = count - 1;
+                        layer.needsUpdate = true;
+                        totalActiveVoxels += count;
+                    }
+                    dirtyChunks.add(chunk);
+                }
+
+                rebuildTorusPreviewGeo();
+                updatePolarArrays();
+                updateCursors();
+                flushDirtyChunks();
+                leftMenuNeedsUpdate = rightMenuNeedsUpdate = colorMenuNeedsUpdate = globalMenuNeedsUpdate = true;
+            } catch (err) {
+                console.error('Failed to load .VTB file:', err);
+            } finally {
+                if (loadBtn) loadBtn.innerText = origText;
+            }
+        }
+
+        async function triggerLoadVTB() {
+            if (window.showOpenFilePicker) {
+                try {
+                    const [fileHandle] = await window.showOpenFilePicker({
+                        types: [{ description: 'VoxTrotBravo Scene (.vtb)', accept: { 'application/octet-stream': ['.vtb'] } }],
+                        multiple: false
+                    });
+                    const file = await fileHandle.getFile();
+                    const buf = await file.arrayBuffer();
+                    await loadFromVTB(buf);
+                    return;
+                } catch (err) {
+                    if (err && err.name === 'AbortError') return;
+                }
+            }
+            const fileInput = document.getElementById('vtb-file-input');
+            if (fileInput) {
+                fileInput.value = '';
+                fileInput.click();
+            }
         }
 
 
@@ -5992,7 +6534,44 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
     });
         window.addEventListener('resize',()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
         
-        // Add listener for the browser-based export button
+        // Add listeners for browser-based Save, Load, Export buttons and Drag & Drop
+        const saveBtn = document.getElementById('save-button-overlay');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                saveToVTB();
+            });
+        }
+
+        const loadBtn = document.getElementById('load-button-overlay');
+        if (loadBtn) {
+            loadBtn.addEventListener('click', () => {
+                triggerLoadVTB();
+            });
+        }
+
+        const vtbFileInput = document.getElementById('vtb-file-input');
+        if (vtbFileInput) {
+            vtbFileInput.addEventListener('change', async (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) {
+                    const buf = await file.arrayBuffer();
+                    await loadFromVTB(buf);
+                }
+            });
+        }
+
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        window.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (file && file.name.toLowerCase().endsWith('.vtb')) {
+                const buf = await file.arrayBuffer();
+                await loadFromVTB(buf);
+            }
+        });
+
         const exportBtn = document.getElementById('export-button-overlay');
         if (exportBtn) {
             exportBtn.addEventListener('click', () => {
