@@ -691,11 +691,21 @@
         const voxelMaterials = [matSolid, matGlass, matEmission, matMetal];
         const chunks = new Map(); 
         const dirtyChunks = new Set();
+        const fragmentedLayers = new Set();
 
         function flushDirtyChunks() {
             if (dirtyChunks.size === 0) return;
             dirtyChunks.forEach(c => c.updateBuffers());
             dirtyChunks.clear();
+        }
+
+        function defragmentOneLayerOnIdle() {
+            if (fragmentedLayers.size === 0) return;
+            const nextLayer = fragmentedLayers.values().next().value;
+            fragmentedLayers.delete(nextLayer);
+            if (nextLayer && nextLayer.isFragmented && nextLayer.count > 1) {
+                nextLayer.defragment();
+            }
         }
 
         // --- Performance Mode (Points) Textures & Materials ---
@@ -715,98 +725,148 @@
         const ptMetal = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
         const perfMaterials = [ptSolid, ptGlass, ptEmission, ptMetal];
 
+        // --- .VTB 15-Bit localIdx GPU Unpacking Materials for ChunkLayer ---
+        function applyVTBLocalIdxShader(mat) {
+            mat.onBeforeCompile = (shader) => {
+                shader.vertexShader = 'attribute float aLocalIdx;\n' + shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    `int vtbIdx = int(aLocalIdx + 0.5);
+                    vec3 voxelOffset = vec3(
+                        float(vtbIdx & 31),
+                        float((vtbIdx >> 5) & 31),
+                        float((vtbIdx >> 10) & 31)
+                    );
+                    vec3 transformed = vec3( position ) + voxelOffset;`
+                );
+            };
+            mat.customProgramCacheKey = () => 'vtb_localidx_v1';
+            return mat;
+        }
+
+        const chunkVoxelMaterials = [
+            applyVTBLocalIdxShader(new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.1, vertexColors: true, depthFunc: THREE.LessEqualDepth })),
+            applyVTBLocalIdxShader(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, vertexColors: true, transparent: true, opacity: 0.35, depthWrite: false, depthFunc: THREE.LessEqualDepth })),
+            applyVTBLocalIdxShader(new THREE.MeshBasicMaterial({ vertexColors: true })),
+            applyVTBLocalIdxShader(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 1.0, vertexColors: true, depthFunc: THREE.LessEqualDepth }))
+        ];
+
+        const chunkPerfMaterials = [
+            applyVTBLocalIdxShader(new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth })),
+            applyVTBLocalIdxShader(new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, transparent: true, opacity: 0.4, depthWrite: false, depthFunc: THREE.LessEqualDepth })),
+            applyVTBLocalIdxShader(new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth })),
+            applyVTBLocalIdxShader(new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, map: perfTex, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth }))
+        ];
+
+        const chunkSinglePointPosAttr = new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3);
+        const CHUNK_LOCAL_BOUNDING_SPHERE = new THREE.Sphere(
+            new THREE.Vector3(CHUNK_SIZE / 2, CHUNK_SIZE / 2, CHUNK_SIZE / 2),
+            CHUNK_SIZE * 0.87
+        );
+
         class ChunkLayer {
             constructor(cx, cy, cz, matType) {
+                this.cx = cx; this.cy = cy; this.cz = cz;
                 this.matType = matType;
-                this.material = voxelMaterials[matType];
-                this.capacity = 4096; 
+                this.material = chunkVoxelMaterials[matType];
+                this.capacity = 512;
                 this.count = 0;
-                this.mesh = new THREE.InstancedMesh(voxelGeometry, this.material, this.capacity);
-                this.mesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); 
-                this.mesh.matrixAutoUpdate = false; this.mesh.updateMatrix();
-                this.mesh.visible = false; 
-                this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-                
-                const mArr = this.mesh.instanceMatrix.array;
-                for (let i = 0; i < this.capacity; i++) { mArr[i*16] = 1; mArr[i*16+5] = 1; mArr[i*16+10] = 1; mArr[i*16+15] = 1; }
-                
-                this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(this.capacity * 3), 3, true);
-                this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-                this.mesh.count = 0;
-                this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3((cx * CHUNK_SIZE + CHUNK_SIZE / 2), (cy * CHUNK_SIZE + CHUNK_SIZE / 2), (cz * CHUNK_SIZE + CHUNK_SIZE / 2)), CHUNK_SIZE * 0.87);
-                worldGroup.add(this.mesh);
-
-                this.ptsPos = new Float32Array(this.capacity * 3);
-                const ptsGeo = new THREE.BufferGeometry();
-                ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
-                ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
-                this.pointsMesh = new THREE.Points(ptsGeo, perfMaterials[matType]);
-                this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
-                this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
-                this.pointsMesh.visible = false;
-                this.pointsMesh.boundingSphere = this.mesh.boundingSphere;
-                ptsGeo.boundingSphere = this.mesh.boundingSphere;
-                worldGroup.add(this.pointsMesh);
+                this.isFragmented = false;
 
                 this.voxelToIndex = new Uint16Array(CHUNK_VOL);
-                this.voxelToIndex.fill(65535); 
-                this.indexToLocal = new Uint16Array(CHUNK_VOL); 
+                this.voxelToIndex.fill(65535);
+                this.indexToLocal = new Uint16Array(this.capacity);
+
+                this.localIdxAttr = new THREE.InstancedBufferAttribute(this.indexToLocal, 1, false);
+                this.localIdxAttr.setUsage(THREE.DynamicDrawUsage);
+
+                this.colorAttr = new THREE.InstancedBufferAttribute(new Uint8Array(this.capacity * 3), 3, true);
+                this.colorAttr.setUsage(THREE.DynamicDrawUsage);
+
+                this._buildMeshes(false, false);
+
                 this.needsUpdate = false;
                 this.dirtyMin = Infinity;
                 this.dirtyMax = -1;
             }
 
+            _buildMeshes(meshVisible, ptsVisible) {
+                const originX = this.cx * CHUNK_SIZE * VOXEL_SIZE;
+                const originY = this.cy * CHUNK_SIZE * VOXEL_SIZE;
+                const originZ = this.cz * CHUNK_SIZE * VOXEL_SIZE;
+
+                const cubeGeo = new THREE.InstancedBufferGeometry();
+                cubeGeo.index = voxelGeometry.index;
+                cubeGeo.attributes.position = voxelGeometry.attributes.position;
+                cubeGeo.attributes.normal = voxelGeometry.attributes.normal;
+                cubeGeo.setAttribute('aLocalIdx', this.localIdxAttr);
+                cubeGeo.setAttribute('color', this.colorAttr);
+                cubeGeo.instanceCount = this.count;
+                cubeGeo.boundingSphere = CHUNK_LOCAL_BOUNDING_SPHERE;
+
+                this.mesh = new THREE.Mesh(cubeGeo, this.material);
+                this.mesh.position.set(originX, originY, originZ);
+                this.mesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+                this.mesh.matrixAutoUpdate = false;
+                this.mesh.updateMatrix();
+                this.mesh.visible = meshVisible;
+                this.mesh.count = this.count;
+                this.mesh.instanceColor = this.colorAttr; // Preserves compatibility with all existing callers
+                this.mesh.dispose = () => { cubeGeo.dispose(); };
+                worldGroup.add(this.mesh);
+
+                const ptsGeo = new THREE.InstancedBufferGeometry();
+                ptsGeo.setAttribute('position', chunkSinglePointPosAttr);
+                ptsGeo.setAttribute('aLocalIdx', this.localIdxAttr);
+                ptsGeo.setAttribute('color', this.colorAttr);
+                ptsGeo.instanceCount = this.count;
+                ptsGeo.boundingSphere = CHUNK_LOCAL_BOUNDING_SPHERE;
+
+                this.pointsMesh = new THREE.Points(ptsGeo, chunkPerfMaterials[this.matType]);
+                this.pointsMesh.position.set(originX, originY, originZ);
+                this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+                this.pointsMesh.matrixAutoUpdate = false;
+                this.pointsMesh.updateMatrix();
+                this.pointsMesh.visible = ptsVisible;
+                worldGroup.add(this.pointsMesh);
+            }
+
             resizeCapacity(newCapacity) {
                 const oldMesh = this.mesh;
                 const oldPtsMesh = this.pointsMesh;
-                this.mesh = new THREE.InstancedMesh(voxelGeometry, this.material, newCapacity);
-                this.mesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); 
-                this.mesh.matrixAutoUpdate = false; this.mesh.updateMatrix();
-                this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-                
-                const mArr = this.mesh.instanceMatrix.array;
-                for (let i = this.count; i < newCapacity; i++) { mArr[i*16] = 1; mArr[i*16+5] = 1; mArr[i*16+10] = 1; mArr[i*16+15] = 1; }
-                
-                this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(newCapacity * 3), 3, true);
-                this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-                
-                const oldPtsPos = this.ptsPos;
-                this.ptsPos = new Float32Array(newCapacity * 3);
+                const oldIndexToLocal = this.indexToLocal;
+                const oldColorArray = this.colorAttr.array;
+
+                this.indexToLocal = new Uint16Array(newCapacity);
+                const newColorArray = new Uint8Array(newCapacity * 3);
+
                 if (this.count > 0) {
-                    this.mesh.instanceMatrix.array.set(oldMesh.instanceMatrix.array.subarray(0, this.count * 16));
-                    this.mesh.instanceColor.array.set(oldMesh.instanceColor.array.subarray(0, this.count * 3));
-                    this.ptsPos.set(oldPtsPos.subarray(0, this.count * 3));
+                    this.indexToLocal.set(oldIndexToLocal.subarray(0, this.count));
+                    newColorArray.set(oldColorArray.subarray(0, this.count * 3));
                     this.dirtyMin = 0;
-                    if (this. count - 1 > this.dirtyMax) this.dirtyMax = this.count - 1;
+                    if (this.count - 1 > this.dirtyMax) this.dirtyMax = this.count - 1;
                     this.needsUpdate = true;
                 }
-                
-                this.mesh.count = this.count;
-                this.mesh.boundingSphere = oldMesh.boundingSphere;
-                this.mesh.visible = oldMesh.visible;
-                worldGroup.remove(oldMesh); worldGroup.add(this.mesh);
-                oldMesh.dispose();
 
-                const ptsGeo = new THREE.BufferGeometry();
-                ptsGeo.setAttribute('position', new THREE.BufferAttribute(this.ptsPos, 3));
-                ptsGeo.setAttribute('color', new THREE.BufferAttribute(this.mesh.instanceColor.array, 3, true));
-                ptsGeo.boundingSphere = oldMesh.boundingSphere;
-                this.pointsMesh = new THREE.Points(ptsGeo, oldPtsMesh.material);
-                this.pointsMesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
-                this.pointsMesh.matrixAutoUpdate = false; this.pointsMesh.updateMatrix();
-                this.pointsMesh.visible = oldPtsMesh.visible;
-                this.pointsMesh.boundingSphere = oldPtsMesh.boundingSphere;
-                this.pointsMesh.geometry.setDrawRange(0, this.count);
-                worldGroup.remove(oldPtsMesh); worldGroup.add(this.pointsMesh);
+                this.localIdxAttr = new THREE.InstancedBufferAttribute(this.indexToLocal, 1, false);
+                this.localIdxAttr.setUsage(THREE.DynamicDrawUsage);
+
+                this.colorAttr = new THREE.InstancedBufferAttribute(newColorArray, 3, true);
+                this.colorAttr.setUsage(THREE.DynamicDrawUsage);
+
+                worldGroup.remove(oldMesh);
+                worldGroup.remove(oldPtsMesh);
+                oldMesh.dispose();
                 oldPtsMesh.geometry.dispose();
 
                 this.capacity = newCapacity;
+                this._buildMeshes(oldMesh.visible, oldPtsMesh.visible);
             }
+
             addVoxel(localIdx, gx, gy, gz, color) {
                 const r = Math.round(color.r * 255), g = Math.round(color.g * 255), b = Math.round(color.b * 255);
                 if (this.voxelToIndex[localIdx] !== 65535) {
                     const instIdx = this.voxelToIndex[localIdx];
-                    const cArr = this.mesh.instanceColor.array;
+                    const cArr = this.colorAttr.array;
                     const idx = instIdx * 3;
                     if (cArr[idx] !== r || cArr[idx+1] !== g || cArr[idx+2] !== b) {
                         cArr[idx] = r; cArr[idx+1] = g; cArr[idx+2] = b;
@@ -817,15 +877,16 @@
                 } else {
                     if (this.count >= this.capacity) this.resizeCapacity(Math.min(CHUNK_VOL, this.capacity * 2));
                     const instIdx = this.count;
+                    if (instIdx > 0 && localIdx < this.indexToLocal[instIdx - 1]) {
+                        this.isFragmented = true;
+                        fragmentedLayers.add(this);
+                    }
                     this.voxelToIndex[localIdx] = instIdx;
                     this.indexToLocal[instIdx] = localIdx;
-                    
-                    const mArr = this.mesh.instanceMatrix.array;
-                    mArr[instIdx * 16 + 12] = gx; mArr[instIdx * 16 + 13] = gy; mArr[instIdx * 16 + 14] = gz;
-                    this.ptsPos[instIdx * 3] = gx; this.ptsPos[instIdx * 3 + 1] = gy; this.ptsPos[instIdx * 3 + 2] = gz;
-                    const cArr = this.mesh.instanceColor.array;
+
+                    const cArr = this.colorAttr.array;
                     cArr[instIdx * 3] = r; cArr[instIdx * 3 + 1] = g; cArr[instIdx * 3 + 2] = b;
-                    
+
                     this.count++; this.mesh.count = this.count; totalActiveVoxels++;
                     this.needsUpdate = true;
                     if (instIdx < this.dirtyMin) this.dirtyMin = instIdx;
@@ -840,54 +901,99 @@
 
                     if (instIdxToRemove !== lastInstIdx) {
                         const lastLocalIdx = this.indexToLocal[lastInstIdx];
-                        
-                        const mArr = this.mesh.instanceMatrix.array;
-                        mArr[instIdxToRemove * 16 + 12] = mArr[lastInstIdx * 16 + 12];
-                        mArr[instIdxToRemove * 16 + 13] = mArr[lastInstIdx * 16 + 13];
-                        mArr[instIdxToRemove * 16 + 14] = mArr[lastInstIdx * 16 + 14];
-                        
-                        const cArr = this.mesh.instanceColor.array;
+
+                        const cArr = this.colorAttr.array;
                         cArr[instIdxToRemove * 3] = cArr[lastInstIdx * 3];
                         cArr[instIdxToRemove * 3 + 1] = cArr[lastInstIdx * 3 + 1];
                         cArr[instIdxToRemove * 3 + 2] = cArr[lastInstIdx * 3 + 2];
-                        
-                        this.ptsPos[instIdxToRemove * 3] = this.ptsPos[lastInstIdx * 3];
-                        this.ptsPos[instIdxToRemove * 3 + 1] = this.ptsPos[lastInstIdx * 3 + 1];
-                        this.ptsPos[instIdxToRemove * 3 + 2] = this.ptsPos[lastInstIdx * 3 + 2];
 
                         this.voxelToIndex[lastLocalIdx] = instIdxToRemove;
                         this.indexToLocal[instIdxToRemove] = lastLocalIdx;
-                        
-                        // FIX: We no longer push the dirtyMax to the end of the array.
-                        // The swapped data is now residing at `instIdxToRemove`, which is 
-                        // correctly tracked by the dirty range flags at the bottom.
+                        this.isFragmented = true;
+                        fragmentedLayers.add(this);
                     }
 
                     this.voxelToIndex[localIdx] = 65535;
-                    this.count--; this.mesh.count = this.count; totalActiveVoxels--; 
+                    this.count--; this.mesh.count = this.count; totalActiveVoxels--;
                     this.needsUpdate = true;
                     if (instIdxToRemove < this.dirtyMin) this.dirtyMin = instIdxToRemove;
                     if (instIdxToRemove > this.dirtyMax) this.dirtyMax = instIdxToRemove;
                 }
             }
 
+            defragment() {
+                const count = this.count;
+                if (count <= 1 || !this.isFragmented) {
+                    this.isFragmented = false;
+                    return;
+                }
+                const iToL = this.indexToLocal;
+                const vToI = this.voxelToIndex;
+                const cArr = this.colorAttr.array;
+
+                if (count < 2048) {
+                    for (let i = 0; i < count; i++) {
+                        vtbScratchPairs[i] = (iToL[i] << 16) | i;
+                    }
+                    const subPairs = vtbScratchPairs.subarray(0, count);
+                    subPairs.sort();
+                    for (let i = 0; i < count; i++) {
+                        const oldInstIdx = subPairs[i] & 0xFFFF;
+                        const colOffset = oldInstIdx * 3;
+                        vtbScratchR[i] = cArr[colOffset];
+                        vtbScratchG[i] = cArr[colOffset + 1];
+                        vtbScratchB[i] = cArr[colOffset + 2];
+                    }
+                    for (let i = 0; i < count; i++) {
+                        const localIdx = subPairs[i] >>> 16;
+                        iToL[i] = localIdx;
+                        vToI[localIdx] = i;
+                        const colOffset = i * 3;
+                        cArr[colOffset] = vtbScratchR[i];
+                        cArr[colOffset + 1] = vtbScratchG[i];
+                        cArr[colOffset + 2] = vtbScratchB[i];
+                    }
+                } else {
+                    let newIdx = 0;
+                    for (let localIdx = 0; localIdx < CHUNK_VOL; localIdx++) {
+                        const oldInstIdx = vToI[localIdx];
+                        if (oldInstIdx === 65535) continue;
+                        const colOffset = oldInstIdx * 3;
+                        vtbScratchR[newIdx] = cArr[colOffset];
+                        vtbScratchG[newIdx] = cArr[colOffset + 1];
+                        vtbScratchB[newIdx] = cArr[colOffset + 2];
+                        iToL[newIdx] = localIdx;
+                        vToI[localIdx] = newIdx;
+                        newIdx++;
+                    }
+                    for (let i = 0; i < count; i++) {
+                        const colOffset = i * 3;
+                        cArr[colOffset] = vtbScratchR[i];
+                        cArr[colOffset + 1] = vtbScratchG[i];
+                        cArr[colOffset + 2] = vtbScratchB[i];
+                    }
+                }
+
+                this.isFragmented = false;
+                this.dirtyMin = 0;
+                this.dirtyMax = count - 1;
+                this.needsUpdate = true;
+                this.updateBuffers();
+            }
 
             updateBuffers() {
                 if (this.needsUpdate) {
                     if (this.dirtyMin <= this.dirtyMax) {
                         const mergeRange = (attr, offset, count) => {
                             if (attr.updateRanges) {
-                                // Three.js r160+ native multi-range tracking (cleared by WebGLRenderer only when actually rendered)
                                 if (attr.updateRanges.length > 0) {
                                     const last = attr.updateRanges[attr.updateRanges.length - 1];
-                                    // Merge if overlapping or adjacent to prevent array bloat while off-camera
                                     if (offset <= last.start + last.count && last.start <= offset + count) {
                                         const start = Math.min(last.start, offset);
                                         const end = Math.max(last.start + last.count, offset + count);
                                         last.start = start;
                                         last.count = end - start;
                                     } else if (attr.updateRanges.length > 16) {
-                                        // Collapse into a single span if modified many times while off-camera
                                         let minS = offset, maxE = offset + count;
                                         for (let i = 0; i < attr.updateRanges.length; i++) {
                                             const r = attr.updateRanges[i];
@@ -907,16 +1013,14 @@
                         };
 
                         const countItems = this.dirtyMax - this.dirtyMin + 1;
-                        mergeRange(this.mesh.instanceMatrix, this.dirtyMin * 16, countItems * 16);
-                        mergeRange(this.mesh.instanceColor, this.dirtyMin * 3, countItems * 3);
-
-                        mergeRange(this.pointsMesh.geometry.attributes.position, this.dirtyMin * 3, countItems * 3);
-                        mergeRange(this.pointsMesh.geometry.attributes.color, this.dirtyMin * 3, countItems * 3);
+                        mergeRange(this.localIdxAttr, this.dirtyMin, countItems);
+                        mergeRange(this.colorAttr, this.dirtyMin * 3, countItems * 3);
                     }
 
                     this.mesh.count = this.count;
+                    this.mesh.geometry.instanceCount = this.count;
                     this.mesh.visible = this.count > 0 && renderMode === 'standard';
-                    this.pointsMesh.geometry.setDrawRange(0, this.count);
+                    this.pointsMesh.geometry.instanceCount = this.count;
                     this.pointsMesh.visible = this.count > 0 && renderMode === 'performance';
 
                     this.needsUpdate = false;
@@ -3639,6 +3743,7 @@ function handleRightMenuClick(cx, cy) {
                 }
 
                 // 3. Reconstruct chunks directly into GPU-backed TypedArrays
+                fragmentedLayers.clear();
                 const chunkCount = view.getUint32(ptr, true); ptr += 4;
                 for (let c = 0; c < chunkCount; c++) {
                     const cx = view.getInt16(ptr, true); ptr += 2;
@@ -3650,7 +3755,6 @@ function handleRightMenuClick(cx, cy) {
                     const chunk = new Chunk(cx, cy, cz);
                     chunks.set(k, chunk);
                     const vMatMap = chunk.voxelMatMap;
-                    const baseGx = cx * 32, baseGy = cy * 32, baseGz = cz * 32;
 
                     for (let m = 0; m < 4; m++) {
                         if ((mask & (1 << m)) === 0) continue;
@@ -3666,9 +3770,7 @@ function handleRightMenuClick(cx, cy) {
 
                         const vToI = layer.voxelToIndex;
                         const iToL = layer.indexToLocal;
-                        const mArr = layer.mesh.instanceMatrix.array;
-                        const ptsPos = layer.ptsPos;
-                        const cArr = layer.mesh.instanceColor.array;
+                        const cArr = layer.colorAttr.array;
 
                         let prevLocalIdx = -1;
                         for (let i = 0; i < count; i++) {
@@ -3680,20 +3782,6 @@ function handleRightMenuClick(cx, cy) {
                             vMatMap[localIdx] = m;
                             vToI[localIdx] = i;
                             iToL[i] = localIdx;
-
-                            const gx = baseGx + (localIdx & 31);
-                            const gy = baseGy + ((localIdx >> 5) & 31);
-                            const gz = baseGz + (localIdx >> 10);
-
-                            const mIdx = i * 16;
-                            mArr[mIdx + 12] = gx;
-                            mArr[mIdx + 13] = gy;
-                            mArr[mIdx + 14] = gz;
-
-                            const pIdx = i * 3;
-                            ptsPos[pIdx] = gx;
-                            ptsPos[pIdx + 1] = gy;
-                            ptsPos[pIdx + 2] = gz;
                         }
 
                         const rOffset = ptr;
@@ -3709,6 +3797,7 @@ function handleRightMenuClick(cx, cy) {
 
                         layer.count = count;
                         layer.mesh.count = count;
+                        layer.isFragmented = false;
                         layer.dirtyMin = 0;
                         layer.dirtyMax = count - 1;
                         layer.needsUpdate = true;
@@ -6976,10 +7065,16 @@ let lastRightBtnA = false, lastRightBtnB = false, lastLeftBtnX = false, lastLeft
                 if(needsSync(lineWireframeMesh, showM)) syncMirrorProxies(lineWireframeMesh, getMirrorProxies(lineWireframeMesh), showM);
                 
                 flushDirtyChunks();
+                if (!isDrawing && !isErasing) {
+                    defragmentOneLayerOnIdle();
+                }
             }
             if (renderMode === 'performance') {
                 const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
-                for (let i = 0; i < perfMaterials.length; i++) perfMaterials[i].size = effSize;
+                for (let i = 0; i < perfMaterials.length; i++) {
+                    perfMaterials[i].size = effSize;
+                    chunkPerfMaterials[i].size = effSize;
+                }
             }
         renderer.render(scene, camera);
 
