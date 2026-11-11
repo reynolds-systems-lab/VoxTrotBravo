@@ -1,5 +1,5 @@
  	<!-- 
-    VoxTrotBravo v4.11
+    VoxTrotBravo v4.12
     Copyright (c) 2024-2026 Rob Reynolds. All Rights Reserved.
     Unauthorized copying, modification, or distribution is strictly prohibited.
 -->
@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoxTrotBravo v4.11</title>
+    <title>VoxTrotBravo v4.12</title>
     <style>
 :root{color-scheme:dark;--ink:#f0e8d3;--muted:#aeb8ac;--accent:#ffb064;--accent2:#b4e58b;--surface:#1b2521;--line:#56685a}
 *{box-sizing:border-box}body{margin:0;overflow:hidden;background:#111715;color:var(--ink);font-family:Consolas,'Lucida Console',monospace}canvas{display:block}button{font:inherit}
@@ -55,13 +55,13 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
 </head>
 <body>
     <div id="loading-overlay">
-        <h2>VoxTrotBravo v4.11</h2>
+        <h2>VoxTrotBravo v4.12</h2>
         <p>Preparing studio…</p>
         <div class="spinner"></div>
     </div>
 
     <section id="ui-container" class="glass-surface" aria-label="VoxTrotBravo controller guide">
-        <div class="brand-head"><div class="brand-logo"><div class="brand-mark" aria-hidden="true"></div><div><h1>VoxTrotBravo <small>v4.11</small></h1></div></div><button id="toggle-help" class="icon-btn" aria-label="Show or hide controller guide" title="Collapse guide">−</button></div>
+        <div class="brand-head"><div class="brand-logo"><div class="brand-mark" aria-hidden="true"></div><div><h1>VoxTrotBravo <small>v4.12</small></h1></div></div><button id="toggle-help" class="icon-btn" aria-label="Show or hide controller guide" title="Collapse guide">−</button></div>
         <div class="ui-content"><div class="eyebrow">Controller quick guide</div>
             <div class="command-rows">
                 <div class="command"><b>A · Right</b><span>Current tool settings / rotate</span></div>
@@ -91,6 +91,164 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
     <script type="module">
         import * as THREE from 'three';
 
+
+        // The worker receives snapshots. The editable chunk arrays always stay on the main thread.
+        function createSurfaceMesher() {
+            const storage = new Map();
+            function scratch(shift, width) {
+                if (storage.has(shift)) return storage.get(shift);
+                const n = width >> shift, volume = (n + 2) ** 3;
+                const work = {
+                    cells: new Uint32Array(volume), faces: new Uint8Array(volume),
+                    used: new Uint32Array(n ** 3),
+                    filledEdge: new Uint16Array(6 * n * n),
+                    opaqueEdge: new Uint16Array(6 * n * n)
+                };
+                if (shift) {
+                    // The largest aggregate is 16³ voxels. Sums stay exact in Uint32.
+                    work.count = new Uint16Array(volume);
+                    work.best = new Uint16Array(volume);
+                    work.red = new Uint32Array(volume);
+                    work.green = new Uint32Array(volume);
+                    work.blue = new Uint32Array(volume);
+                    work.samples = new Uint32Array(n ** 3);
+                }
+                storage.set(shift, work);
+                return work;
+            }
+
+            return function buildSurface({width, shift, sources, borders}) {
+                const n = width >> shift, step = 1 << shift;
+                const row = n + 2, slab = row * row, start = slab + row + 1;
+                const w = scratch(shift, width);
+                const {cells, faces, used, opaqueEdge, filledEdge} = w;
+                let usedCount = 0;
+                // Each cell has one owner. Opaque material takes precedence over glass
+                // in a mixed distant cell, so a glass sample cannot punch through a solid.
+                for (const mat of [1, 0, 2, 3]) {
+                    let sampleCount = 0;
+                    for (const chunk of sources) {
+                        const layer = chunk.layers[mat];
+                        if (!layer) continue;
+                        const {indices, colors} = layer;
+                        for (let i = 0, c = 0; i < indices.length; i++, c += 3) {
+                            const local = indices[i];
+                            const x = (chunk.x + (local & 31)) >> shift;
+                            const y = (chunk.y + ((local >> 5) & 31)) >> shift;
+                            const z = (chunk.z + (local >> 10)) >> shift;
+                            const id = start + x + row * y + slab * z;
+                            if (!shift) {
+                                used[usedCount++] = id;
+                                cells[id] = ((mat + 1) << 24) | colors[c] | (colors[c+1] << 8) | (colors[c+2] << 16);
+                            } else {
+                                if (!w.count[id]++) w.samples[sampleCount++] = id;
+                                w.red[id] += colors[c]; w.green[id] += colors[c+1]; w.blue[id] += colors[c+2];
+                            }
+                        }
+                    }
+                    for (let j = 0; j < sampleCount; j++) {
+                        const id = w.samples[j], count = w.count[id];
+                        if (!cells[id]) used[usedCount++] = id;
+                        if (count > w.best[id] || (cells[id] >>> 24) === 2) {
+                            cells[id] = ((mat + 1) << 24) | Math.round(w.red[id] / count)
+                                | (Math.round(w.green[id] / count) << 8) | (Math.round(w.blue[id] / count) << 16);
+                            w.best[id] = count;
+                        }
+                        w.red[id] = w.green[id] = w.blue[id] = w.count[id] = 0;
+                    }
+                }
+
+                // At a region seam, hide a face only if the original neighbouring
+                // face is fully occupied. This also seals seams between two resolutions.
+                filledEdge.fill(0);
+                opaqueEdge.fill(0);
+                for (const border of borders) {
+                    const side = border.side, axis = side >> 1;
+                    const edge = side & 1 ? 0 : 31;
+                    for (let mat = 0; mat < 4; mat++) {
+                        const indices = border.layers[mat];
+                        if (!indices) continue;
+                        for (let i = 0; i < indices.length; i++) {
+                            const p = indices[i], x = p & 31, y = (p >> 5) & 31, z = p >> 10;
+                            if ((axis === 0 ? x : axis === 1 ? y : z) !== edge) continue;
+                            const u = (axis === 0 ? border.y + y : axis === 1 ? border.z + z : border.x + x) >> shift;
+                            const v = (axis === 0 ? border.z + z : axis === 1 ? border.x + x : border.y + y) >> shift;
+                            const k = side * n * n + v * n + u;
+                            filledEdge[k]++;
+                            if (mat !== 1) opaqueEdge[k]++;
+                        }
+                    }
+                }
+                const stride = [1, row, slab];
+                const directions = [-1, 1, -row, row, -slab, slab];
+                const faceArea = step * step;
+                // Each padding plane is overwritten, including empty cells.
+                for (let side = 0; side < 6; side++) {
+                    const axis = side >> 1, du = stride[(axis+1)%3], dv = stride[(axis+2)%3];
+                    const base = start + (side & 1 ? n : -1) * stride[axis];
+                    let k = side * n * n;
+                    for (let v = 0; v < n; v++) for (let u = 0; u < n; u++, k++) {
+                        cells[base + u*du + v*dv] = opaqueEdge[k] === faceArea ? 1 << 24
+                            : filledEdge[k] === faceArea ? 2 << 24 : 0;
+                    }
+                }
+                for (let i = 0; i < usedCount; i++) {
+                    const id = used[i], glass = (cells[id] >>> 24) === 2;
+                    let mask = 0;
+                    for (let f = 0; f < 6; f++) {
+                        const neighbour = cells[id + directions[f]] >>> 24;
+                        if (!neighbour || (neighbour === 2 && !glass)) mask |= 1 << f;
+                    }
+                    faces[id] = mask;
+                }
+
+                // One instance is an oriented rectangle, with nine bytes of instance data.
+                const buffers = [null, null, null, null], lengths = [0,0,0,0];
+                for (let i = 0; i < usedCount; i++) {
+                    const id = used[i], color = cells[id], mat = (color >>> 24) - 1;
+                    for (let f = 0; f < 6; f++) {
+                        const bit = 1 << f;
+                        if (!(faces[id] & bit)) continue;
+                        const axis = f >> 1, du = stride[(axis+1)%3], dv = stride[(axis+2)%3];
+                        let across = 1, down = 1;
+                        // Individual neon voxels carry their own face highlight.
+                        if (mat !== 2) {
+                            let p = id + du;
+                            while ((faces[p] & bit) && cells[p] === color) { across++; p += du; }
+                            nextRow: for (; ; down++) {
+                                p = id + down * dv;
+                                for (let u = 0; u < across; u++, p += du) {
+                                    if (!(faces[p] & bit) || cells[p] !== color) break nextRow;
+                                }
+                            }
+                        }
+                        for (let v = 0; v < down; v++) {
+                            let p = id + v * dv;
+                            for (let u = 0; u < across; u++, p += du) faces[p] &= ~bit;
+                        }
+                        let out = buffers[mat], k = lengths[mat];
+                        if (!out || k === out.length) {
+                            const next = new Uint8Array(out ? out.length * 2 : 9 * 256);
+                            if (out) next.set(out);
+                            buffers[mat] = out = next;
+                        }
+                        const q = id - start;
+                        out[k] = ((q % row) + (f === 1 ? 1 : 0)) * step;
+                        out[k+1] = ((Math.floor(q / row) % row) + (f === 3 ? 1 : 0)) * step;
+                        out[k+2] = (Math.floor(q / slab) + (f === 5 ? 1 : 0)) * step;
+                        out[k+3] = f; out[k+4] = across * step; out[k+5] = down * step;
+                        out[k+6] = color & 255; out[k+7] = (color >>> 8) & 255; out[k+8] = (color >>> 16) & 255;
+                        lengths[mat] += 9;
+                    }
+                }
+                for (let i = 0; i < usedCount; i++) {
+                    const id = used[i];
+                    cells[id] = 0;
+                    if (shift) w.best[id] = 0;
+                }
+                return buffers.map((buffer, m) => buffer ? buffer.subarray(0, lengths[m]) : null);
+            };
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
 
@@ -255,9 +413,8 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         let paintAction = 'replace'; // 'replace', 'bright_up', 'bright_down', 'blend', 'material'
         let paintStrength = 2; // 1 to 10 increment scale
         let exportMode = 'boxes';  
-        let renderMode = 'standard'; 
+        let renderMode = 'performance'; // Adaptive solid surfaces; keep the VTB1 display tokens. 
         let isDropperActive = false;
-        let autoPerfEngaged = false;
 
 
 
@@ -643,8 +800,8 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x111111);
 
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.25, 1000);
-    camera.position.set(0, 1.6, 3);
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.04, 1000);
+        camera.position.set(0, 1.6, 3);
     
 
 
@@ -696,7 +853,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             modelGroup.updateMatrix();
             viewSelector.disabled = false;
             scene.background = studioBackground;
-            studioMesh.visible = true;
+            testScene.background = studioBackground;
             gridHelper.visible = true;
             activeSession = activeMode = null;
             refreshLaunchButtons();
@@ -723,7 +880,8 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                     if (mode === 'immersive-ar') {
                         scene.background = null;
                         renderer.setClearColor(0x000000, 0);
-                        studioMesh.visible = gridHelper.visible = false;
+                        testScene.background = null;
+                        gridHelper.visible = false;
                     }
                     await renderer.xr.setSession(session);
                     sessionStatus.textContent = '';
@@ -761,7 +919,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         directionalLight.position.set(5, 10, 7);
         scene.add(directionalLight);
 
-        // --- Studio Room & Environment Map for Metal Reflections ---
+        // --- Environment Map for Metal Reflections ---
         const pmremGenerator = new THREE.PMREMGenerator(renderer);
         
         const envScene = new THREE.Scene();
@@ -789,33 +947,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         scene.environment = pmremGenerator.fromScene(envScene).texture;
         pmremGenerator.dispose();
         
-        const studioGeo = new THREE.BoxGeometry(200, 200, 200);
-        // Leave the underside open to the plain studio background; retain the modeling grid.
-        const studioNormals = studioGeo.getAttribute('normal');
-        const studioIndices = Array.from(studioGeo.index.array).filter(i => studioNormals.getY(i) > -0.5);
-        studioGeo.clearGroups();
-        studioGeo.setIndex(studioIndices);
-        // Molded panels on the existing studio shell. One static texture and one unlit draw.
-        const casingCanvas = document.createElement('canvas');
-        casingCanvas.width = casingCanvas.height = 128;
-        const casing = casingCanvas.getContext('2d');
-        casing.fillStyle = '#34383a'; casing.fillRect(0, 0, 128, 128);
-        casing.fillStyle = '#414546'; casing.fillRect(1, 1, 126, 126);
-        casing.fillStyle = '#3d4142'; casing.fillRect(2, 2, 125, 125);
-        casing.fillStyle = '#35393a';
-        for (let x = 10; x < 36; x += 4) casing.fillRect(x, 115, 2, 5);
-        casing.fillStyle = '#70574a'; casing.fillRect(111, 8, 8, 2);
-        const casingTexture = new THREE.CanvasTexture(casingCanvas);
-        casingTexture.colorSpace = THREE.SRGBColorSpace;
-        casingTexture.wrapS = casingTexture.wrapT = THREE.RepeatWrapping;
-        casingTexture.repeat.set(64, 64);
-        casingTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-        const studioMat = new THREE.MeshBasicMaterial({map: casingTexture, side: THREE.BackSide});
-        const studioMesh = new THREE.Mesh(studioGeo, studioMat);
-        studioMesh.position.y = 100 - (VOXEL_SIZE / 2) - 0.01; 
-        studioMesh.matrixAutoUpdate = false; studioMesh.updateMatrix();
-        scene.add(studioMesh);
-
+        // The studio uses the uniform scene clear color and the existing modeling grid.
         const worldGroup = new THREE.Group();
         scene.add(worldGroup);
         const modelGroup = new THREE.Group();
@@ -866,15 +998,15 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         // Use Lambert shading for standard matte clay to bypass per-pixel PMREM envMap lookups in VR stereo
         const matSolid = new THREE.MeshLambertMaterial({ depthFunc: THREE.LessEqualDepth }); 
         const matGlass = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false, depthFunc: THREE.LessEqualDepth }); 
-        // Unlit neon face shading in the existing instanced draw.
+        // Unlit neon shading on each voxel face.
         const matEmission = new THREE.MeshBasicMaterial({
             depthFunc: THREE.LessEqualDepth
         });
-        matEmission.onBeforeCompile = shader => {
+        function applyNeonFace(shader, faceUV) {
             shader.vertexShader = 'varying vec2 neonFace;\n' + shader.vertexShader.replace(
                 '#include <begin_vertex>',
                 `#include <begin_vertex>
-                neonFace = abs(normal.x) > 0.5 ? position.yz : (abs(normal.y) > 0.5 ? position.xz : position.xy);`
+                neonFace = ${faceUV};`
             );
             shader.fragmentShader = 'varying vec2 neonFace;\n' + shader.fragmentShader.replace(
                 '#include <color_fragment>',
@@ -888,56 +1020,14 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 float peak = max(tint.r, max(tint.g, tint.b));
                 diffuseColor.rgb = tint * (0.42 + 0.92 * core) + vec3(0.19 * peak * core * core);`
             );
-        }; 
+        }
+        matEmission.onBeforeCompile = shader => applyNeonFace(shader,
+            'abs(normal.x) > 0.5 ? position.yz : (abs(normal.y) > 0.5 ? position.xz : position.xy)');
         const matMetal = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 1.0, depthFunc: THREE.LessEqualDepth });
         
         const voxelMaterials = [matSolid, matGlass, matEmission, matMetal];
         const chunks = new Map(); 
         const dirtyChunks = new Set();
-
-        function flushDirtyChunks() {
-            if (dirtyChunks.size === 0) return;
-            const overview = totalActiveVoxels >= overviewThreshold;
-            if (overview !== largeDisplay && renderMode === 'performance') {
-                for (const region of regions.values()) {region.fine=false;dirtyRegions.add(region);}
-            }
-            largeDisplay=overview;
-            dirtyChunks.forEach(c => {
-                c.updateBuffers();
-                if (renderMode === 'performance') dirtyRegions.add(c.region);
-            });
-            for (const region of dirtyRegions) rebuildRegion(region);
-            dirtyRegions.clear();
-            dirtyChunks.clear();
-        }
-
-        // --- Performance Mode (Points) Textures & Materials ---
-        const ptSize = VOXEL_SIZE * 1.15;
-        const ptSolid = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
-        const ptGlass = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.4, depthWrite: false, depthFunc: THREE.LessEqualDepth });
-        const ptEmission = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
-        ptEmission.onBeforeCompile = shader => {
-            shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
-                `#include <color_fragment>
-                vec2 p = abs(gl_PointCoord - vec2(0.5));
-                float core = 1.0 - smoothstep(0.22, 0.51, max(p.x, p.y));
-                float peak = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
-                diffuseColor.rgb = diffuseColor.rgb * (0.48 + 0.88 * core) + vec3(0.19 * peak * core * core);`);
-        };
-        const ptMetal = new THREE.PointsMaterial({ size: ptSize, vertexColors: true, sizeAttenuation: true, alphaTest: 0.1, depthFunc: THREE.LessEqualDepth });
-        const perfMaterials = [ptSolid, ptGlass, ptEmission, ptMetal];
-
-        // A culled mesh can miss several uploads. Retain one encompassing range until Three consumes it.
-        function queueAttributeRange(attribute, offset, count) {
-            let end = offset + count;
-            for (const pending of attribute.updateRanges) {
-                offset = Math.min(offset, pending.start);
-                end = Math.max(end, pending.start + pending.count);
-            }
-            attribute.clearUpdateRanges();
-            attribute.addUpdateRange(offset, end - offset);
-            attribute.needsUpdate = true;
-        }
 
         // On disk, each layer is already sorted by local index. Keep that compact form
         // until the first structural edit, when a reverse lookup makes swaps inexpensive.
@@ -948,9 +1038,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 this.indexToLocal = new Uint16Array(Math.max(1, capacity));
                 this.colors = new Uint8Array(this.indexToLocal.length * 3);
                 this.reverse = null;
-                this.mesh = null;
-                this.first = Infinity;
-                this.last = -1;
             }
             indexOf(local) {
                 if (this.reverse instanceof Map) return this.reverse.get(local) ?? 65535;
@@ -980,11 +1067,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                     else this.reverse.set(local,index);
                 } else this.reverse[local]=index;
             }
-            changed(i) {
-                this.summary = null;
-                this.first = Math.min(this.first, i);
-                this.last = Math.max(this.last, i);
-            }
             addVoxel(local, gx, gy, gz, color) {
                 let i = this.indexOf(local);
                 const added = i === 65535;
@@ -995,7 +1077,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                         const indices = new Uint16Array(capacity), colors = new Uint8Array(capacity * 3);
                         indices.set(this.indexToLocal); colors.set(this.colors);
                         this.indexToLocal = indices; this.colors = colors;
-                        this.disposeMesh();
                     }
                     i = this.count++;
                     this.setIndex(local,i);
@@ -1005,7 +1086,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 const c = i * 3, r = Math.round(color.r*255), g = Math.round(color.g*255), b = Math.round(color.b*255);
                 if (!added && this.colors[c] === r && this.colors[c+1] === g && this.colors[c+2] === b) return false;
                 this.colors[c] = r; this.colors[c+1] = g; this.colors[c+2] = b;
-                this.changed(i);
                 return true;
             }
             removeVoxel(local) {
@@ -1018,245 +1098,260 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 this.setIndex(local,65535);
                 this.colors.copyWithin(i*3, end*3, end*3+3);
                 totalActiveVoxels--;
-                this.changed(i);
                 return true;
             }
-            disposeMesh() {
-                if (!this.mesh) return;
-                modelGroup.remove(this.mesh);
-                this.mesh.geometry.dispose();
-                this.mesh = null;
-            }
-            updateBuffers() {
-                if (renderMode !== 'standard' || !this.count) { this.disposeMesh(); return; }
-                if (!this.mesh) {
-                    const g=new THREE.InstancedBufferGeometry().copy(voxelGeometry);
-                    g.setAttribute('cellOffset',new THREE.InstancedBufferAttribute(
-                        new Uint8Array(this.indexToLocal.length*3),3).setUsage(THREE.DynamicDrawUsage));
-                    g.setAttribute('color',new THREE.InstancedBufferAttribute(this.colors,3,true).setUsage(THREE.DynamicDrawUsage));
-                    const mesh=new THREE.Mesh(g,detailMaterial[this.matType]);
-                    mesh.scale.setScalar(VOXEL_SIZE);
-                    mesh.position.set(this.cx*32, this.cy*32, this.cz*32).multiplyScalar(VOXEL_SIZE);
-                    mesh.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(15.5,15.5,15.5), 28);
-                    mesh.matrixAutoUpdate = false; mesh.updateMatrix();
-                    this.mesh = mesh; modelGroup.add(mesh);
-                    this.first = 0; this.last = this.count-1;
-                }
-                this.mesh.geometry.instanceCount = this.count;
-                const last = Math.min(this.count-1, this.last);
-                if (this.first <= last) {
-                    const offsets = this.mesh.geometry.attributes.cellOffset;
-                    const a = offsets.array;
-                    for (let i=this.first; i<=last; i++) {
-                        const l = this.indexToLocal[i], o=i*3;
-                        a[o]=l&31; a[o+1]=(l>>5)&31; a[o+2]=l>>10;
-                    }
-                    const n = last-this.first+1;
-                    queueAttributeRange(offsets, this.first*3, n*3);
-                    queueAttributeRange(this.mesh.geometry.attributes.color, this.first*3, n*3);
-                }
-                this.first=Infinity; this.last=-1;
-            }
         }
 
-        // Group 4 × 4 × 4 chunks per draw. The editable voxel arrays are independent
-        // of these disposable display buffers.
-        const regions = new Map(), dirtyRegions = new Set();
-        const overviewThreshold = 2000000;
-        const bins = new Uint32Array(64 * 7);
-        const spanMaterial = perfMaterials.map((base, type) => {
+        // Regions batch up to 4³ chunks. Both eyes draw the same world-space surfaces.
+        const REGION_WIDTH = 4 * CHUNK_SIZE;
+        const regions = new Map(), pendingSurfaces = new Set(), touchedRegions = new Set();
+        const surfaceMaterial = voxelMaterials.map((base, mat) => {
             const material = base.clone();
-            const height = {value: 1};
+            material.vertexColors = true;
             material.onBeforeCompile = shader => {
-                base.onBeforeCompile(shader);
-                shader.uniforms.eyeHeight = height;
-                shader.vertexShader = 'uniform float eyeHeight; attribute float sampleWidth;\n' +
-                    shader.vertexShader.replace('#include <logdepthbuf_vertex>', `
-                    gl_PointSize = clamp(eyeHeight * 0.5 * projectionMatrix[1][1] *
-                        length(modelViewMatrix[0].xyz) * sampleWidth / max(-mvPosition.z, 0.0001), 1.0, sampleWidth > 1.0 ? 16.0 : 1024.0);
-                    #include <logdepthbuf_vertex>`);
-            };
-            material.onBeforeRender = (renderer,scene,eye) => {
-                height.value = eye.viewport ? eye.viewport.w : renderer.domElement.height;
-            };
-            material.customProgramCacheKey = () => 'vtb-region-point-' + type;
-            return material;
-        });
-        const detailMaterial = voxelMaterials.map((base,type) => {
-            const material=base.clone();
-            material.vertexColors=true;
-            material.onBeforeCompile=shader=>{
-                base.onBeforeCompile(shader);
-                shader.vertexShader='attribute vec3 cellOffset;\n'+shader.vertexShader.replace(
-                    '#include <project_vertex>', 'transformed += cellOffset;\n#include <project_vertex>');
-            };
-            material.customProgramCacheKey=()=>'vtb-detail-'+type;
-            return material;
-        });
-
-        const splitRegions = new Set();
-        function registerChunk(chunk) {
-            for (const width of [128,64,32]) {
-                const x=Math.floor(chunk.cx*32/width), y=Math.floor(chunk.cy*32/width), z=Math.floor(chunk.cz*32/width);
-                const key=width+':'+x+','+y+','+z;
-                if(splitRegions.has(key)) continue;
-                let region=regions.get(key);
-                if (!region) {
-                    region={key,width,x:x*width,y:y*width,z:z*width,chunks:[],objects:[],fine:false,count:0};
-                    regions.set(key,region);
-                }
-                region.chunks.push(chunk);
-                chunk.region=region;
-                return;
-            }
-        }
-
-        function clearRegion(region) {
-            for (const mesh of region.objects) {
-                modelGroup.remove(mesh);
-                mesh.geometry.dispose();
-            }
-            region.objects.length=0;
-        }
-
-        function summarizeLayer(layer) {
-            if (layer.summary) return layer.summary;
-            bins.fill(0);
-            for(let i=0;i<layer.count;i++) {
-                const l=layer.indexToLocal[i], x=l&31,y=(l>>5)&31,z=l>>10;
-                const j=((x>>3)|((y>>3)<<2)|((z>>3)<<4))*7;
-                bins[j]++; bins[j+1]+=x; bins[j+2]+=y; bins[j+3]+=z;
-                bins[j+4]+=layer.colors[3*i]; bins[j+5]+=layer.colors[3*i+1]; bins[j+6]+=layer.colors[3*i+2];
-            }
-            const samples=[];
-            for(let j=0;j<bins.length;j+=7) {
-                const n=bins[j]; if(!n) continue;
-                for(let k=1;k<=6;k++) samples.push(Math.round(bins[j+k]/n));
-                samples.push(Math.max(1, Math.min(8, Math.ceil(Math.sqrt(n)))));
-            }
-            return layer.summary=Uint8Array.from(samples);
-        }
-
-        function rebuildRegion(region) {
-            clearRegion(region);
-            const liveCount=region.chunks.reduce((sum,c)=>sum+c.layers.reduce((n,l)=>n+(l?.count || 0),0),0);
-            if(largeDisplay && liveCount>100000 && region.width>32) {
-                splitRegions.add(region.key);
-                regions.delete(region.key);
-                const children=new Set();
-                for(const chunk of region.chunks) {registerChunk(chunk);children.add(chunk.region);}
-                for(const child of children) rebuildRegion(child);
-                return;
-            }
-            region.count=0;
-            const overview=largeDisplay && !region.fine;
-            for(let m=0;m<4;m++) {
-                let count=0;
-                for(const c of region.chunks) {
-                    const l=c.layers[m]; if(!l || !l.count) continue;
-                    region.count+=l.count;
-                    count+=overview ? summarizeLayer(l).length/7 : l.count;
-                }
-                if(!count) continue;
-                const pos=new Uint8Array(count*3), rgb=new Uint8Array(count*3);
-                const boxes=largeDisplay && region.fine;
-                const width=boxes ? null : new Uint8Array(count);
-                let out=0;
-                for(const c of region.chunks) {
-                    const l=c.layers[m]; if(!l || !l.count) continue;
-                    const x=c.cx*32-region.x,y=c.cy*32-region.y,z=c.cz*32-region.z;
-                    if(overview) {
-                        const a=l.summary;
-                        for(let j=0;j<a.length;j+=7,out++) {
-                            const k=out*3;
-                            pos[k]=x+a[j];pos[k+1]=y+a[j+1];pos[k+2]=z+a[j+2];
-                            rgb[k]=a[j+3];rgb[k+1]=a[j+4];rgb[k+2]=a[j+5];width[out]=a[j+6];
-                        }
-                    } else {
-                        rgb.set(l.colors.subarray(0,l.count*3),out*3);
-                        for(let i=0;i<l.count;i++,out++) {
-                            const v=l.indexToLocal[i],k=out*3;
-                            pos[k]=x+(v&31);pos[k+1]=y+((v>>5)&31);pos[k+2]=z+(v>>10);
-                            if(width) width[out]=1;
-                        }
+                if (mat === 2) applyNeonFace(shader, 'position.xy - vec2(0.5)');
+                shader.vertexShader = `attribute vec3 faceOrigin;
+                    attribute vec3 faceShape;
+                    vec3 surfaceNormal() {
+                        float signOfFace = mod(faceShape.x, 2.0) * 2.0 - 1.0;
+                        return faceShape.x < 2.0 ? vec3(signOfFace, 0., 0.)
+                             : faceShape.x < 4.0 ? vec3(0., signOfFace, 0.) : vec3(0., 0., signOfFace);
                     }
+                    vec3 surfacePosition() {
+                        float u = mix(1.0 - position.x, position.x, mod(faceShape.x, 2.0)) * faceShape.y;
+                        float v = position.y * faceShape.z;
+                        return faceOrigin - vec3(0.5) + (faceShape.x < 2.0 ? vec3(0., u, v)
+                             : faceShape.x < 4.0 ? vec3(v, 0., u) : vec3(u, v, 0.));
+                    }
+                ` + shader.vertexShader
+                    .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = surfaceNormal();')
+                    .replace('#include <begin_vertex>', 'vec3 transformed = surfacePosition();');
+            };
+            material.customProgramCacheKey = () => 'vtb-surface-' + mat;
+            return material;
+        });
+        function registerChunk(chunk) {
+            const x = Math.floor(chunk.cx / 4), y = Math.floor(chunk.cy / 4), z = Math.floor(chunk.cz / 4);
+            const key = x + ',' + y + ',' + z;
+            let r = regions.get(key);
+            if (!r) {
+                r = {key, x: x * REGION_WIDTH, y: y * REGION_WIDTH, z: z * REGION_WIDTH,
+                    chunks: [], meshes: [], count: 0, revision: 0, drawn: -1, level: -1, target: 0,
+                    visible: false, lastVisible: -Infinity, depth: Infinity};
+                r.bound = new THREE.Sphere(new THREE.Vector3(r.x, r.y, r.z).addScalar((REGION_WIDTH-1)/2),
+                    Math.sqrt(3) * REGION_WIDTH / 2);
+                regions.set(key, r);
+                nextSurfaceView = 0;
+            }
+            r.chunks.push(chunk);
+            chunk.region = r;
+        }
+        function disposeSurfaces(meshes) {
+            for (const mesh of meshes) { modelGroup.remove(mesh); mesh.geometry.dispose(); }
+        }
+        function resetSurfaces() {
+            for (const r of regions.values()) disposeSurfaces(r.meshes);
+            regions.clear();
+            pendingSurfaces.clear();
+            touchedRegions.clear();
+            nextSurfaceView = 0;
+        }
+        const borderDirections = [[-1,0,0], [1,0,0], [0,-1,0], [0,1,0], [0,0,-1], [0,0,1]];
+        function flushDirtyChunks() {
+            if (!dirtyChunks.size) return;
+            for (const c of dirtyChunks) {
+                touchedRegions.add(c.region);
+                for (const [dx,dy,dz] of borderDirections) {
+                    const x = c.cx + dx, y = c.cy + dy, z = c.cz + dz;
+                    if ((x >> 2) === (c.cx >> 2) && (y >> 2) === (c.cy >> 2) && (z >> 2) === (c.cz >> 2)) continue;
+                    const neighbour = getChunkFast(x,y,z);
+                    if (neighbour) touchedRegions.add(neighbour.region);
                 }
-                let mesh;
-                if(boxes) {
-                    const g=new THREE.InstancedBufferGeometry();
-                    // Each detail batch owns its small cube so disposal never invalidates another batch.
-                    g.copy(voxelGeometry);
-                    g.instanceCount=count;
-                    g.setAttribute('cellOffset',new THREE.InstancedBufferAttribute(pos,3));
-                    g.setAttribute('color',new THREE.InstancedBufferAttribute(rgb,3,true));
-                    mesh=new THREE.Mesh(g,detailMaterial[m]);
+            }
+            for (const r of touchedRegions) {
+                r.count = 0;
+                for (const c of r.chunks) for (const l of c.layers) if (l) r.count += l.count;
+                r.revision++;
+                if (r.count) {
+                    pendingSurfaces.add(r);
                 } else {
-                    const g=new THREE.BufferGeometry();
-                    g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-                    g.setAttribute('color',new THREE.BufferAttribute(rgb,3,true));
-                    g.setAttribute('sampleWidth',new THREE.BufferAttribute(width,1));
-                    mesh=new THREE.Points(g,spanMaterial[m]);
+                    disposeSurfaces(r.meshes);
+                    r.meshes = []; r.drawn = r.revision; r.level = -1;
+                    pendingSurfaces.delete(r);
                 }
-                const center=(region.width-1)/2;
-                mesh.geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(center,center,center), region.width*0.87+7);
-                mesh.scale.setScalar(VOXEL_SIZE);
-                mesh.position.set(region.x,region.y,region.z).multiplyScalar(VOXEL_SIZE);
-                mesh.matrixAutoUpdate=false;mesh.updateMatrix();
-                modelGroup.add(mesh);region.objects.push(mesh);
             }
+            touchedRegions.clear();
+            dirtyChunks.clear();
         }
 
-        let largeDisplay=false, nextDetailCheck=0;
-        const detailEye=new THREE.Vector3(), detailCandidates=[];
-        const detailHands=[new THREE.Vector3(),new THREE.Vector3()];
-        function regionDistance(point,region) {
-            const half=region.width/2;
-            const dx=Math.max(0,Math.abs(point.x-region.x-half+0.5)-half);
-            const dy=Math.max(0,Math.abs(point.y-region.y-half+0.5)-half);
-            const dz=Math.max(0,Math.abs(point.z-region.z-half+0.5)-half);
-            return dx*dx+dy*dy+dz*dz;
+        function surfaceSnapshot(r) {
+            const sources = [], borders = [];
+            for (const chunk of r.chunks) {
+                const x = chunk.cx * CHUNK_SIZE - r.x, y = chunk.cy * CHUNK_SIZE - r.y, z = chunk.cz * CHUNK_SIZE - r.z;
+                sources.push({x, y, z, layers: chunk.layers.map(l => l?.count ? {
+                    indices: l.indexToLocal.subarray(0, l.count), colors: l.colors.subarray(0, l.count*3)
+                } : null)});
+            }
+            // Include the six bordering slabs even when this region has no chunk on that
+            // side yet. Edits, removal and different neighbouring detail levels use the same halo.
+            for (let side = 0; side < 6; side++) {
+                const axis = side >> 1, edge = side & 1 ? 4 : -1;
+                for (let v = 0; v < 4; v++) for (let u = 0; u < 4; u++) {
+                    const x = axis === 0 ? edge : axis === 1 ? v : u;
+                    const y = axis === 0 ? u : axis === 1 ? edge : v;
+                    const z = axis === 0 ? v : axis === 1 ? u : edge;
+                    const c = getChunkFast((r.x >> 5) + x, (r.y >> 5) + y, (r.z >> 5) + z);
+                    if (c) borders.push({side, x: x*32, y: y*32, z: z*32,
+                        layers: c.layers.map(l => l?.count ? l.indexToLocal.subarray(0,l.count) : null)});
+                }
+            }
+            return {width: REGION_WIDTH, shift: r.target, sources, borders};
         }
-        function updateDisplayDetail(now) {
-            if(renderMode!=='performance' || !largeDisplay || now<nextDetailCheck) return;
-            nextDetailCheck=now+180;
-            const eye=renderer.xr.isPresenting ? renderer.xr.getCamera().cameras[0] : camera;
-            if(!eye) return;
-            eye.getWorldPosition(detailEye);
-            worldGroup.worldToLocal(detailEye).multiplyScalar(1/VOXEL_SIZE);
-            detailCandidates.length=0;
-            let hands=0;
-            if(renderer.xr.isPresenting) for(const hand of [xrRight,xrLeft]) {
-                if(!hand?.visible) continue;
-                const pos=detailHands[hands++].set(0,0,-0.05).applyMatrix4(hand.matrixWorld);
-                worldGroup.worldToLocal(pos).multiplyScalar(1/VOXEL_SIZE);
+        function surfaceMesh(region, data, material) {
+            const g = new THREE.InstancedBufferGeometry();
+            g.setIndex([0, 1, 2, 0, 2, 3]);
+            g.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 1,0,0, 1,1,0, 0,1,0], 3));
+            const records = new THREE.InstancedInterleavedBuffer(data, 9, 1);
+            g.setAttribute('faceOrigin', new THREE.InterleavedBufferAttribute(records, 3, 0));
+            g.setAttribute('faceShape', new THREE.InterleavedBufferAttribute(records, 3, 3));
+            g.setAttribute('color', new THREE.InterleavedBufferAttribute(records, 3, 6, true));
+            g.instanceCount = records.count;
+            g.boundingSphere = new THREE.Sphere(new THREE.Vector3().setScalar((REGION_WIDTH - 1) / 2), region.bound.radius);
+            const mesh = new THREE.Mesh(g, material);
+            mesh.position.set(region.x, region.y, region.z).multiplyScalar(VOXEL_SIZE);
+            mesh.scale.setScalar(VOXEL_SIZE);
+            mesh.matrixAutoUpdate = false;
+            mesh.updateMatrix();
+            return mesh;
+        }
+        let worker = null, workerDisabled = false, surfaceJob = null, localMesher = null;
+        function acceptSurface(job, batches) {
+            const r = job.region;
+            // A different project may have opened while the worker was running.
+            if (regions.get(r.key) !== r || !r.count || job.revision < r.drawn) return;
+            // A camera move can reverse a pending detail change. Keep the current surface
+            // when it already represents this edit revision at the newly requested resolution.
+            if (r.drawn === job.revision && job.level !== r.target) {
+                if (r.level !== r.target || r.drawn !== r.revision) pendingSurfaces.add(r);
+                else pendingSurfaces.delete(r);
+                return;
             }
-            for(const region of regions.values()) {
-                region.distance=regionDistance(detailEye,region)+1;
-                for(let i=0;i<hands;i++) region.distance=Math.min(region.distance,regionDistance(detailHands[i],region));
-                if(region.count && region.distance<(region.fine?144:128)**2) detailCandidates.push(region);
+            const replacement = [];
+            for (let m = 0; m < batches.length; m++) {
+                if (batches[m]?.length) replacement.push(surfaceMesh(r, batches[m], surfaceMaterial[m]));
             }
-            detailCandidates.sort((a,b)=>a.distance-b.distance);
-            const desired=new Set();
-            let budget=300000;
-            for(const r of detailCandidates) {
-                if(r.count>budget) continue;
-                desired.add(r); budget-=r.count;
-                if(desired.size===8) break;
+            disposeSurfaces(r.meshes);
+            for (const mesh of replacement) modelGroup.add(mesh);
+            r.meshes = replacement; r.level = job.level; r.drawn = job.revision;
+            if (r.drawn === r.revision && r.level === r.target) pendingSurfaces.delete(r);
+            else pendingSurfaces.add(r);
+        }
+        function startSurfaceWorker() {
+            const source = 'const mesh = (' + createSurfaceMesher.toString() + ')();\n' +
+                'self.onmessage = ({data}) => { const batches = mesh(data); self.postMessage(batches, batches.filter(Boolean).map(b => b.buffer)); };';
+            const url = URL.createObjectURL(new Blob([source], {type: 'text/javascript'}));
+            try {
+                worker = new Worker(url);
+                worker.onmessage = ({data}) => {
+                    const job = surfaceJob;
+                    surfaceJob = null;
+                    if (job) acceptSurface(job, data);
+                    if (nextSurfaceView) pumpSurfaces();
+                };
+                worker.onerror = event => {
+                    event.preventDefault();
+                    worker.terminate(); worker = null; workerDisabled = true;
+                    const job = surfaceJob;
+                    surfaceJob = null;
+                    if (job && regions.get(job.region.key) === job.region) pendingSurfaces.add(job.region);
+                    console.warn('Surface worker unavailable; using the local surface mesher.');
+                };
+            } finally { URL.revokeObjectURL(url); }
+        }
+        function pumpSurfaces() {
+            if (surfaceJob || !pendingSurfaces.size) return;
+            let next = null, best = Infinity;
+            for (const r of pendingSurfaces) {
+                // Display edits first, then fill visible regions, then refine them.
+                const edited = r.drawn >= 0 && r.drawn !== r.revision;
+                const rank = (r.visible ? 0 : 4) + (edited ? 0 : r.level < 0 ? 1 : 2);
+                const score = rank * 1e8 + Math.min(r.depth, 1e7);
+                if (score < best) { best = score; next = r; }
             }
-            for(const r of regions.values()) if(r.fine && !desired.has(r)) {
-                r.fine=false;rebuildRegion(r);
+            if (!next) return;
+            pendingSurfaces.delete(next);
+            const data = surfaceSnapshot(next);
+            const job = {region: next, revision: next.revision, level: data.shift};
+            if (!workerDisabled) {
+                try {
+                    if (!worker) startSurfaceWorker();
+                    surfaceJob = job;
+                    worker.postMessage(data);
+                    return;
+                } catch {
+                    worker?.terminate(); worker = null; workerDisabled = true; surfaceJob = null;
+                }
             }
-            for(const r of desired) if(!r.fine) {
-                r.fine=true;rebuildRegion(r);break;
-            }
+            // File hosts that restrict blob workers can still use exactly the same geometry.
+            // In this path the animation loop starts at most one build per frame.
+            if (!localMesher) localMesher = createSurfaceMesher();
+            acceptSurface(job, localMesher(data));
         }
 
-        function refreshDisplayMode() {
-            for(const r of regions.values()) {clearRegion(r);r.fine=false;}
-            for(const c of chunks.values()) dirtyChunks.add(c);
-            nextDetailCheck=0;
-            flushDirtyChunks();
+        let nextSurfaceView = 0;
+        const surfaceEyes = [0,1].map(() => ({mv: new THREE.Matrix4(), clip: new THREE.Matrix4(), frustum: new THREE.Frustum(), focal: 0}));
+        const voxelScaleMatrix = new THREE.Matrix4().makeScale(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+        function updateSurfaceDisplay(now) {
+            if (!regions.size) return;
+            if (now >= nextSurfaceView) {
+                nextSurfaceView = now + 140;
+                worldGroup.updateWorldMatrix(true, false);
+                if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
+                else camera.updateMatrixWorld();
+                const xrEyes = renderer.xr.isPresenting ? renderer.xr.getCamera().cameras : null;
+                const eyeCount = xrEyes?.length ? Math.min(xrEyes.length, surfaceEyes.length) : 1;
+                for (let i = 0; i < eyeCount; i++) {
+                    const eye = xrEyes?.[i] || camera, e = surfaceEyes[i];
+                    e.mv.multiplyMatrices(eye.matrixWorldInverse, worldGroup.matrixWorld).multiply(voxelScaleMatrix);
+                    e.clip.multiplyMatrices(eye.projectionMatrix, e.mv);
+                    e.frustum.setFromProjectionMatrix(e.clip);
+                    const height = eye.viewport?.w || renderer.domElement.height;
+                    e.focal = 0.5 * height * Math.abs(eye.projectionMatrix.elements[5]) * e.mv.getMaxScaleOnAxis();
+                }
+                for (const r of regions.values()) {
+                    if (!r.count) continue;
+                    r.visible = false; r.depth = 1e7;
+                    let pixels = 0;
+                    for (let i = 0; i < eyeCount; i++) {
+                        const e = surfaceEyes[i];
+                        if (!e.frustum.intersectsSphere(r.bound)) continue;
+                        r.visible = true;
+                        const a = e.mv.elements, p = r.bound.center;
+                        const z = -(a[2]*p.x + a[6]*p.y + a[10]*p.z + a[14]);
+                        const extent = 0.5 * REGION_WIDTH * (Math.abs(a[2])+Math.abs(a[6])+Math.abs(a[10]));
+                        const depth = Math.max(camera.near, z - extent);
+                        pixels = Math.max(pixels, e.focal / depth);
+                        r.depth = Math.min(r.depth, depth);
+                    }
+                    let target = r.target;
+                    if (totalActiveVoxels <= 32768 || r.count <= 64) target = 0;
+                    else if (r.visible) {
+                        r.lastVisible = now;
+                        if (renderMode === 'standard') target = 0;
+                        else {
+                            // Separated thresholds keep normal head jitter from toggling detail.
+                            while (target < 4 && pixels * (2 << target) < 3.0) target++;
+                            while (target > 0 && pixels * (1 << target) > 4.0) target--;
+                        }
+                    } else if (now - r.lastVisible > 900) target = 4;
+                    r.target = target;
+                    if (r.level !== target || r.drawn !== r.revision) pendingSurfaces.add(r);
+                    else pendingSurfaces.delete(r);
+                }
+            }
+            pumpSurfaces();
         }
+
         class Chunk {
             constructor(cx, cy, cz) {
                 this.cx = cx; this.cy = cy; this.cz = cz;
@@ -1288,7 +1383,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 }
             }
 
-            updateBuffers() { for (let i = 0; i < 4; i++) if (this.layers[i]) this.layers[i].updateBuffers(); }
         }
 
         // --- Previews & Cursors ---
@@ -1473,7 +1567,7 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
 
         // Selection buffers are allocated on demand. Preserve the original 500k
         // selection ceiling, but do NOT allocate 4 x 500k matrices and 4 x 500k
-        // points buffers before there is an active selection.
+        // color buffers before there is an active selection.
         const SEL_GPU_INITIAL_CAPACITY = 1024;
         let selectionGpuCapacity = SEL_GPU_INITIAL_CAPACITY;
         const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, selectionGpuCapacity);
@@ -1493,17 +1587,6 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
                 arr[i*16] = arr[i*16+5] = arr[i*16+10] = arr[i*16+15] = 1;
             }
         });
-        const selectionPosAttrs = selectionMeshes.map(() => {
-            const a = new THREE.BufferAttribute(new Float32Array(selectionGpuCapacity * 3), 3);
-            a.setUsage(THREE.DynamicDrawUsage);
-            return a;
-        });
-        const selectionColorAttrs = selectionMeshes.map(mesh => {
-            const a = new THREE.BufferAttribute(mesh.instanceColor.array, 3, true);
-            a.setUsage(THREE.DynamicDrawUsage);
-            return a;
-        });
-
         const selBoxMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.9 });
         const selBoxMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat);
         selBoxMesh.matrixAutoUpdate = false; selectionGroup.add(selBoxMesh);
@@ -1534,8 +1617,6 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
                 }
                 const newColorArray = new Uint8Array(next * 3);
                 newColorArray.set(oldColors);
-                const newPositionArray = new Float32Array(next * 3);
-                newPositionArray.set(selectionPosAttrs[materialIndex].array);
 
                 // Dispose the old instance GPU buffers before replacing attributes.
                 mesh.dispose();
@@ -1543,25 +1624,13 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
                 mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
                 mesh.instanceColor = new THREE.InstancedBufferAttribute(newColorArray, 3, true);
                 mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-                const newPos = new THREE.BufferAttribute(newPositionArray, 3);
-                newPos.setUsage(THREE.DynamicDrawUsage);
-                const newCol = new THREE.BufferAttribute(newColorArray, 3, true);
-                newCol.setUsage(THREE.DynamicDrawUsage);
-                selectionPosAttrs[materialIndex] = newPos;
-                selectionColorAttrs[materialIndex] = newCol;
-
-                // Copies/mirrors have their own Points geometries but share the
-                // selection data. Rebind all of them after an allocation grows.
+                // Copies and mirrors reference the resized selection buffers.
                 for (const group of previewGroups) {
                     const pivot = group.children[0];
                     const cloneMesh = pivot.children[materialIndex];
                     cloneMesh.dispose();
                     cloneMesh.instanceMatrix = mesh.instanceMatrix;
                     cloneMesh.instanceColor = mesh.instanceColor;
-                    const pointMesh = pivot.children[materialIndex + 4];
-                    pointMesh.geometry.dispose();
-                    pointMesh.geometry.setAttribute('position', newPos);
-                    pointMesh.geometry.setAttribute('color', newCol);
                 }
             }
             selectionGpuCapacity = next;
@@ -1583,30 +1652,21 @@ function updatePreviews() {
                     const m2 = new THREE.InstancedMesh(voxelGeometry, matGlass, 1); m2.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); m2.frustumCulled = false; m2.matrixAutoUpdate = false;
                     const m3 = new THREE.InstancedMesh(voxelGeometry, matEmission, 1); m3.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); m3.frustumCulled = false; m3.matrixAutoUpdate = false;
                     const m4 = new THREE.InstancedMesh(voxelGeometry, matMetal, 1); m4.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); m4.frustumCulled = false; m4.matrixAutoUpdate = false;
-                    const p1 = new THREE.Points(new THREE.BufferGeometry(), perfMaterials[0]); p1.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); p1.frustumCulled = false; p1.matrixAutoUpdate = false; p1.geometry.setAttribute('position', selectionPosAttrs[0]); p1.geometry.setAttribute('color', selectionColorAttrs[0]);
-                    const p2 = new THREE.Points(new THREE.BufferGeometry(), perfMaterials[1]); p2.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); p2.frustumCulled = false; p2.matrixAutoUpdate = false; p2.geometry.setAttribute('position', selectionPosAttrs[1]); p2.geometry.setAttribute('color', selectionColorAttrs[1]);
-                    const p3 = new THREE.Points(new THREE.BufferGeometry(), perfMaterials[2]); p3.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); p3.frustumCulled = false; p3.matrixAutoUpdate = false; p3.geometry.setAttribute('position', selectionPosAttrs[2]); p3.geometry.setAttribute('color', selectionColorAttrs[2]);
-                    const p4 = new THREE.Points(new THREE.BufferGeometry(), perfMaterials[3]); p4.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE); p4.frustumCulled = false; p4.matrixAutoUpdate = false; p4.geometry.setAttribute('position', selectionPosAttrs[3]); p4.geometry.setAttribute('color', selectionColorAttrs[3]);
                     const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), selBoxMat); bMesh.matrixAutoUpdate = false; bMesh.frustumCulled = false;
-                    pivotGroup.add(m1, m2, m3, m4, p1, p2, p3, p4, bMesh);
+                    pivotGroup.add(m1, m2, m3, m4, bMesh);
                     previewContainer.add(g); previewGroups.push(g);
                 }
                 const g = previewGroups[pIdx];
                 const pivotGroup = g.children[0];
                 const pCX = pivotPoint.x * VOXEL_SIZE, pCY = pivotPoint.y * VOXEL_SIZE, pCZ = pivotPoint.z * VOXEL_SIZE;
-                pivotGroup.children[0].instanceMatrix = selMeshSolid.instanceMatrix; pivotGroup.children[0].instanceColor = selMeshSolid.instanceColor; pivotGroup.children[0].count = selMeshSolid.count; pivotGroup.children[0].visible = selMeshSolid.visible && renderMode === 'standard';
-                pivotGroup.children[1].instanceMatrix = selMeshGlass.instanceMatrix; pivotGroup.children[1].instanceColor = selMeshGlass.instanceColor; pivotGroup.children[1].count = selMeshGlass.count; pivotGroup.children[1].visible = selMeshGlass.visible && renderMode === 'standard';
-                pivotGroup.children[2].instanceMatrix = selMeshEmission.instanceMatrix; pivotGroup.children[2].instanceColor = selMeshEmission.instanceColor; pivotGroup.children[2].count = selMeshEmission.count; pivotGroup.children[2].visible = selMeshEmission.visible && renderMode === 'standard';
-                pivotGroup.children[3].instanceMatrix = selMeshMetal.instanceMatrix; pivotGroup.children[3].instanceColor = selMeshMetal.instanceColor; pivotGroup.children[3].count = selMeshMetal.count; pivotGroup.children[3].visible = selMeshMetal.visible && renderMode === 'standard';
-                
-                pivotGroup.children[4].geometry.setDrawRange(0, selMeshSolid.count); pivotGroup.children[4].visible = selMeshSolid.visible && renderMode === 'performance';
-                pivotGroup.children[5].geometry.setDrawRange(0, selMeshGlass.count); pivotGroup.children[5].visible = selMeshGlass.visible && renderMode === 'performance';
-                pivotGroup.children[6].geometry.setDrawRange(0, selMeshEmission.count); pivotGroup.children[6].visible = selMeshEmission.visible && renderMode === 'performance';
-                pivotGroup.children[7].geometry.setDrawRange(0, selMeshMetal.count); pivotGroup.children[7].visible = selMeshMetal.visible && renderMode === 'performance';
-                
+                for (let m = 0; m < selectionMeshes.length; m++) {
+                    const source = selectionMeshes[m], copy = pivotGroup.children[m];
+                    copy.instanceMatrix = source.instanceMatrix; copy.instanceColor = source.instanceColor;
+                    copy.count = source.count; copy.visible = source.visible;
+                }
                 const showWireBox = selectedVoxelsCount > 0 && ((transformMode !== 'draw' && transformMode !== 'paint') || isSettingPivot);
-                for (let idx = 0; idx < 8; idx++) { const m = pivotGroup.children[idx]; m.position.set(-pCX, -pCY, -pCZ); m.updateMatrix(); }
-                const bMesh = pivotGroup.children[8]; tempPos.set(pCX, pCY, pCZ); bMesh.position.copy(selBoxMesh.position).sub(tempPos); bMesh.scale.copy(selBoxMesh.scale); bMesh.updateMatrix();
+                for (let idx = 0; idx < selectionMeshes.length; idx++) { const m = pivotGroup.children[idx]; m.position.set(-pCX, -pCY, -pCZ); m.updateMatrix(); }
+                const bMesh = pivotGroup.children[selectionMeshes.length]; tempPos.set(pCX, pCY, pCZ); bMesh.position.copy(selBoxMesh.position).sub(tempPos); bMesh.scale.copy(selBoxMesh.scale); bMesh.updateMatrix();
                 bMesh.visible = showWireBox;
                 const isCopyMode = transformMode === 'copy';
                 pivotGroup.rotation.set(
@@ -3384,8 +3444,8 @@ if (cy >= 60 && cy <= 90) {
                 globalButton(28,351,219,72,`UNDO (${undoStack.length})`,false,250,350);
                 globalButton(265,351,219,72,`REDO (${redoStack.length})`,false,400,350);
                 studioSection(globalMenuCtx,'RENDER DISPLAY',480);
-                globalButton(28,508,456,75,renderMode==='performance'?'POINTS / SWITCH TO SOLID':'SOLID / SWITCH TO POINTS',renderMode==='performance',100,350);
-                hint('POINTS MODE HELPS WITH LARGE SCULPTS',622);
+                globalButton(28,508,456,75,renderMode==='performance'?'AUTO DETAIL / USE FULL':'FULL DETAIL / USE AUTO',renderMode==='performance',100,350);
+                hint('AUTO REFINES THE SURFACE AS YOU ZOOM IN',622);
                 studioSection(globalMenuCtx,'ROTATION INCREMENTS',687);
                 globalButton(28,718,143,75,'1° FINE',rotationSnapStep===1,100,900);
                 globalButton(184,718,143,75,'5° MED',rotationSnapStep===5,230,900);
@@ -3547,8 +3607,7 @@ if (cy >= 60 && cy <= 90) {
             if (cy >= 330 && cy <= 375) {
                 if (cx >= 40 && cx <= 180) {
                     renderMode = renderMode === 'standard' ? 'performance' : 'standard';
-                    refreshDisplayMode();
-                    if (hasSelection) updateSelectionVisuals();
+                    nextSurfaceView = 0;
                 }
                 if (cx >= 187 && cx <= 327) performUndo();
                 if (cx >= 334 && cx <= 474) performRedo();
@@ -3943,6 +4002,7 @@ if (cy >= 60 && cy <= 90) {
                 // 1. Collect complete lossless application & environment state
                 const meta = {
                     v: 1,
+                    surfaceDetail: renderMode === 'standard' ? 'full' : 'auto',
                     wp: [worldGroup.position.x, worldGroup.position.y, worldGroup.position.z],
                     wq: [worldGroup.quaternion.x, worldGroup.quaternion.y, worldGroup.quaternion.z, worldGroup.quaternion.w],
                     ws: [worldGroup.scale.x, worldGroup.scale.y, worldGroup.scale.z],
@@ -4209,21 +4269,15 @@ if (cy >= 60 && cy <= 90) {
                 redoStack.length = 0;
                 dirtyChunks.clear();
 
-                for (const [, chunk] of chunks) {
-                    for (let m = 0; m < 4; m++) {
-                        const layer = chunk.layers[m];
-                        if (layer) {
-                            layer.disposeMesh();
-                        }
-                    }
-                }
-                for (const r of regions.values()) clearRegion(r);
-                regions.clear(); splitRegions.clear(); dirtyRegions.clear(); nextDetailCheck=0;
+                resetSurfaces();
                 chunks.clear();
                 cachedChunkKey = NaN;
                 cachedChunk = null;
-                autoPerfEngaged = false;
+                renderMode = 'performance';
                 totalActiveVoxels = 0;
+
+                // Older VTB1 projects saved a points/boxes preference in sym[7].
+                if (meta.surfaceDetail === 'full') renderMode = 'standard';
 
                 // 2. Restore world transform, palette, materials, symmetry, and tool settings
                 if (meta.wp) worldGroup.position.set(meta.wp[0], meta.wp[1], meta.wp[2]);
@@ -4304,7 +4358,6 @@ if (cy >= 60 && cy <= 90) {
                     mirrorZ = meta.sym[4];
                     polarSymmetry = meta.sym[5];
                     drawFromCenter = meta.sym[6];
-                    renderMode = meta.sym[7] || 'standard';
                     exportMode = meta.sym[8] || 'boxes';
                 }
                 if (meta.gc) {
@@ -4383,7 +4436,7 @@ if (cy >= 60 && cy <= 90) {
                     if (t.arcTilt !== undefined) arcTilt = t.arcTilt;
                 }
 
-                // 3. Reconstruct chunks directly into GPU-backed TypedArrays
+                // 3. Restore the original voxel coordinates and colors into the editable arrays.
                 const chunkCount = view.getUint32(ptr, true); ptr += 4;
                 for (let c = 0; c < chunkCount; c++) {
                     const cx = view.getInt16(ptr, true); ptr += 2;
@@ -4434,7 +4487,6 @@ if (cy >= 60 && cy <= 90) {
                     dirtyChunks.add(chunk);
                 }
 
-                if(totalActiveVoxels >= overviewThreshold) {renderMode='performance';autoPerfEngaged=true;}
                 rebuildTorusPreviewGeo();
                 updatePolarArrays();
                 updateCursors();
@@ -5204,14 +5256,13 @@ if (cy >= 60 && cy <= 90) {
             const arrG = selMeshGlass.instanceMatrix.array, colG = selMeshGlass.instanceColor.array;
             const arrE = selMeshEmission.instanceMatrix.array, colE = selMeshEmission.instanceColor.array;
             const arrM = selMeshMetal.instanceMatrix.array, colM = selMeshMetal.instanceColor.array;
-            const ptsS = selectionPosAttrs[0].array, ptsG = selectionPosAttrs[1].array, ptsE = selectionPosAttrs[2].array, ptsM = selectionPosAttrs[3].array;
             for(let i=0; i<selectedVoxelsCount; i++) {
                 const v = selectedVoxels[i];
                 const r = Math.round(v.color.r*255), g = Math.round(v.color.g*255), b = Math.round(v.color.b*255);
-                if (v.mat === 0) { arrS[iS*16+12]=v.x; arrS[iS*16+13]=v.y; arrS[iS*16+14]=v.z; ptsS[iS*3]=v.x; ptsS[iS*3+1]=v.y; ptsS[iS*3+2]=v.z; colS[iS*3]=r; colS[iS*3+1]=g; colS[iS*3+2]=b; iS++; }
-                else if (v.mat === 1) { arrG[iG*16+12]=v.x; arrG[iG*16+13]=v.y; arrG[iG*16+14]=v.z; ptsG[iG*3]=v.x; ptsG[iG*3+1]=v.y; ptsG[iG*3+2]=v.z; colG[iG*3]=r; colG[iG*3+1]=g; colG[iG*3+2]=b; iG++; }
-                else if (v.mat === 2) { arrE[iE*16+12]=v.x; arrE[iE*16+13]=v.y; arrE[iE*16+14]=v.z; ptsE[iE*3]=v.x; ptsE[iE*3+1]=v.y; ptsE[iE*3+2]=v.z; colE[iE*3]=r; colE[iE*3+1]=g; colE[iE*3+2]=b; iE++; }
-                else if (v.mat === 3) { arrM[iM*16+12]=v.x; arrM[iM*16+13]=v.y; arrM[iM*16+14]=v.z; ptsM[iM*3]=v.x; ptsM[iM*3+1]=v.y; ptsM[iM*3+2]=v.z; colM[iM*3]=r; colM[iM*3+1]=g; colM[iM*3+2]=b; iM++; }
+                if (v.mat === 0) { arrS[iS*16+12]=v.x; arrS[iS*16+13]=v.y; arrS[iS*16+14]=v.z; colS[iS*3]=r; colS[iS*3+1]=g; colS[iS*3+2]=b; iS++; }
+                else if (v.mat === 1) { arrG[iG*16+12]=v.x; arrG[iG*16+13]=v.y; arrG[iG*16+14]=v.z; colG[iG*3]=r; colG[iG*3+1]=g; colG[iG*3+2]=b; iG++; }
+                else if (v.mat === 2) { arrE[iE*16+12]=v.x; arrE[iE*16+13]=v.y; arrE[iE*16+14]=v.z; colE[iE*3]=r; colE[iE*3+1]=g; colE[iE*3+2]=b; iE++; }
+                else if (v.mat === 3) { arrM[iM*16+12]=v.x; arrM[iM*16+13]=v.y; arrM[iM*16+14]=v.z; colM[iM*3]=r; colM[iM*3+1]=g; colM[iM*3+2]=b; iM++; }
                 minX=Math.min(minX, v.x); maxX=Math.max(maxX, v.x); minY=Math.min(minY, v.y); maxY=Math.max(maxY, v.y); minZ=Math.min(minZ, v.z); maxZ=Math.max(maxZ, v.z);
             }
             const setAttrRange = (attr, count) => {
@@ -5222,17 +5273,10 @@ if (cy >= 60 && cy <= 90) {
                 }
             };
 
-            if (renderMode === 'standard') {
-                setAttrRange(selMeshSolid.instanceMatrix, iS * 16); setAttrRange(selMeshSolid.instanceColor, iS * 3);
-                setAttrRange(selMeshGlass.instanceMatrix, iG * 16); setAttrRange(selMeshGlass.instanceColor, iG * 3);
-                setAttrRange(selMeshEmission.instanceMatrix, iE * 16); setAttrRange(selMeshEmission.instanceColor, iE * 3);
-                setAttrRange(selMeshMetal.instanceMatrix, iM * 16); setAttrRange(selMeshMetal.instanceColor, iM * 3);
-            } else {
-                setAttrRange(selectionPosAttrs[0], iS * 3); setAttrRange(selectionColorAttrs[0], iS * 3);
-                setAttrRange(selectionPosAttrs[1], iG * 3); setAttrRange(selectionColorAttrs[1], iG * 3);
-                setAttrRange(selectionPosAttrs[2], iE * 3); setAttrRange(selectionColorAttrs[2], iE * 3);
-                setAttrRange(selectionPosAttrs[3], iM * 3); setAttrRange(selectionColorAttrs[3], iM * 3);
-            }
+            setAttrRange(selMeshSolid.instanceMatrix, iS * 16); setAttrRange(selMeshSolid.instanceColor, iS * 3);
+            setAttrRange(selMeshGlass.instanceMatrix, iG * 16); setAttrRange(selMeshGlass.instanceColor, iG * 3);
+            setAttrRange(selMeshEmission.instanceMatrix, iE * 16); setAttrRange(selMeshEmission.instanceColor, iE * 3);
+            setAttrRange(selMeshMetal.instanceMatrix, iM * 16); setAttrRange(selMeshMetal.instanceColor, iM * 3);
             
             selMeshSolid.count = iS; selMeshGlass.count = iG; selMeshEmission.count = iE; selMeshMetal.count = iM;
             selMeshSolid.visible = iS > 0; selMeshGlass.visible = iG > 0; selMeshEmission.visible = iE > 0; selMeshMetal.visible = iM > 0;
@@ -7393,13 +7437,6 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             hideAllPreviews();
             lockCtx.active = false;
 
-            if (totalActiveVoxels >= 2000000 && !autoPerfEngaged && renderMode !== 'performance') {
-                renderMode = 'performance';
-                autoPerfEngaged = true;
-                refreshDisplayMode();
-                globalMenuNeedsUpdate = true;
-            }
-
             // Commit changes to undo stack AFTER all tools have finished executing
             if (currentStrokeChanges && currentStrokeChanges.count > 0) {
                 undoStack.push(currentStrokeChanges);
@@ -7605,7 +7642,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                 modelGroup.matrixAutoUpdate = false;
                 modelGroup.matrix.copy(worldGroup.matrixWorld);
                 modelGroup.matrixWorldNeedsUpdate = true;
-                if(viewSelector.value==='model') updateDisplayDetail(performance.now());
+                if (viewSelector.value === 'model') updateSurfaceDisplay(performance.now());
                 renderer.render(testScene, camera);
                 return;
             }
@@ -8120,14 +8157,8 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                 
             }
             flushDirtyChunks();
-            if (renderMode === 'performance') {
-                const effSize = VOXEL_SIZE * 1.15 * worldGroup.scale.y;
-                for (let i = 0; i < perfMaterials.length; i++) {
-                    if (perfMaterials[i].size !== effSize) perfMaterials[i].size = effSize;
-                }
-            }
-        updateDisplayDetail(performance.now());
-        renderer.render(scene, camera);
+            updateSurfaceDisplay(performance.now());
+            renderer.render(scene, camera);
 
 
     });
@@ -8222,7 +8253,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         let hudTick=0;
         function updateStudioHUD(){
             document.getElementById('hud-voxels').textContent=totalActiveVoxels.toLocaleString();
-            document.getElementById('hud-perf').textContent=`${chunks.size.toLocaleString()} CHUNKS · ${renderMode==='standard'?'SOLID':largeDisplay?'ADAPTIVE DETAIL':'POINTS'}`;
+            document.getElementById('hud-perf').textContent=`${chunks.size.toLocaleString()} CHUNKS · ${renderMode==='standard'?'FULL SURFACE':'AUTO SURFACE'}${pendingSurfaces.size || surfaceJob ? ' · BUILDING' : ''}`;
             const label=document.getElementById('hud-current-tool');
             const current=(studioTools.find(t=>t.id===activeTool)?.name||activeTool).toUpperCase();
             if(label.textContent!==current) {syncDesktopToolButtons();}
