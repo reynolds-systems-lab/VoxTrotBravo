@@ -1,5 +1,5 @@
  	<!-- 
-    VoxTrotBravo v4.12
+    VoxTrotBravo v4.13
     Copyright (c) 2024-2026 Rob Reynolds. All Rights Reserved.
     Unauthorized copying, modification, or distribution is strictly prohibited.
 -->
@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoxTrotBravo v4.12</title>
+    <title>VoxTrotBravo v4.13</title>
     <style>
 :root{color-scheme:dark;--ink:#f0e8d3;--muted:#aeb8ac;--accent:#ffb064;--accent2:#b4e58b;--surface:#1b2521;--line:#56685a}
 *{box-sizing:border-box}body{margin:0;overflow:hidden;background:#111715;color:var(--ink);font-family:Consolas,'Lucida Console',monospace}canvas{display:block}button{font:inherit}
@@ -55,13 +55,13 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
 </head>
 <body>
     <div id="loading-overlay">
-        <h2>VoxTrotBravo v4.12</h2>
+        <h2>VoxTrotBravo v4.13</h2>
         <p>Preparing studio…</p>
         <div class="spinner"></div>
     </div>
 
     <section id="ui-container" class="glass-surface" aria-label="VoxTrotBravo controller guide">
-        <div class="brand-head"><div class="brand-logo"><div class="brand-mark" aria-hidden="true"></div><div><h1>VoxTrotBravo <small>v4.12</small></h1></div></div><button id="toggle-help" class="icon-btn" aria-label="Show or hide controller guide" title="Collapse guide">−</button></div>
+        <div class="brand-head"><div class="brand-logo"><div class="brand-mark" aria-hidden="true"></div><div><h1>VoxTrotBravo <small>v4.13</small></h1></div></div><button id="toggle-help" class="icon-btn" aria-label="Show or hide controller guide" title="Collapse guide">−</button></div>
         <div class="ui-content"><div class="eyebrow">Controller quick guide</div>
             <div class="command-rows">
                 <div class="command"><b>A · Right</b><span>Current tool settings / rotate</span></div>
@@ -269,38 +269,58 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
 
         let totalActiveVoxels = 0;
         
-        // --- Typed-Array Undo/Redo System State ---
+        // Grow long strokes a page at a time. A saved state is material + 1 followed by 24-bit RGB; zero is empty.
+        const HISTORY_PAGE_SHIFT = 11;
+        const HISTORY_PAGE_SIZE = 1 << HISTORY_PAGE_SHIFT;
+        const HISTORY_PAGE_MASK = HISTORY_PAGE_SIZE - 1;
+        function voxelRGB(color) {
+            return (Math.round(color.r * 255) & 255) | ((Math.round(color.g * 255) & 255) << 8) |
+                ((Math.round(color.b * 255) & 255) << 16);
+        }
+        function readRGB(bytes, offset) {
+            return bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16);
+        }
         class StrokeBuffer {
-            constructor(initialCapacity = 2048) {
-                this.capacity = initialCapacity;
+            constructor() {
                 this.count = 0;
-                this.coords = new Int32Array(this.capacity * 3); // gx, gy, gz
-                this.mats = new Int8Array(this.capacity * 2);    // prevMat, nextMat
-                this.colors = new Uint8Array(this.capacity * 6); // prevRGB, nextRGB
+                this.pages = [];
             }
-            resize(newCapacity) {
-                const newCoords = new Int32Array(newCapacity * 3); newCoords.set(this.coords); this.coords = newCoords;
-                const newMats = new Int8Array(newCapacity * 2); newMats.set(this.mats); this.mats = newMats;
-                const newColors = new Uint8Array(newCapacity * 6); newColors.set(this.colors); this.colors = newColors;
-                this.capacity = newCapacity;
+            reset() {
+                this.count = 0;
+                if (this.pages.length > 1) this.pages.length = 1;
             }
-            addChange(gx, gy, gz, prevMat, prevColor, nextMat, nextColor) {
-                if (this.count >= this.capacity) this.resize(this.capacity * 2);
-                const i = this.count;
-                const cI = i * 3; this.coords[cI] = gx; this.coords[cI+1] = gy; this.coords[cI+2] = gz;
-                const mI = i * 2; this.mats[mI] = prevMat; this.mats[mI+1] = nextMat;
-                const colI = i * 6;
-                // Store raw RGB directly to eliminate object retention
-                if (prevColor) { this.colors[colI] = Math.round(prevColor.r*255); this.colors[colI+1] = Math.round(prevColor.g*255); this.colors[colI+2] = Math.round(prevColor.b*255); }
-                if (nextColor) { this.colors[colI+3] = Math.round(nextColor.r*255); this.colors[colI+4] = Math.round(nextColor.g*255); this.colors[colI+5] = Math.round(nextColor.b*255); }
-                this.count++;
-                return i;
+            record(chunk, local, gx, gy, gz, before, after) {
+                // Index by chunk and a lazily allocated 256-cell page. Mirrored
+                // strokes can alternate distant chunks without hashing each coordinate.
+                let blocks = currentStrokeVoxelTracker.get(chunk);
+                if (!blocks) currentStrokeVoxelTracker.set(chunk, blocks = []);
+                const blockKey = local >>> 8;
+                const block = blocks[blockKey] || (blocks[blockKey] = new Uint32Array(256));
+                const slot = local & 255;
+                let i = block[slot] - 1;
+                if (i >= 0) {
+                    this.pages[i >>> HISTORY_PAGE_SHIFT].after[i & HISTORY_PAGE_MASK] = after;
+                    return;
+                }
+                i = this.count++;
+                block[slot] = i + 1;
+                const pageKey = i >>> HISTORY_PAGE_SHIFT, j = i & HISTORY_PAGE_MASK;
+                let page = this.pages[pageKey];
+                if (!page) {
+                    page = {coords: new Int32Array(3 * HISTORY_PAGE_SIZE),
+                        before: new Uint32Array(HISTORY_PAGE_SIZE), after: new Uint32Array(HISTORY_PAGE_SIZE)};
+                    this.pages[pageKey] = page;
+                }
+                page.coords[3*j] = gx; page.coords[3*j+1] = gy; page.coords[3*j+2] = gz;
+                page.before[j] = before; page.after[j] = after;
             }
-            updateNext(idx, nextMat, nextColor) {
-                this.mats[idx * 2 + 1] = nextMat;
-                if (nextColor) {
-                    const colI = idx * 6;
-                    this.colors[colI+3] = Math.round(nextColor.r*255); this.colors[colI+4] = Math.round(nextColor.g*255); this.colors[colI+5] = Math.round(nextColor.b*255);
+            replay(undo) {
+                const step = undo ? -1 : 1;
+                const stop = undo ? -1 : this.count;
+                for (let i = undo ? this.count - 1 : 0; i !== stop; i += step) {
+                    const page = this.pages[i >>> HISTORY_PAGE_SHIFT], j = i & HISTORY_PAGE_MASK, p = j * 3;
+                    const state = undo ? page.before[j] : page.after[j];
+                    writeVoxelState(page.coords[p], page.coords[p+1], page.coords[p+2], state);
                 }
             }
         }
@@ -312,7 +332,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         let spareStrokeBuffer = new StrokeBuffer();
         const sharedStrokeVoxelTracker = new Map();
         let currentStrokeVoxelTracker = null;
-        const tempHistoryColor = new THREE.Color(); // Used purely for execution to avoid loop allocations
         
         const studioTools = [
             {id:'brush',name:'Brush',kind:'Sculpt'},
@@ -749,7 +768,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const gradDir = new THREE.Vector3();
         
         // --- NEW: Dedicated loop temporaries to prevent GC stutter ---
-        const tempCorePrevColor = new THREE.Color();
         const tempPaintColor = new THREE.Color();
         const paintVoxelTimeMap = new Map();
         let paintStrokeNow = 0;
@@ -759,7 +777,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const tempBrushInvCtrlQuat = new THREE.Quaternion();
         const tempBrushCombinedQuat = new THREE.Quaternion();
         const tempBrushLocalOffset = new THREE.Vector3();
-        const strokeInteriorSet = new Set();
+        const strokeCoverage = new Map(); // One word per column of 32 visited Z cells in a touched chunk.
         const tempCursorWQuat = new THREE.Quaternion();
         const tempCursorCQuat = new THREE.Quaternion();
         const tempStrokeQuat = new THREE.Quaternion();
@@ -1067,38 +1085,29 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                     else this.reverse.set(local,index);
                 } else this.reverse[local]=index;
             }
-            addVoxel(local, gx, gy, gz, color) {
-                let i = this.indexOf(local);
-                const added = i === 65535;
-                if (added) {
-                    this.prepareEdit();
-                    if (this.count === this.indexToLocal.length) {
-                        const capacity = Math.min(CHUNK_VOL, this.count * 2);
-                        const indices = new Uint16Array(capacity), colors = new Uint8Array(capacity * 3);
-                        indices.set(this.indexToLocal); colors.set(this.colors);
-                        this.indexToLocal = indices; this.colors = colors;
-                    }
-                    i = this.count++;
-                    this.setIndex(local,i);
-                    this.indexToLocal[i] = local;
-                    totalActiveVoxels++;
+            insert(local) {
+                this.prepareEdit();
+                if (this.count === this.indexToLocal.length) {
+                    const capacity = Math.min(CHUNK_VOL, this.count * 2);
+                    const indices = new Uint16Array(capacity), colors = new Uint8Array(capacity * 3);
+                    indices.set(this.indexToLocal); colors.set(this.colors);
+                    this.indexToLocal = indices; this.colors = colors;
                 }
-                const c = i * 3, r = Math.round(color.r*255), g = Math.round(color.g*255), b = Math.round(color.b*255);
-                if (!added && this.colors[c] === r && this.colors[c+1] === g && this.colors[c+2] === b) return false;
-                this.colors[c] = r; this.colors[c+1] = g; this.colors[c+2] = b;
-                return true;
+                const i = this.count++;
+                this.indexToLocal[i] = local;
+                this.setIndex(local, i);
+                return i;
             }
-            removeVoxel(local) {
-                const i = this.indexOf(local);
-                if (i === 65535) return false;
+            removeAt(local, i) {
                 this.prepareEdit();
                 const end = --this.count;
-                this.indexToLocal[i] = this.indexToLocal[end];
-                this.setIndex(this.indexToLocal[i],i);
-                this.setIndex(local,65535);
-                this.colors.copyWithin(i*3, end*3, end*3+3);
-                totalActiveVoxels--;
-                return true;
+                if (i !== end) {
+                    const moved = this.indexToLocal[end];
+                    this.indexToLocal[i] = moved;
+                    this.setIndex(moved, i);
+                    this.colors.copyWithin(i*3, end*3, end*3+3);
+                }
+                this.setIndex(local, 65535);
             }
         }
 
@@ -1152,6 +1161,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         function resetSurfaces() {
             for (const r of regions.values()) disposeSurfaces(r.meshes);
             regions.clear();
+            resetWorkerChunks();
             pendingSurfaces.clear();
             touchedRegions.clear();
             nextSurfaceView = 0;
@@ -1161,11 +1171,14 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             if (!dirtyChunks.size) return;
             for (const c of dirtyChunks) {
                 touchedRegions.add(c.region);
-                for (const [dx,dy,dz] of borderDirections) {
-                    const x = c.cx + dx, y = c.cy + dy, z = c.cz + dz;
-                    if ((x >> 2) === (c.cx >> 2) && (y >> 2) === (c.cy >> 2) && (z >> 2) === (c.cz >> 2)) continue;
-                    const neighbour = getChunkFast(x,y,z);
+                let edges = c.changedEdges;
+                c.changedEdges = 0;
+                while (edges) {
+                    const bit = edges & -edges;
+                    const [dx,dy,dz] = borderDirections[31 - Math.clz32(bit)];
+                    const neighbour = getChunkFast(c.cx+dx,c.cy+dy,c.cz+dz);
                     if (neighbour) touchedRegions.add(neighbour.region);
+                    edges ^= bit;
                 }
             }
             for (const r of touchedRegions) {
@@ -1184,11 +1197,11 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             dirtyChunks.clear();
         }
 
-        function surfaceSnapshot(r) {
+        function surfaceSnapshot(r, reference = null) {
             const sources = [], borders = [];
             for (const chunk of r.chunks) {
                 const x = chunk.cx * CHUNK_SIZE - r.x, y = chunk.cy * CHUNK_SIZE - r.y, z = chunk.cz * CHUNK_SIZE - r.z;
-                sources.push({x, y, z, layers: chunk.layers.map(l => l?.count ? {
+                sources.push({x, y, z, layers: reference ? reference(chunk,false) : chunk.layers.map(l => l?.count ? {
                     indices: l.indexToLocal.subarray(0, l.count), colors: l.colors.subarray(0, l.count*3)
                 } : null)});
             }
@@ -1202,7 +1215,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                     const z = axis === 0 ? v : axis === 1 ? u : edge;
                     const c = getChunkFast((r.x >> 5) + x, (r.y >> 5) + y, (r.z >> 5) + z);
                     if (c) borders.push({side, x: x*32, y: y*32, z: z*32,
-                        layers: c.layers.map(l => l?.count ? l.indexToLocal.subarray(0,l.count) : null)});
+                        layers: reference ? reference(c,true) : c.layers.map(l => l?.count ? l.indexToLocal.subarray(0,l.count) : null)});
                 }
             }
             return {width: REGION_WIDTH, shift: r.target, sources, borders};
@@ -1246,9 +1259,79 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             if (r.drawn === r.revision && r.level === r.target) pendingSurfaces.delete(r);
             else pendingSurfaces.add(r);
         }
+        // Keep a bounded set of immutable copies in the meshing worker. Revisiting
+        // the opposite side of a mirrored stroke usually changes only a few chunks.
+        const workerChunks = new Map();
+        const WORKER_CACHE_BYTES = 24 * 1024 * 1024;
+        let workerCachedBytes = 0, clearWorkerChunks = true;
+        function resetWorkerChunks() {
+            workerChunks.clear();
+            workerCachedBytes = 0;
+            clearWorkerChunks = true;
+        }
+        function runSurfaceWorker(build) {
+            const chunks = new Map();
+            self.onmessage = ({data}) => {
+                if (data.clear) chunks.clear();
+                for (const key of data.evicted) chunks.delete(key);
+                for (const {key,layers,colorsOnly} of data.updates) {
+                    if (colorsOnly) {
+                        const resident = chunks.get(key).layers;
+                        for (let m = 0; m < layers.length; m++) if (layers[m]) resident[m].colors = layers[m].colors;
+                    } else chunks.set(key,{layers, border: layers.map(l => l ? l.indices : null)});
+                }
+                const job = data.job;
+                for (const source of job.sources) source.layers = chunks.get(source.layers).layers;
+                for (const border of job.borders) border.layers = chunks.get(border.layers).border;
+                const batches = build(job);
+                self.postMessage(batches,batches.filter(Boolean).map(b => b.buffer));
+            };
+        }
+        function sendSurfaceJob(region) {
+            const updates = [], evicted = [], transfers = [];
+            let used = 0;
+            function reference(chunk, borderOnly) {
+                const key = chunkKey(chunk.cx,chunk.cy,chunk.cz);
+                let cached = workerChunks.get(key);
+                if (cached) workerChunks.delete(key);
+                const current = cached && cached.version === chunk.surfaceVersion;
+                if (!current || (!borderOnly && !cached.full)) {
+                    const colorsOnly = !!current;
+                    if (cached) workerCachedBytes -= cached.bytes;
+                    let size = colorsOnly ? cached.bytes : 0;
+                    const layers = chunk.layers.map(l => {
+                        if (!l?.count) return null;
+                        // Transfer fresh copies of exactly the active ranges. Both
+                        // the editor and the file encoder continue to own the originals.
+                        const indices = colorsOnly ? null : l.indexToLocal.slice(0,l.count);
+                        const colors = borderOnly ? null : l.colors.slice(0,3*l.count);
+                        if (indices) { transfers.push(indices.buffer); size += indices.byteLength; }
+                        if (colors) { transfers.push(colors.buffer); size += colors.byteLength; }
+                        return {indices,colors};
+                    });
+                    updates.push({key,layers,colorsOnly});
+                    cached = {version: chunk.surfaceVersion, bytes: size, full: !borderOnly};
+                    workerCachedBytes += size;
+                }
+                workerChunks.set(key,cached); // Most recently referenced chunks are at the end.
+                used++;
+                return key;
+            }
+            const job = surfaceSnapshot(region,reference);
+            // Sources and the six adjacent slabs are disjoint. Retain every input
+            // of this job even if one exceptionally dense job exceeds the byte cap.
+            for (const [key,entry] of workerChunks) {
+                if (workerChunks.size <= used || (workerCachedBytes <= WORKER_CACHE_BYTES && workerChunks.size <= 512)) break;
+                workerChunks.delete(key);
+                workerCachedBytes -= entry.bytes;
+                evicted.push(key);
+            }
+            worker.postMessage({job,updates,evicted,clear:clearWorkerChunks},transfers);
+            clearWorkerChunks = false;
+        }
+
         function startSurfaceWorker() {
-            const source = 'const mesh = (' + createSurfaceMesher.toString() + ')();\n' +
-                'self.onmessage = ({data}) => { const batches = mesh(data); self.postMessage(batches, batches.filter(Boolean).map(b => b.buffer)); };';
+            const source = '(' + runSurfaceWorker.toString() + ')((' + createSurfaceMesher.toString() + ')());';
             const url = URL.createObjectURL(new Blob([source], {type: 'text/javascript'}));
             try {
                 worker = new Worker(url);
@@ -1260,7 +1343,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 };
                 worker.onerror = event => {
                     event.preventDefault();
-                    worker.terminate(); worker = null; workerDisabled = true;
+                    worker.terminate(); worker = null; workerDisabled = true; resetWorkerChunks();
                     const job = surfaceJob;
                     surfaceJob = null;
                     if (job && regions.get(job.region.key) === job.region) pendingSurfaces.add(job.region);
@@ -1280,22 +1363,21 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             }
             if (!next) return;
             pendingSurfaces.delete(next);
-            const data = surfaceSnapshot(next);
-            const job = {region: next, revision: next.revision, level: data.shift};
+            const job = {region: next, revision: next.revision, level: next.target};
             if (!workerDisabled) {
                 try {
                     if (!worker) startSurfaceWorker();
                     surfaceJob = job;
-                    worker.postMessage(data);
+                    sendSurfaceJob(next);
                     return;
                 } catch {
-                    worker?.terminate(); worker = null; workerDisabled = true; surfaceJob = null;
+                    worker?.terminate(); worker = null; workerDisabled = true; surfaceJob = null; resetWorkerChunks();
                 }
             }
             // File hosts that restrict blob workers can still use exactly the same geometry.
             // In this path the animation loop starts at most one build per frame.
             if (!localMesher) localMesher = createSurfaceMesher();
-            acceptSurface(job, localMesher(data));
+            acceptSurface(job, localMesher(surfaceSnapshot(next)));
         }
 
         let nextSurfaceView = 0;
@@ -1356,33 +1438,22 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             constructor(cx, cy, cz) {
                 this.cx = cx; this.cy = cy; this.cz = cz;
                 this.layers = new Array(4).fill(null);
+                this.changedEdges = 0;
+                this.surfaceVersion = 0;
+                this.eraseMask = null;
                 registerChunk(this);
             }
 
-            materialAt(local) {
-                for(let m=0;m<4;m++) if(this.layers[m] && this.layers[m].indexOf(local)!==65535) return m;
+            findVoxel(local) {
+                for (let m = 0; m < 4; m++) {
+                    const layer = this.layers[m];
+                    if (!layer) continue;
+                    const i = layer.indexOf(local);
+                    if (i !== 65535) return (m << 16) | i;
+                }
                 return -1;
             }
-
-            addVoxel(lx, ly, lz, gx, gy, gz, color, matType) {
-                const localIdx = lx | (ly << 5) | (lz << 10);
-                const currentMat = this.materialAt(localIdx);
-                if (currentMat !== -1 && currentMat !== matType) this.layers[currentMat].removeVoxel(localIdx);
-                if (!this.layers[matType]) this.layers[matType] = new ChunkLayer(this.cx, this.cy, this.cz, matType);
-                
-                const changed = this.layers[matType].addVoxel(localIdx, gx, gy, gz, color);
-                if (changed || currentMat !== matType) dirtyChunks.add(this);
-            }
-
-            removeVoxel(lx, ly, lz) {
-                const localIdx = lx | (ly << 5) | (lz << 10);
-                const currentMat = this.materialAt(localIdx);
-                if (currentMat !== -1) {
-                    if (this.layers[currentMat].removeVoxel(localIdx)) dirtyChunks.add(this);
-
-                }
-            }
-
+            materialAt(local) { return this.findVoxel(local) >> 16; }
         }
 
         // --- Previews & Cursors ---
@@ -4271,8 +4342,10 @@ if (cy >= 60 && cy <= 90) {
 
                 resetSurfaces();
                 chunks.clear();
-                cachedChunkKey = NaN;
-                cachedChunk = null;
+                chunkCacheKeys.fill(NaN);
+                chunkCacheValues.fill(null);
+                for (const chunk of eraseMaskChunks) if (chunk) chunk.eraseMask = null;
+                eraseMaskChunks.fill(null);
                 renderMode = 'performance';
                 totalActiveVoxels = 0;
 
@@ -5008,82 +5081,87 @@ if (cy >= 60 && cy <= 90) {
 
 
 
-        let cachedChunkKey = NaN;
-        let cachedChunk = null;
+        // Both hands, mirror copies and region borders revisit a small set of chunks.
+        const chunkCacheKeys = new Float64Array(256).fill(NaN);
+        const chunkCacheValues = new Array(256).fill(null);
         const ZERO_GRID_POS = { x: 0, y: 0, z: 0 };
-
+        function chunkKey(cx, cy, cz) {
+            return (cx + 65536) + (cy + 65536) * 131072 + (cz + 65536) * 17179869184;
+        }
+        function chunkCacheSlot(cx, cy, cz) {
+            return ((cx * 31) ^ (cy * 73) ^ (cz * 127)) & 255;
+        }
         function getChunkFast(cx, cy, cz) {
-            const k = (cx + 65536) + (cy + 65536) * 131072 + (cz + 65536) * 17179869184;
-            if (k === cachedChunkKey && cachedChunk) return cachedChunk;
-            const c = chunks.get(k) || null;
-            cachedChunkKey = k;
-            cachedChunk = c;
-            return c;
+            const k = chunkKey(cx,cy,cz), slot = chunkCacheSlot(cx,cy,cz);
+            if (chunkCacheKeys[slot] === k) return chunkCacheValues[slot];
+            const chunk = chunks.get(k) || null;
+            chunkCacheKeys[slot] = k;
+            chunkCacheValues[slot] = chunk;
+            return chunk;
         }
-
         function getVoxelMatAndColor(gx, gy, gz, outColor) {
-            const c = getChunkFast(gx >> 5, gy >> 5, gz >> 5);
-            if (!c) return -1;
-            const lIdx = (gx & 31) | ((gy & 31) << 5) | ((gz & 31) << 10), m = c.materialAt(lIdx);
-            if (m !== -1 && outColor) { 
-                const layer = c.layers[m], iIdx = layer.indexOf(lIdx); 
-                if (iIdx !== 65535) {
-                    const cArr = layer.colors, cIdx = iIdx * 3;
-                    outColor.setRGB(cArr[cIdx] / 255, cArr[cIdx + 1] / 255, cArr[cIdx + 2] / 255);
-                }
+            const chunk = getChunkFast(gx >> 5, gy >> 5, gz >> 5);
+            if (!chunk) return -1;
+            const entry = chunk.findVoxel((gx & 31) | ((gy & 31) << 5) | ((gz & 31) << 10));
+            const mat = entry >> 16;
+            if (entry >= 0 && outColor) {
+                const rgb = chunk.layers[mat].colors, j = (entry & 65535) * 3;
+                outColor.setRGB(rgb[j] / 255, rgb[j+1] / 255, rgb[j+2] / 255);
             }
-            return m;
+            return mat;
         }
-        
-        function setVoxelCore(gx, gy, gz, isP, color, mOver = -1) {
+        function writeVoxelState(gx, gy, gz, state) {
             const cx = gx >> 5, cy = gy >> 5, cz = gz >> 5;
-            const lx = gx & 31, ly = gy & 31, lz = gz & 31;
-            let chunk = getChunkFast(cx, cy, cz);
-            
-            if (currentStrokeChanges) {
-                let prevMat = -1;
-                if (chunk) {
-                    const lIdx = lx | (ly << 5) | (lz << 10);
-                    prevMat = chunk.materialAt(lIdx);
-                    if (prevMat !== -1) {
-                        const layer = chunk.layers[prevMat], iIdx = layer.indexOf(lIdx);
-                        if (iIdx !== 65535) {
-                            const cArr = layer.colors, cIdx = iIdx * 3;
-                            tempCorePrevColor.setRGB(cArr[cIdx] / 255, cArr[cIdx + 1] / 255, cArr[cIdx + 2] / 255);
-                        }
-                    }
+            let chunk = getChunkFast(cx,cy,cz);
+            if (!chunk) {
+                if (!state) return;
+                chunk = new Chunk(cx,cy,cz);
+                chunks.set(chunkKey(cx,cy,cz),chunk);
+                chunkCacheValues[chunkCacheSlot(cx,cy,cz)] = chunk;
+            }
+            const local = (gx & 31) | ((gy & 31) << 5) | ((gz & 31) << 10);
+            const entry = chunk.findVoxel(local);
+            applyVoxelState(chunk,local,entry,gx,gy,gz,state);
+        }
+        function applyVoxelState(chunk, local, entry, gx, gy, gz, state) {
+            const oldMat = entry >> 16, newMat = (state >>> 24) - 1;
+            let i = entry & 65535;
+            const oldState = entry < 0 ? 0 : ((oldMat + 1) << 24) | readRGB(chunk.layers[oldMat].colors, i * 3);
+            if (state === oldState) return;
+            if (currentStrokeChanges) currentStrokeChanges.record(chunk, local, gx, gy, gz, oldState, state);
+            if (oldMat !== newMat) {
+                if (oldMat >= 0) chunk.layers[oldMat].removeAt(local, i);
+                if (newMat >= 0) {
+                    const target = chunk.layers[newMat] || (chunk.layers[newMat] = new ChunkLayer(chunk.cx,chunk.cy,chunk.cz,newMat));
+                    i = target.insert(local);
                 }
-                const targetMat = isP ? (mOver !== -1 ? mOver : matTypes[0]) : -1;
-                
-                if (prevMat !== targetMat || (isP && !tempCorePrevColor.equals(color))) {
-                    const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                    const existingIdx = currentStrokeVoxelTracker.get(vHash);
-
-                    if (existingIdx === undefined) {
-                        const idx = currentStrokeChanges.addChange(
-                            gx, gy, gz, 
-                            prevMat, prevMat !== -1 ? tempCorePrevColor : null,
-                            targetMat, isP ? color : null
-                        );
-                        currentStrokeVoxelTracker.set(vHash, idx);
-                    } else {
-                        currentStrokeChanges.updateNext(existingIdx, targetMat, isP ? color : null);
-                    }
+                if (oldMat === -1) totalActiveVoxels++;
+                if (newMat === -1) totalActiveVoxels--;
+                if (chunk.eraseMask && (oldMat === -1 || newMat === -1)) {
+                    const row = local & 1023, bit = 1 << (local >> 10);
+                    if (newMat === -1) chunk.eraseMask[row] &= ~bit;
+                    else chunk.eraseMask[row] |= bit;
+                }
+                // Only occupancy and glass/opaque transitions change a neighbouring region's hidden faces.
+                if (oldMat < 0 || newMat < 0 || oldMat === 1 || newMat === 1) {
+                    if ((gx & 127) === 0) chunk.changedEdges |= 1;
+                    if ((gx & 127) === 127) chunk.changedEdges |= 2;
+                    if ((gy & 127) === 0) chunk.changedEdges |= 4;
+                    if ((gy & 127) === 127) chunk.changedEdges |= 8;
+                    if ((gz & 127) === 0) chunk.changedEdges |= 16;
+                    if ((gz & 127) === 127) chunk.changedEdges |= 32;
                 }
             }
-
-            if (isP) {
-                if (!chunk) {
-                    const k = (cx + 65536) + (cy + 65536) * 131072 + (cz + 65536) * 17179869184;
-                    chunk = new Chunk(cx, cy, cz);
-                    chunks.set(k, chunk);
-                    cachedChunkKey = k;
-                    cachedChunk = chunk;
-                }
-                chunk.addVoxel(lx, ly, lz, gx, gy, gz, color, mOver !== -1 ? mOver : matTypes[0]);
-            } else if (chunk) {
-                chunk.removeVoxel(lx, ly, lz);
+            if (newMat >= 0) {
+                const rgb = chunk.layers[newMat].colors, j = 3 * i;
+                rgb[j] = state; rgb[j+1] = state >>> 8; rgb[j+2] = state >>> 16;
             }
+            chunk.surfaceVersion++;
+            dirtyChunks.add(chunk);
+        }
+        function setVoxelCore(gx, gy, gz, isP, color, mOver = -1) {
+            const mat = mOver === -1 ? matTypes[0] : mOver;
+            writeVoxelState(gx, gy, gz, isP ? ((mat + 1) << 24) | voxelRGB(color) : 0);
         }
 
         function recolorVoxel(gx, gy, gz, color, targetM, action = 'replace') {
@@ -5091,8 +5169,8 @@ if (cy >= 60 && cy <= 90) {
             if (!chunk) return;
 
             const lx = gx & 31, ly = gy & 31, lz = gz & 31, lIdx = lx | (ly << 5) | (lz << 10);
-            const m = chunk.materialAt(lIdx);
-            if (m !== -1) {
+            const entry = chunk.findVoxel(lIdx), m = entry >> 16;
+            if (entry >= 0) {
                 const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
                 if ((action === 'bright_up' || action === 'bright_down' || action === 'blend') && paintStrokeNow > 0) {
                     const lastT = paintVoxelTimeMap.get(vHash);
@@ -5100,13 +5178,9 @@ if (cy >= 60 && cy <= 90) {
                     paintVoxelTimeMap.set(vHash, paintStrokeNow);
                 }
 
-                const layer = chunk.layers[m], iIdx = layer.indexOf(lIdx);
-                let r0 = 0, g0 = 0, b0 = 0;
-                if (iIdx !== 65535) {
-                    const cArr = layer.colors, cIdx = iIdx * 3;
-                    r0 = cArr[cIdx]; g0 = cArr[cIdx + 1]; b0 = cArr[cIdx + 2];
-                    queryColor.setRGB(r0 / 255, g0 / 255, b0 / 255);
-                }
+                const bytes = chunk.layers[m].colors, j = 3 * (entry & 65535);
+                const r0 = bytes[j], g0 = bytes[j+1], b0 = bytes[j+2];
+                queryColor.setRGB(r0/255,g0/255,b0/255);
 
                 let finalMat = targetM;
                 if (action === 'material') {
@@ -5146,28 +5220,17 @@ if (cy >= 60 && cy <= 90) {
                     tempPaintColor.copy(color);
                 }
 
-                const fnR = Math.round(tempPaintColor.r * 255), fnG = Math.round(tempPaintColor.g * 255), fnB = Math.round(tempPaintColor.b * 255);
-                if (m === finalMat && fnR === r0 && fnG === g0 && fnB === b0) return;
-
-                if (currentStrokeChanges && currentStrokeVoxelTracker) {
-                    const existingIdx = currentStrokeVoxelTracker.get(vHash);
-                    if (existingIdx === undefined) {
-                        const idx = currentStrokeChanges.addChange(
-                            gx, gy, gz, 
-                            m, queryColor,
-                            finalMat, tempPaintColor
-                        );
-                        currentStrokeVoxelTracker.set(vHash, idx);
-                    } else {
-                        currentStrokeChanges.updateNext(existingIdx, finalMat, tempPaintColor);
-                    }
-                }
-                chunk.addVoxel(lx, ly, lz, gx, gy, gz, tempPaintColor, finalMat);
+                applyVoxelState(chunk,lIdx,entry,gx,gy,gz,((finalMat + 1) << 24) | voxelRGB(tempPaintColor));
             }
         }
 
 
 	function setVoxel(gx, gy, gz, isP, color, mOver = -1) {
+            const mat = mOver === -1 ? matTypes[0] : mOver;
+            setSymmetricState(gx,gy,gz,isP ? ((mat + 1) << 24) | voxelRGB(color) : 0);
+        }
+
+        function setSymmetricState(gx, gy, gz, state) {
             const isLocked = (isDrawing || isErasing) && lockCtx.active;
             const targetSyms = isLocked ? lockCtx.symmetries : activeSymmetries;
             const baseG = isLocked ? lockCtx.startG : ZERO_GRID_POS;
@@ -5192,7 +5255,7 @@ if (cy >= 60 && cy <= 90) {
                     const fdx = Math.round(rx);
                     const fdz = Math.round(rz);
 
-                    setVoxelCore(startPos.x + fdx, sY, startPos.z + fdz, isP, color, mOver);
+                    writeVoxelState(startPos.x + fdx, sY, startPos.z + fdz, state);
 
                     // Anti-aliasing / Hole-filling for discrete polar rotation
                     const dx_frac = rx - fdx;
@@ -5200,10 +5263,10 @@ if (cy >= 60 && cy <= 90) {
                     if (Math.abs(dx_frac) > 0.25 || Math.abs(dz_frac) > 0.25) {
                         const ox = Math.abs(dx_frac) > Math.abs(dz_frac) ? Math.sign(dx_frac) : 0;
                         const oz = Math.abs(dz_frac) >= Math.abs(dx_frac) ? Math.sign(dz_frac) : 0;
-                        setVoxelCore(startPos.x + fdx + ox, sY, startPos.z + fdz + oz, isP, color, mOver);
+                        writeVoxelState(startPos.x + fdx + ox, sY, startPos.z + fdz + oz, state);
                     }
                 } else {
-                    setVoxelCore(startPos.x + mdx + Math.round(sym.tx || 0), sY, startPos.z + mdz + Math.round(sym.tz || 0), isP, color, mOver);
+                    writeVoxelState(startPos.x + mdx + Math.round(sym.tx || 0), sY, startPos.z + mdz + Math.round(sym.tz || 0), state);
                 }
             }
         }
@@ -5680,165 +5743,176 @@ if (cy >= 60 && cy <= 90) {
         }
 
         const brushKernelCache = new Map();
-        function getBrushKernel(isSphere, r) {
-            const key = (isSphere ? 256 : 0) + r;
-            let kernel = brushKernelCache.get(key);
-            if (kernel) return kernel;
-
-            const surf = [], inter = [], all = [];
-            const rSqOuter = (r + 0.4) * (r + 0.4);
-            for (let dx = -r; dx <= r; dx++) {
-                const absDx = Math.abs(dx), dxSq = dx * dx;
-                for (let dy = -r; dy <= r; dy++) {
-                    const absDy = Math.abs(dy), dxySq = dxSq + dy * dy;
-                    if (isSphere && dxySq > rSqOuter) continue;
-                    const maxDxy = absDx > absDy ? absDx : absDy;
-                    for (let dz = -r; dz <= r; dz++) {
-                        let isSurface = false;
-                        if (isSphere) {
-                            const dSq = dxySq + dz * dz;
-                            if (dSq > rSqOuter) continue;
-                            const absDz = Math.abs(dz);
-                            const maxAxis = maxDxy > absDz ? maxDxy : absDz;
-                            isSurface = (r === 0) || ((dSq + (maxAxis << 1) + 1) > rSqOuter);
-                        } else {
-                            isSurface = (r === 0) || (absDx === r || absDy === r || Math.abs(dz) === r);
-                        }
-                        all.push(dx, dy, dz);
-                        if (isSurface) surf.push(dx, dy, dz);
-                        else inter.push(dx, dy, dz);
-                    }
-                }
+        function getBrushKernel(sphere, r) {
+            const key = (sphere ? 256 : 0) + r;
+            let rows = brushKernelCache.get(key);
+            if (rows) return rows;
+            const width = 2*r + 1, radiusSquared = (r + 0.4) ** 2;
+            rows = new Int8Array(width * width * 4);
+            let length = 0;
+            function limit(x,y) {
+                const zSquared = radiusSquared - x*x - y*y;
+                return zSquared < 0 ? -1 : Math.floor(Math.sqrt(zSquared));
             }
-            kernel = {
-                surface: new Int8Array(surf),
-                interior: new Int8Array(inter),
-                all: new Int8Array(all)
-            };
-            brushKernelCache.set(key, kernel);
-            return kernel;
+            for (let x = -r; x <= r; x++) for (let y = -r; y <= r; y++) {
+                const outer = sphere ? limit(x,y) : r;
+                if (outer < 0) continue;
+                // A voxel is interior only when all six axial neighbours fit.
+                const inner = sphere ? Math.min(outer-1, limit(Math.abs(x)+1,y), limit(x,Math.abs(y)+1))
+                    : Math.abs(x) === r || Math.abs(y) === r ? -1 : r-1;
+                rows[length++] = x; rows[length++] = y;
+                rows[length++] = outer; rows[length++] = inner;
+            }
+            rows = rows.subarray(0,length);
+            brushKernelCache.set(key,rows);
+            return rows;
         }
 
-        function placeBrushVoxels(pos, isP, overrideSize = strokeSettings.brush.size, ctrlQuat = null) {
-            const r = overrideSize - 1;
-            const isRibbon = (strokeSettings.brush.shape === 'ribbon' && ctrlQuat !== null);
-            const isSphere = (strokeSettings.brush.shape === 'sphere');
-            const isShellDraw = (isP && strokeSettings.brush.volume === 'shell' && r > 0);
-            const loopR = isRibbon ? Math.ceil(overrideSize * 1.5) : r;
-            const cGx = Math.round(pos.x / VOXEL_SIZE);
-            const cGy = Math.round(pos.y / VOXEL_SIZE);
-            const cGz = Math.round(pos.z / VOXEL_SIZE);
-
-            const minX = cGx - loopR, maxX = cGx + loopR;
-            const minY = cGy - loopR, maxY = cGy + loopR;
-            const minZ = cGz - loopR, maxZ = cGz + loopR;
-            const matType = matTypes[activeMatSlot];
-
-            if (!isRibbon) {
-                const kernel = getBrushKernel(isSphere, r);
-                if (isP) {
-                    if (isShellDraw) {
-                        const inter = kernel.interior;
-                        for (let i = 0, len = inter.length; i < len; i += 3) {
-                            const gx = cGx + inter[i], gy = cGy + inter[i + 1], gz = cGz + inter[i + 2];
-                            const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                            if (!strokeInteriorSet.has(vHash)) {
-                                strokeInteriorSet.add(vHash);
-                                setVoxel(gx, gy, gz, false, null);
-                            }
-                        }
-                        const surf = kernel.surface;
-                        for (let i = 0, len = surf.length; i < len; i += 3) {
-                            const gx = cGx + surf[i], gy = cGy + surf[i + 1], gz = cGz + surf[i + 2];
-                            const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                            if (!strokeInteriorSet.has(vHash)) {
-                                const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                                setVoxel(gx, gy, gz, true, color, matType);
-                            }
-                        }
-                    } else {
-                        const cMode = colorModes[activeMatSlot];
-                        const canDedup = (cMode !== 'grad_h' && cMode !== 'grad_v' && cMode !== 'shift');
-                        const all = kernel.all;
-                        for (let i = 0, len = all.length; i < len; i += 3) {
-                            const gx = cGx + all[i], gy = cGy + all[i + 1], gz = cGz + all[i + 2];
-                            if (canDedup) {
-                                const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                                if (strokeInteriorSet.has(vHash)) continue;
-                                strokeInteriorSet.add(vHash);
-                            }
-                            const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                            setVoxel(gx, gy, gz, true, color, matType);
-                        }
-                    }
-                } else {
-                    const all = kernel.all;
-                    for (let i = 0, len = all.length; i < len; i += 3) {
-                        const gx = cGx + all[i], gy = cGy + all[i + 1], gz = cGz + all[i + 2];
-                        const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                        if (strokeInteriorSet.has(vHash)) continue;
-                        strokeInteriorSet.add(vHash);
-                        setVoxel(gx, gy, gz, false, null);
+        // Only cache occupancy for the working area of the brush. Bit z in word
+        // (x,y) says whether an erase on that cell can actually change the model.
+        const eraseMaskChunks = new Array(64).fill(null);
+        let nextEraseMask = 0;
+        function occupiedColumn(x,y,z) {
+            const chunk = getChunkFast(x >> 5,y >> 5,z >> 5);
+            if (!chunk) return 0;
+            let words = chunk.eraseMask;
+            if (!words) {
+                const old = eraseMaskChunks[nextEraseMask];
+                if (old) {
+                    words = old.eraseMask; old.eraseMask = null;
+                    words.fill(0);
+                } else words = new Uint32Array(1024);
+                for (const layer of chunk.layers) if (layer) {
+                    for (let i = 0; i < layer.count; i++) {
+                        const p = layer.indexToLocal[i];
+                        words[p & 1023] |= 1 << (p >> 10);
                     }
                 }
-                leftMenuNeedsUpdate = true;
-                return;
+                chunk.eraseMask = words;
+                eraseMaskChunks[nextEraseMask] = chunk;
+                nextEraseMask = (nextEraseMask + 1) % eraseMaskChunks.length;
             }
+            return words[(x & 31) | ((y & 31) << 5)];
+        }
+        function mirroredColumn(x,y,z) { return occupiedColumn(x,y,z) | occupiedColumn(-x,y,z); }
+        function writeMirrorX(x,y,z,state) {
+            writeVoxelState(x,y,z,state);
+            if (x !== 0) writeVoxelState(-x,y,z,state);
+        }
 
-            // Ribbon brush path
-            const halfW = overrideSize * VOXEL_SIZE;
-            const innerHalfW = Math.max(0, (overrideSize - 1) * VOXEL_SIZE);
-            const halfHD = VOXEL_SIZE * 0.75;
-            worldGroup.getWorldQuaternion(tempBrushWQuat);
-            tempBrushInvCtrlQuat.copy(ctrlQuat).invert();
-            tempBrushCombinedQuat.multiplyQuaternions(tempBrushInvCtrlQuat, tempBrushWQuat);
+        function visitFreshSpan(x, y, lo, hi, remember, visit, occupied) {
+            const cx = x >> 5, cy = y >> 5, row = (x & 31) | ((y & 31) << 5);
+            while (lo <= hi) {
+                const base = lo & ~31, end = Math.min(hi,base+31), key = chunkKey(cx,cy,lo >> 5);
+                let words = strokeCoverage.get(key);
+                if (!words && remember) strokeCoverage.set(key,words = new Uint32Array(1024));
+                const mask = (-1 << (lo-base)) & (0xffffffff >>> (31-(end-base)));
+                let fresh = mask & ~(words ? words[row] : 0);
+                if (fresh && remember) words[row] |= mask;
+                if (fresh && occupied) fresh &= occupied(x,y,base);
+                while (fresh) {
+                    const bit = fresh & -fresh;
+                    visit(x,y,base + 31 - Math.clz32(bit));
+                    fresh ^= bit;
+                }
+                lo = end + 1;
+            }
+        }
 
-            for (let dx = -loopR; dx <= loopR; dx++) {
-                for (let dy = -loopR; dy <= loopR; dy++) {
-                    for (let dz = -loopR; dz <= loopR; dz++) {
-                        tempBrushLocalOffset.set(dx * VOXEL_SIZE, dy * VOXEL_SIZE, dz * VOXEL_SIZE).applyQuaternion(tempBrushCombinedQuat);
-                        const lx = Math.abs(tempBrushLocalOffset.x);
-                        if (lx > halfW || Math.abs(tempBrushLocalOffset.y) > halfHD || Math.abs(tempBrushLocalOffset.z) > halfHD) continue;
-                        const isSurface = isShellDraw && (lx >= innerHalfW);
-                        const gx = cGx + dx, gy = cGy + dy, gz = cGz + dz;
+        function visitBrushRows(rows, cx, cy, cz, part, coverage, visit, occupied = null) {
+            function span(x,y,lo,hi) {
+                if (coverage === 'all') {
+                    for (let z = lo; z <= hi; z++) visit(x,y,z);
+                } else visitFreshSpan(x,y,lo,hi,coverage === 'mark',visit,occupied);
+            }
+            for (let i = 0; i < rows.length; i += 4) {
+                const x = cx + rows[i], y = cy + rows[i+1], outer = rows[i+2], inner = rows[i+3];
+                if (part === 'interior') {
+                    if (inner >= 0) span(x,y,cz-inner,cz+inner);
+                } else if (part === 'surface' && inner >= 0) {
+                    span(x,y,cz-outer,cz-inner-1);
+                    span(x,y,cz+inner+1,cz+outer);
+                } else span(x,y,cz-outer,cz+outer);
+            }
+        }
 
-                        if (isP) {
-                            if (isShellDraw) {
-                                const vHash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                                if (isSurface) {
-                                    if (!strokeInteriorSet.has(vHash)) {
-                                        const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                                        setVoxel(gx, gy, gz, true, color, matType);
-                                    }
-                                } else if (!strokeInteriorSet.has(vHash)) {
-                                    strokeInteriorSet.add(vHash);
-                                    setVoxel(gx, gy, gz, false, null);
-                                }
-                            } else {
-                                const color = getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                                setVoxel(gx, gy, gz, true, color, matType);
-                            }
-                        } else {
-                            setVoxel(gx, gy, gz, false, null);
-                        }
-                    }
+        function stampColor(cx,cy,cz,r,slot) {
+            const mode = colorModes[slot], colors = slotColors[slot];
+            if (mode === 'solid') return () => colors[slot === activeMatSlot ? activeColorSubSlot : 0];
+            if (mode === 'shift') {
+                const color = tempColorForDraw[slot].copy(colors[0]).lerp(colors[1],shiftProgress);
+                return () => color;
+            }
+            if (mode === 'grad_h' || mode === 'grad_v') {
+                gradDir.set(mode === 'grad_h' ? 1 : 0, mode === 'grad_v' ? 1 : 0, 0).applyQuaternion(currentGradientQuat);
+                const dx = gradDir.x, dy = gradDir.y, dz = gradDir.z;
+                const extent = Math.abs(r*dx) + Math.abs(r*dy) + Math.abs(r*dz);
+                return (x,y,z) => {
+                    const proj = (x-cx)*dx + (y-cy)*dy + (z-cz)*dz;
+                    const t = extent > 0.001 ? THREE.MathUtils.clamp((proj / extent + 1) / 2, 0, 1) : 0.5;
+                    return tempColorForDraw[slot].copy(colors[0]).lerp(colors[1],t);
+                };
+            }
+            return (x,y,z) => getDrawColor(x,y,z,cx-r,cx+r,cy-r,cy+r,cz-r,cz+r,slot);
+        }
+
+        const ribbonRotation = new THREE.Matrix4();
+        function placeBrushVoxels(pos, isP, overrideSize = strokeSettings.brush.size, ctrlQuat = null) {
+            const r = overrideSize - 1, profile = strokeSettings.brush;
+            const ribbon = profile.shape === 'ribbon' && ctrlQuat !== null;
+            const shell = isP && profile.volume === 'shell' && r > 0;
+            const reach = ribbon ? Math.ceil(overrideSize * 1.5) : r;
+            const cx = Math.round(pos.x / VOXEL_SIZE), cy = Math.round(pos.y / VOXEL_SIZE), cz = Math.round(pos.z / VOXEL_SIZE);
+            const mat = (matTypes[activeMatSlot] + 1) << 24;
+            const colorAt = isP ? stampColor(cx,cy,cz,reach,activeMatSlot) : null;
+            const axial = polarSymmetry === 1 && !gridCopyX && !gridCopyY && !gridCopyZ && !mirrorY && !mirrorZ;
+            const write = axial ? (mirrorX ? writeMirrorX : writeVoxelState) : setSymmetricState;
+            const occupied = axial ? (mirrorX ? mirroredColumn : occupiedColumn) : null;
+            const erase = (x,y,z) => write(x,y,z,0);
+            const place = isP ? (x,y,z) => write(x,y,z, mat | voxelRGB(colorAt(x,y,z))) : erase;
+
+            if (!ribbon) {
+                const rows = getBrushKernel(profile.shape === 'sphere',r);
+                if (shell) {
+                    visitBrushRows(rows,cx,cy,cz,'interior','mark',erase,occupied);
+                    visitBrushRows(rows,cx,cy,cz,'surface','outside',place);
+                } else {
+                    const mode = colorModes[activeMatSlot];
+                    const repaint = isP && (mode === 'grad_h' || mode === 'grad_v' || mode === 'shift');
+                    visitBrushRows(rows,cx,cy,cz,'all',repaint ? 'all' : 'mark',place,isP ? null : occupied);
+                }
+            } else {
+                const halfW = overrideSize * VOXEL_SIZE, innerW = r * VOXEL_SIZE, halfHD = VOXEL_SIZE * 0.75;
+                worldGroup.getWorldQuaternion(tempBrushWQuat);
+                tempBrushCombinedQuat.multiplyQuaternions(tempBrushInvCtrlQuat.copy(ctrlQuat).invert(),tempBrushWQuat);
+                const m = ribbonRotation.makeRotationFromQuaternion(tempBrushCombinedQuat).elements;
+                // Project the oriented ribbon's half extents onto the voxel grid.
+                // Ceil conservatively, then use the original exact inclusion test.
+                function bound(i) {
+                    return Math.min(reach,Math.ceil(overrideSize*Math.abs(m[i]) + 0.75*(Math.abs(m[i+1])+Math.abs(m[i+2]))));
+                }
+                const bx = bound(0), by = bound(4), bz = bound(8);
+                for (let dx=-bx; dx<=bx; dx++) for (let dy=-by; dy<=by; dy++) for (let dz=-bz; dz<=bz; dz++) {
+                    tempBrushLocalOffset.set(dx*VOXEL_SIZE,dy*VOXEL_SIZE,dz*VOXEL_SIZE).applyQuaternion(tempBrushCombinedQuat);
+                    const lx = Math.abs(tempBrushLocalOffset.x);
+                    if (lx>halfW || Math.abs(tempBrushLocalOffset.y)>halfHD || Math.abs(tempBrushLocalOffset.z)>halfHD) continue;
+                    const x=cx+dx, y=cy+dy, z=cz+dz;
+                    if (shell) {
+                        const interior = lx < innerW;
+                        visitFreshSpan(x,y,z,z,interior,interior ? erase : place);
+                    } else place(x,y,z);
                 }
             }
             leftMenuNeedsUpdate = true;
         }
 
         function placePaintVoxels(pos, actionOverride = paintAction) {
-            const r = strokeSettings.paint.size - 1;
-            const cGx = Math.round(pos.x / VOXEL_SIZE), cGy = Math.round(pos.y / VOXEL_SIZE), cGz = Math.round(pos.z / VOXEL_SIZE);
-            const kernel = getBrushKernel(strokeSettings.paint.shape === 'sphere', r);
-            const offsets = (strokeSettings.paint.volume === 'shell' && r > 0) ? kernel.surface : kernel.all;
-            const minX = cGx - r, maxX = cGx + r, minY = cGy - r, maxY = cGy + r, minZ = cGz - r, maxZ = cGz + r;
-            const matType = matTypes[activeMatSlot];
-
-            for (let i = 0, len = offsets.length; i < len; i += 3) {
-                const gx = cGx + offsets[i], gy = cGy + offsets[i + 1], gz = cGz + offsets[i + 2];
-                recolorVoxelSet(gx, gy, gz, getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot), matType, actionOverride);
-            }
+            const profile = strokeSettings.paint, r = profile.size - 1;
+            const cx = Math.round(pos.x / VOXEL_SIZE), cy = Math.round(pos.y / VOXEL_SIZE), cz = Math.round(pos.z / VOXEL_SIZE);
+            const colorAt = stampColor(cx,cy,cz,r,activeMatSlot), mat = matTypes[activeMatSlot];
+            visitBrushRows(getBrushKernel(profile.shape === 'sphere',r),cx,cy,cz,
+                profile.volume === 'shell' && r > 0 ? 'surface' : 'all','all',
+                (x,y,z) => recolorVoxelSet(x,y,z,colorAt(x,y,z),mat,actionOverride));
         }
 
         function drawLineVoxels(start, end, isP, startSize = strokeSettings.brush.size, endSize = strokeSettings.brush.size, startQuat = null, endQuat = null) {
@@ -5849,6 +5923,7 @@ if (cy >= 60 && cy <= 90) {
             let lastGz = Math.round(start.z / VOXEL_SIZE);
             let lastSize = startSize;
             const useConnectedSteps = (isP && strokeSettings.brush.volume === 'shell');
+            const rotateRibbon = strokeSettings.brush.shape === 'ribbon' && startQuat && endQuat;
 
             for (let i = 1; i <= steps; i++) { 
                 const t = i / steps;
@@ -5856,8 +5931,8 @@ if (cy >= 60 && cy <= 90) {
                 const currentSize = Math.round(startSize + (endSize - startSize) * t);
                 const gx = Math.round(tempPos.x / VOXEL_SIZE), gy = Math.round(tempPos.y / VOXEL_SIZE), gz = Math.round(tempPos.z / VOXEL_SIZE); 
                 if (gx !== lastGx || gy !== lastGy || gz !== lastGz || currentSize !== lastSize) { 
-                    if (startQuat && endQuat) tempLerpQuat.slerpQuaternions(startQuat, endQuat, t);
-                    const q = (startQuat && endQuat) ? tempLerpQuat : null;
+                    if (rotateRibbon) tempLerpQuat.slerpQuaternions(startQuat, endQuat, t);
+                    const q = rotateRibbon ? tempLerpQuat : null;
                     if (useConnectedSteps) {
                         while (lastGx !== gx || lastGy !== gy || lastGz !== gz || lastSize !== currentSize) {
                             if (lastGx !== gx) lastGx += Math.sign(gx - lastGx);
@@ -5894,6 +5969,8 @@ if (cy >= 60 && cy <= 90) {
             const stepsV = Math.max(1, Math.ceil(Math.max(distL, distR) / (VOXEL_SIZE * 0.15)));
             const r = thick - 1, rSq = (r + 0.1) * (r + 0.1);
             
+            let lastX = Infinity, lastY = Infinity, lastZ = Infinity;
+            const centers = r > 0 ? new Set() : null;
             fillVisited.clear(); 
             const isInside = (dx,dy,dz) => strokeSettings.line.shape==='sphere' ? (dx*dx+dy*dy+dz*dz <= rSq) : (Math.abs(dx) <= r && Math.abs(dy) <= r && Math.abs(dz) <= r);
 
@@ -5907,6 +5984,13 @@ if (cy >= 60 && cy <= 90) {
                     tempPos.copy(sheetPosL).lerp(sheetPosR, u / stepsU); 
                     const cx = Math.round(tempPos.x / VOXEL_SIZE), cy = Math.round(tempPos.y / VOXEL_SIZE), cz = Math.round(tempPos.z / VOXEL_SIZE);
 
+                    if (cx === lastX && cy === lastY && cz === lastZ) continue;
+                    lastX = cx; lastY = cy; lastZ = cz;
+                    if (centers) {
+                        const center = (cx+32768) + (cy+32768)*65536 + (cz+32768)*4294967296;
+                        if (centers.has(center)) continue;
+                        centers.add(center);
+                    }
                     for (let dx = -r; dx <= r; dx++) {
                         for (let dy = -r; dy <= r; dy++) {
                             for (let dz = -r; dz <= r; dz++) {
@@ -6065,30 +6149,32 @@ if (cy >= 60 && cy <= 90) {
             const validMap = new Map();
             const validCoords = [];
             const rad = lineRadius();
-
+            function testRange(gx,gy,fromZ,toZ) {
+                for (let gz = fromZ; gz <= toZ; gz++) {
+                    const hash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
+                    if (validMap.has(hash)) continue;
+                    lineToolTestPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
+                    const pathT = getStrokeInfo(lineToolTestPos);
+                    validMap.set(hash,pathT);
+                    if (pathT !== -1) validCoords.push(gx,gy,gz,hash,pathT);
+                }
+            }
+            let lastX = Infinity, lastY = Infinity, lastZ = Infinity;
             for (let i = 0; i < segCount; i++) {
                 const seg = lineSegmentPool[i];
                 const steps = Math.max(2, Math.ceil(seg.L / (VOXEL_SIZE * 0.4)));
                 for (let s = 0; s <= steps; s++) {
                     tempPos.lerpVectors(seg.A, seg.B, s / steps);
-                    const cGx = Math.round(tempPos.x / VOXEL_SIZE), cGy = Math.round(tempPos.y / VOXEL_SIZE), cGz = Math.round(tempPos.z / VOXEL_SIZE);
-                    for (let dx = -rad; dx <= rad; dx++) {
-                        const gx = cGx + dx;
-                        for (let dy = -rad; dy <= rad; dy++) {
-                            const gy = cGy + dy;
-                            for (let dz = -rad; dz <= rad; dz++) {
-                                const gz = cGz + dz;
-                                const hash = (gx + 32768) + (gy + 32768) * 65536 + (gz + 32768) * 4294967296;
-                                if (validMap.has(hash)) continue;
-                                lineToolTestPos.set(gx * VOXEL_SIZE, gy * VOXEL_SIZE, gz * VOXEL_SIZE);
-                                const pathT = getStrokeInfo(lineToolTestPos);
-                                validMap.set(hash, pathT);
-                                if (pathT !== -1) {
-                                    validCoords.push(gx, gy, gz, hash, pathT);
-                                }
-                            }
-                        }
+                    const cx = Math.round(tempPos.x / VOXEL_SIZE), cy = Math.round(tempPos.y / VOXEL_SIZE), cz = Math.round(tempPos.z / VOXEL_SIZE);
+                    if (cx === lastX && cy === lastY && cz === lastZ) continue;
+                    // Every candidate in the previous cube already has its exact path result.
+                    for (let gx = cx-rad; gx <= cx+rad; gx++) for (let gy = cy-rad; gy <= cy+rad; gy++) {
+                        if (Math.abs(gx-lastX) <= rad && Math.abs(gy-lastY) <= rad) {
+                            testRange(gx,gy,cz-rad,Math.min(cz+rad,lastZ-rad-1));
+                            testRange(gx,gy,Math.max(cz-rad,lastZ+rad+1),cz+rad);
+                        } else testRange(gx,gy,cz-rad,cz+rad);
                     }
+                    lastX = cx; lastY = cy; lastZ = cz;
                 }
             }
 
@@ -7119,17 +7205,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             const tempStroke = currentStrokeChanges;
             currentStrokeChanges = null;
             
-            for (let i = step.count - 1; i >= 0; i--) {
-                const gx = step.coords[i*3], gy = step.coords[i*3+1], gz = step.coords[i*3+2];
-                const prevMat = step.mats[i*2];
-                if (prevMat === -1) {
-                    setVoxelCore(gx, gy, gz, false, null);
-                } else {
-                    tempHistoryColor.setRGB(step.colors[i*6]/255, step.colors[i*6+1]/255, step.colors[i*6+2]/255);
-                    setVoxelCore(gx, gy, gz, true, tempHistoryColor, prevMat);
-                }
-            }
-            
+            step.replay(true);
             currentStrokeChanges = tempStroke;
             globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
             flushDirtyChunks();
@@ -7144,17 +7220,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             const tempStroke = currentStrokeChanges;
             currentStrokeChanges = null;
             
-            for (let i = 0; i < step.count; i++) {
-                const gx = step.coords[i*3], gy = step.coords[i*3+1], gz = step.coords[i*3+2];
-                const nextMat = step.mats[i*2+1];
-                if (nextMat === -1) {
-                    setVoxelCore(gx, gy, gz, false, null);
-                } else {
-                    tempHistoryColor.setRGB(step.colors[i*6+3]/255, step.colors[i*6+4]/255, step.colors[i*6+5]/255);
-                    setVoxelCore(gx, gy, gz, true, tempHistoryColor, nextMat);
-                }
-            }
-            
+            step.replay(false);
             currentStrokeChanges = tempStroke;
             globalMenuNeedsUpdate = true; leftMenuNeedsUpdate = true;
             flushDirtyChunks();
@@ -7190,7 +7256,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
             menuClickActive = false; // Reset on every press
             if (spareStrokeBuffer) {
-                spareStrokeBuffer.count = 0;
+                spareStrokeBuffer.reset();
                 currentStrokeChanges = spareStrokeBuffer;
                 spareStrokeBuffer = null;
             } else {
@@ -7198,7 +7264,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             }
             sharedStrokeVoxelTracker.clear();
             currentStrokeVoxelTracker = sharedStrokeVoxelTracker;
-            strokeInteriorSet.clear();
+            strokeCoverage.clear();
             paintVoxelTimeMap.clear();
             if (this === xrRight) {  
                 if (leftMenuHovered && leftMenuMesh.visible) {
@@ -7451,7 +7517,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             currentStrokeChanges = null;
             sharedStrokeVoxelTracker.clear();
             currentStrokeVoxelTracker = null;
-            strokeInteriorSet.clear();
+            strokeCoverage.clear();
             paintVoxelTimeMap.clear();
         }
 
