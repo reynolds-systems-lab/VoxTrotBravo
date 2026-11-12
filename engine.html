@@ -1,5 +1,5 @@
  	<!-- 
-    VoxTrotBravo v4.13
+    VoxTrotBravo v4.14
     Copyright (c) 2024-2026 Rob Reynolds. All Rights Reserved.
     Unauthorized copying, modification, or distribution is strictly prohibited.
 -->
@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoxTrotBravo v4.13</title>
+    <title>VoxTrotBravo v4.14</title>
     <style>
 :root{color-scheme:dark;--ink:#f0e8d3;--muted:#aeb8ac;--accent:#ffb064;--accent2:#b4e58b;--surface:#1b2521;--line:#56685a}
 *{box-sizing:border-box}body{margin:0;overflow:hidden;background:#111715;color:var(--ink);font-family:Consolas,'Lucida Console',monospace}canvas{display:block}button{font:inherit}
@@ -55,13 +55,13 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
 </head>
 <body>
     <div id="loading-overlay">
-        <h2>VoxTrotBravo v4.13</h2>
+        <h2>VoxTrotBravo v4.14</h2>
         <p>Preparing studio…</p>
         <div class="spinner"></div>
     </div>
 
     <section id="ui-container" class="glass-surface" aria-label="VoxTrotBravo controller guide">
-        <div class="brand-head"><div class="brand-logo"><div class="brand-mark" aria-hidden="true"></div><div><h1>VoxTrotBravo <small>v4.13</small></h1></div></div><button id="toggle-help" class="icon-btn" aria-label="Show or hide controller guide" title="Collapse guide">−</button></div>
+        <div class="brand-head"><div class="brand-logo"><div class="brand-mark" aria-hidden="true"></div><div><h1>VoxTrotBravo <small>v4.14</small></h1></div></div><button id="toggle-help" class="icon-btn" aria-label="Show or hide controller guide" title="Collapse guide">−</button></div>
         <div class="ui-content"><div class="eyebrow">Controller quick guide</div>
             <div class="command-rows">
                 <div class="command"><b>A · Right</b><span>Current tool settings / rotate</span></div>
@@ -87,7 +87,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         <input type="file" id="vtb-file-input" accept=".vtb" style="display:none" />
     </div>
 
-    <div id="xr-launch"><label style="color:#fff;background:#34383a;padding:4px 8px">Headset view <select id="headset-view"><option value="studio">Studio</option><option value="model">Model only</option><option value="empty">Empty view</option></select></label><button id="launch-vr" disabled>Enter VR</button> <button id="launch-ar" disabled>Enter passthrough</button><output id="session-status" aria-live="polite"></output></div>
+    <div id="xr-launch"><button id="launch-vr" disabled>Enter VR</button> <button id="launch-ar" disabled>Enter passthrough</button><output id="session-status" aria-live="polite"></output></div>
     <script type="module">
         import * as THREE from 'three';
 
@@ -736,8 +736,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const selRotEuler = new THREE.Euler();
         const fillVisited = new Set();
         const fillQueue = [];
-        const selVisited = new Set();
-        const selQueue = [];
         const origMap = new Map();
         const tempMatrix = new THREE.Matrix4();
         const tempColor = new THREE.Color();
@@ -802,7 +800,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const tempBouncyNextPos = new THREE.Vector3();
         const tempBouncyLocal1 = new THREE.Vector3();
         const tempBouncyNormal = new THREE.Vector3();
-        let lastExtrudeEndGrid = { x: Infinity, y: Infinity, z: Infinity };
+        let extrudePreviewCache = null;
         
         const FILL_NEIGHBORS = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
         const SEL_DIRS = [1,0,0, -1,0,0, 0,1,0, 0,-1,0, 0,0,1, 0,0,-1, 1,1,0, -1,-1,0, 1,-1,0, -1,1,0, 1,0,1, -1,0,-1, 1,0,-1, -1,0,1, 0,1,1, 0,-1,-1, 0,1,-1, 0,-1,1, 1,1,1, -1,-1,-1, 1,-1,1, -1,1,-1, 1,1,-1, -1,-1,1, 1,-1,-1, -1,1,1];
@@ -841,7 +839,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const sessionStatus = document.getElementById('session-status');
         const supportedModes = new Set();
         let activeSession = null, activeMode = null, requesting = false;
-        const viewSelector = document.getElementById('headset-view');
         const studioBackground = scene.background;
         function refreshLaunchButtons() {
             for (const [mode, button] of xrButtons) {
@@ -866,12 +863,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                 'Passthrough unavailable here. Try Quest Browser.' : '';
         }
         function restoreStudio() {
-            worldGroup.add(modelGroup);
-            modelGroup.matrixAutoUpdate = true;
-            modelGroup.updateMatrix();
-            viewSelector.disabled = false;
             scene.background = studioBackground;
-            testScene.background = studioBackground;
             gridHelper.visible = true;
             activeSession = activeMode = null;
             refreshLaunchButtons();
@@ -892,13 +884,10 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
                         throw new Error('This runtime supplies an opaque view. Try Quest Browser.');
                     activeSession = session;
                     activeMode = mode;
-                    viewSelector.disabled = true;
-                    if (viewSelector.value === 'model') testScene.add(modelGroup);
                     session.addEventListener('end', restoreStudio, {once:true});
                     if (mode === 'immersive-ar') {
                         scene.background = null;
                         renderer.setClearColor(0x000000, 0);
-                        testScene.background = null;
                         gridHelper.visible = false;
                     }
                     await renderer.xr.setSession(session);
@@ -970,13 +959,6 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         scene.add(worldGroup);
         const modelGroup = new THREE.Group();
         worldGroup.add(modelGroup);
-        const testScene = new THREE.Scene();
-        testScene.background = studioBackground;
-        testScene.environment = scene.environment;
-        testScene.add(ambientLight.clone(), directionalLight.clone());
-        function testingView() {
-            return renderer.xr.isPresenting && viewSelector.value !== 'studio';
-        }
 
         // Keep the half-metre modeling grid legible at grazing angles in either eye.
         const gridMaterial = new THREE.ShaderMaterial({
@@ -1159,6 +1141,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
             for (const mesh of meshes) { modelGroup.remove(mesh); mesh.geometry.dispose(); }
         }
         function resetSurfaces() {
+            extrudePreviewCache = null;
             for (const r of regions.values()) disposeSurfaces(r.meshes);
             regions.clear();
             resetWorkerChunks();
@@ -1169,6 +1152,7 @@ button:focus-visible{outline:3px solid #dc732f;outline-offset:2px}
         const borderDirections = [[-1,0,0], [1,0,0], [0,-1,0], [0,1,0], [0,0,-1], [0,0,1]];
         function flushDirtyChunks() {
             if (!dirtyChunks.size) return;
+            extrudePreviewCache = null;
             for (const c of dirtyChunks) {
                 touchedRegions.add(c.region);
                 let edges = c.changedEdges;
@@ -1640,21 +1624,20 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
         // selection ceiling, but do NOT allocate 4 x 500k matrices and 4 x 500k
         // color buffers before there is an active selection.
         const SEL_GPU_INITIAL_CAPACITY = 1024;
-        let selectionGpuCapacity = SEL_GPU_INITIAL_CAPACITY;
-        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, selectionGpuCapacity);
-        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, selectionGpuCapacity);
-        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, selectionGpuCapacity);
-        const selMeshMetal = new THREE.InstancedMesh(voxelGeometry, matMetal, selectionGpuCapacity);
+        const selMeshSolid = new THREE.InstancedMesh(voxelGeometry, matSolid, SEL_GPU_INITIAL_CAPACITY);
+        const selMeshGlass = new THREE.InstancedMesh(voxelGeometry, matGlass, SEL_GPU_INITIAL_CAPACITY);
+        const selMeshEmission = new THREE.InstancedMesh(voxelGeometry, matEmission, SEL_GPU_INITIAL_CAPACITY);
+        const selMeshMetal = new THREE.InstancedMesh(voxelGeometry, matMetal, SEL_GPU_INITIAL_CAPACITY);
         const selectionMeshes = [selMeshSolid, selMeshGlass, selMeshEmission, selMeshMetal];
         selectionMeshes.forEach(mesh => {
             mesh.scale.set(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
             mesh.matrixAutoUpdate = false;
             mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-            mesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(selectionGpuCapacity * 3), 3, true);
+            mesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(SEL_GPU_INITIAL_CAPACITY * 3), 3, true);
             mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
             mesh.count = 0;
             const arr = mesh.instanceMatrix.array;
-            for (let i = 0; i < selectionGpuCapacity; i++) {
+            for (let i = 0; i < SEL_GPU_INITIAL_CAPACITY; i++) {
                 arr[i*16] = arr[i*16+5] = arr[i*16+10] = arr[i*16+15] = 1;
             }
         });
@@ -1671,40 +1654,24 @@ const bucketPreviewMesh = new THREE.InstancedMesh(voxelGeometry, new THREE.MeshB
 	worldGroup.add(previewContainer);
         const previewGroups = [];
 
-        function ensureSelectionVisualCapacity(required) {
-            if (required <= selectionGpuCapacity) return;
-            let next = selectionGpuCapacity;
-            while (next < required && next < SEL_LIMIT) next = Math.min(SEL_LIMIT, next * 2);
-            for (let materialIndex = 0; materialIndex < 4; materialIndex++) {
-                const mesh = selectionMeshes[materialIndex];
-                const previousCapacity = selectionGpuCapacity;
-                const oldMatrix = mesh.instanceMatrix.array;
-                const oldColors = mesh.instanceColor.array;
-                const newMatrixArray = new Float32Array(next * 16);
-                newMatrixArray.set(oldMatrix);
-                for (let i = previousCapacity; i < next; i++) {
-                    const k = i * 16;
-                    newMatrixArray[k] = newMatrixArray[k+5] = newMatrixArray[k+10] = newMatrixArray[k+15] = 1;
-                }
-                const newColorArray = new Uint8Array(next * 3);
-                newColorArray.set(oldColors);
-
-                // Dispose the old instance GPU buffers before replacing attributes.
-                mesh.dispose();
-                mesh.instanceMatrix = new THREE.InstancedBufferAttribute(newMatrixArray, 16);
-                mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-                mesh.instanceColor = new THREE.InstancedBufferAttribute(newColorArray, 3, true);
-                mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-                // Copies and mirrors reference the resized selection buffers.
-                for (const group of previewGroups) {
-                    const pivot = group.children[0];
-                    const cloneMesh = pivot.children[materialIndex];
-                    cloneMesh.dispose();
-                    cloneMesh.instanceMatrix = mesh.instanceMatrix;
-                    cloneMesh.instanceColor = mesh.instanceColor;
-                }
+        function ensureSelectionVisualCapacity(materialIndex, required) {
+            const mesh = selectionMeshes[materialIndex];
+            const previous = mesh.instanceMatrix.count;
+            if (required <= previous) return;
+            let next = previous;
+            while (next < required && next < SEL_LIMIT) next = Math.min(SEL_LIMIT,next*2);
+            // The caller repopulates every live translation and color below.
+            const matrices = new Float32Array(next*16);
+            for (let i=0; i<matrices.length; i+=16) matrices[i]=matrices[i+5]=matrices[i+10]=matrices[i+15]=1;
+            mesh.dispose();
+            mesh.instanceMatrix = new THREE.InstancedBufferAttribute(matrices,16).setUsage(THREE.DynamicDrawUsage);
+            mesh.instanceColor = new THREE.InstancedBufferAttribute(new Uint8Array(next*3),3,true).setUsage(THREE.DynamicDrawUsage);
+            for (const group of previewGroups) {
+                const copy = group.children[0].children[materialIndex];
+                copy.dispose();
+                copy.instanceMatrix = mesh.instanceMatrix;
+                copy.instanceColor = mesh.instanceColor;
             }
-            selectionGpuCapacity = next;
         }
 
 function updatePreviews() {
@@ -5312,7 +5279,11 @@ if (cy >= 60 && cy <= 90) {
         }
 
         function updateSelectionVisuals() {
-            ensureSelectionVisualCapacity(selectedVoxelsCount);
+            if (selectionMeshes.some(mesh => mesh.instanceMatrix.count < selectedVoxelsCount)) {
+                const counts = [0,0,0,0];
+                for (let i=0; i<selectedVoxelsCount; i++) counts[selectedVoxels[i].mat]++;
+                for (let m=0; m<counts.length; m++) ensureSelectionVisualCapacity(m,counts[m]);
+            }
             selMeshSolid.count = selMeshGlass.count = selMeshEmission.count = selMeshMetal.count = 0;
             let iS = 0, iG = 0, iE = 0, iM = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
             const arrS = selMeshSolid.instanceMatrix.array, colS = selMeshSolid.instanceColor.array;
@@ -5391,7 +5362,7 @@ if (cy >= 60 && cy <= 90) {
             const bMinX = baseSelMinX, bMaxX = baseSelMaxX, bMinY = baseSelMinY, bMaxY = baseSelMaxY, bMinZ = baseSelMinZ, bMaxZ = baseSelMaxZ;
             const dimX = baseSelDimX, strideZ = baseSelStrideZ;
 
-            for (let x = minX; x <= maxX; x++) {
+            scan: for (let x = minX; x <= maxX; x++) {
                 const dx = x - cx;
                 const baseX0 = cx + dx * e0;
                 const baseY0 = cy + dx * e1;
@@ -5418,11 +5389,12 @@ if (cy >= 60 && cy <= 90) {
                             ov = origMap.get((sx + 32768) + (sy + 32768) * 65536 + (sz + 32768) * 4294967296);
                         }
 
-                        if (ov && selectedVoxelsCount < SEL_LIMIT) {
+                        if (ov) {
                             const v = selectionRecord(selectedVoxels, selectedVoxelsCount++);
                             v.x = x; v.y = y; v.z = z;
                             v.color.copy(ov.color);
                             v.mat = ov.mat;
+                            if (selectedVoxelsCount === SEL_LIMIT) break scan;
                         }
                     }
                 }
@@ -5504,90 +5476,191 @@ if (cy >= 60 && cy <= 90) {
             selectedVoxelsCount = baseSelectionCount; for(let i=0; i<baseSelectionCount; i++) { const s=selectionRecord(selectedVoxels, i), b=baseSelection[i]; s.x=b.x; s.y=b.y; s.z=b.z; s.color.copy(b.color); s.mat=b.mat; } updateSelectionVisuals(); leftMenuNeedsUpdate = true;
         }
 
-                function executeSelectBox(start, end) {
-            const minX = Math.min(Math.round(start.x/VOXEL_SIZE), Math.round(end.x/VOXEL_SIZE));
-            const maxX = Math.max(Math.round(start.x/VOXEL_SIZE), Math.round(end.x/VOXEL_SIZE));
-            const minY = Math.min(Math.round(start.y/VOXEL_SIZE), Math.round(end.y/VOXEL_SIZE));
-            const maxY = Math.max(Math.round(start.y/VOXEL_SIZE), Math.round(end.y/VOXEL_SIZE));
-            const minZ = Math.min(Math.round(start.z/VOXEL_SIZE), Math.round(end.z/VOXEL_SIZE));
-            const maxZ = Math.max(Math.round(start.z/VOXEL_SIZE), Math.round(end.z/VOXEL_SIZE));
+        function countBits(word) {
+            word -= (word >>> 1) & 0x55555555;
+            word = (word & 0x33333333) + ((word >>> 2) & 0x33333333);
+            return Math.imul((word + (word >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+        }
 
-            const localTargetColor = new THREE.Color();
-            const localVoxelColor = new THREE.Color();
-            let startMat = getVoxelMatAndColor(Math.round(start.x/VOXEL_SIZE), Math.round(start.y/VOXEL_SIZE), Math.round(start.z/VOXEL_SIZE), localTargetColor);
-            
-            baseSelectionCount = 0; 
-            for(let gx = minX; gx <= maxX; gx++) {
-                for(let gy = minY; gy <= maxY; gy++) {
-                    for(let gz = minZ; gz <= maxZ; gz++) {
-                        const m = getVoxelMatAndColor(gx, gy, gz, localVoxelColor);
-                        if (m !== -1) {
-                            if (startMat === -1) {
-                                startMat = m;
-                                localTargetColor.copy(localVoxelColor);
-                            }
-                            const isMatch = (selectFilter === 'all') || 
-                                          (selectFilter === 'color' && Math.abs(localVoxelColor.r - localTargetColor.r) < 0.05 && Math.abs(localVoxelColor.g - localTargetColor.g) < 0.05 && Math.abs(localVoxelColor.b - localTargetColor.b) < 0.05) || 
-                                          (selectFilter === 'material' && m === startMat);
-        
-                            if (isMatch && baseSelectionCount < SEL_LIMIT) { 
-                                const v = selectionRecord(baseSelection, baseSelectionCount++); 
-                                v.x = gx; v.y = gy; v.z = gz; 
-                                v.color.copy(localVoxelColor); 
-                                v.mat = m; 
+        // Each XY column has 32 occupancy bits. Colors and materials are packed
+        // only for occupied cells, in ascending Z. These indexes live for one query.
+        function indexSelectionChunk(chunk) {
+            const columns = new Uint32Array(1024), starts = new Uint16Array(1024);
+            for (const layer of chunk.layers) if (layer) {
+                for (let i = 0; i < layer.count; i++) {
+                    const p = layer.indexToLocal[i];
+                    columns[p & 1023] |= 1 << (p >>> 10);
+                }
+            }
+            let count = 0;
+            for (let c = 0; c < columns.length; c++) {
+                starts[c] = count;
+                count += countBits(columns[c]);
+            }
+            const states = new Uint32Array(count);
+            // findVoxel gives the lowest material index precedence on overlapping legacy layers.
+            for (let m = chunk.layers.length-1; m >= 0; m--) {
+                const layer = chunk.layers[m];
+                if (!layer) continue;
+                for (let i = 0; i < layer.count; i++) {
+                    const p = layer.indexToLocal[i], col = p & 1023, bit = 1 << (p >>> 10);
+                    const offset = starts[col] + countBits(columns[col] & (bit - 1));
+                    states[offset] = ((m + 1) << 24) | readRGB(layer.colors, i * 3);
+                }
+            }
+            return {columns, starts, states};
+        }
+
+        function stateInChunk(chunk, local) {
+            const entry = chunk.findVoxel(local);
+            if (entry < 0) return 0;
+            const m = entry >>> 16;
+            return ((m + 1) << 24) | readRGB(chunk.layers[m].colors, (entry & 65535) * 3);
+        }
+        function voxelStateAt(x, y, z) {
+            const chunk = getChunkFast(x >> 5, y >> 5, z >> 5);
+            return chunk ? stateInChunk(chunk,(x & 31) | ((y & 31) << 5) | ((z & 31) << 10)) : 0;
+        }
+        function selectionMatches(state, target) {
+            if (selectFilter === 'all') return true;
+            if (selectFilter === 'material') return (state >>> 24) === (target >>> 24);
+            // The existing color filter is strictly less than 0.05 per channel.
+            return selectFilter === 'color' && Math.abs((state & 255) - (target & 255)) <= 12 &&
+                Math.abs(((state >>> 8) & 255) - ((target >>> 8) & 255)) <= 12 &&
+                Math.abs(((state >>> 16) & 255) - ((target >>> 16) & 255)) <= 12;
+        }
+        function appendBaseVoxel(x, y, z, state) {
+            const v = selectionRecord(baseSelection, baseSelectionCount++);
+            v.x = x; v.y = y; v.z = z; v.mat = (state >>> 24) - 1;
+            v.color.setRGB((state & 255)/255, ((state >>> 8) & 255)/255, ((state >>> 16) & 255)/255);
+        }
+        function boxChunks(x0, y0, z0, x1, y1, z1) {
+            const hits = [];
+            if ((x1-x0+1) * (y1-y0+1) * (z1-z0+1) <= chunks.size) {
+                for (let x=x0; x<=x1; x++) for (let y=y0; y<=y1; y++) for (let z=z0; z<=z1; z++) {
+                    const chunk = getChunkFast(x,y,z);
+                    if (chunk) hits.push(chunk);
+                }
+            } else {
+                for (const c of chunks.values()) {
+                    if (c.cx>=x0 && c.cx<=x1 && c.cy>=y0 && c.cy<=y1 && c.cz>=z0 && c.cz<=z1) hits.push(c);
+                }
+                hits.sort((a,b) => a.cx-b.cx || a.cy-b.cy || a.cz-b.cz);
+            }
+            return hits;
+        }
+        function executeSelectBox(start, end) {
+            const sx = Math.round(start.x/VOXEL_SIZE), sy = Math.round(start.y/VOXEL_SIZE), sz = Math.round(start.z/VOXEL_SIZE);
+            const ex = Math.round(end.x/VOXEL_SIZE), ey = Math.round(end.y/VOXEL_SIZE), ez = Math.round(end.z/VOXEL_SIZE);
+            const x0 = Math.min(sx,ex), x1 = Math.max(sx,ex), y0 = Math.min(sy,ey), y1 = Math.max(sy,ey);
+            const z0 = Math.min(sz,ez), z1 = Math.max(sz,ez);
+            let target = voxelStateAt(sx,sy,sz);
+            baseSelectionCount = 0;
+            function consider(x,y,z,state) {
+                if (!target) target = state;
+                if (selectionMatches(state,target)) appendBaseVoxel(x,y,z,state);
+            }
+            if ((x1-x0+1)*(y1-y0+1)*(z1-z0+1) <= 512) {
+                for (let x=x0; x<=x1; x++) for (let y=y0; y<=y1; y++) for (let z=z0; z<=z1; z++) {
+                    const state = voxelStateAt(x,y,z);
+                    if (state) consider(x,y,z,state);
+                }
+            } else {
+                const hits = boxChunks(x0>>5,y0>>5,z0>>5,x1>>5,y1>>5,z1>>5);
+                let i = 0;
+                // Stream one chunk-X slab. Global X/Y/Z order matters for an empty
+                // start corner, overlapping copies, and the 500k selection limit.
+                slabs: while (i < hits.length) {
+                    const cx = hits[i].cx, groups = [];
+                    while (i < hits.length && hits[i].cx === cx) {
+                        const cy = hits[i].cy, pages = [];
+                        const width = Math.min(x1,cx*32+31) - Math.max(x0,cx*32) + 1;
+                        const height = Math.min(y1,cy*32+31) - Math.max(y0,cy*32) + 1;
+                        while (i < hits.length && hits[i].cx === cx && hits[i].cy === cy) {
+                            const chunk = hits[i++], zBase = chunk.cz * 32;
+                            const lo = Math.max(0,z0-zBase), hi = Math.min(31,z1-zBase);
+                            const lower = (-1 << lo) >>> 0;
+                            let count = 0;
+                            for (const layer of chunk.layers) if (layer) count += layer.count;
+                            if (!count) continue;
+                            // A thin slice through a dense chunk costs less to probe directly.
+                            const data = width*height*(hi-lo+1) < count/2 ? null : indexSelectionChunk(chunk);
+                            pages.push({data,chunk,lo,hi,zBase,below:~lower,
+                                range:lower & (0xffffffff >>> (31-hi))});
+                        }
+                        groups.push({yMin:Math.max(y0,cy*32), yMax:Math.min(y1,cy*32+31), pages});
+                    }
+                    const xMax = Math.min(x1,cx*32+31);
+                    for (let x=Math.max(x0,cx*32); x<=xMax; x++) for (const group of groups) {
+                        for (let y=group.yMin; y<=group.yMax; y++) {
+                            const col = (x & 31) | ((y & 31) << 5);
+                            for (const page of group.pages) {
+                                if (!page.data) {
+                                    for (let z=page.lo; z<=page.hi; z++) {
+                                        const state = stateInChunk(page.chunk,col | (z << 10));
+                                        if (state) consider(x,y,page.zBase+z,state);
+                                        if (baseSelectionCount === SEL_LIMIT) break slabs;
+                                    }
+                                    continue;
+                                }
+                                const {columns,starts,states} = page.data, word = columns[col];
+                                let bits = word & page.range;
+                                if (!bits) continue;
+                                let pos = starts[col] + countBits(word & page.below);
+                                while (bits) {
+                                    const bit = bits & -bits;
+                                    consider(x,y,page.zBase + 31 - Math.clz32(bit),states[pos++]);
+                                    if (baseSelectionCount === SEL_LIMIT) break slabs;
+                                    bits ^= bit;
+                                }
                             }
                         }
                     }
                 }
             }
-            if (baseSelectionCount > 0) finalizeSelection();
+            if (baseSelectionCount) finalizeSelection();
         }
 
         function executeSelectConnected(pos) {
-            const startX = Math.round(pos.x/VOXEL_SIZE);
-            const startY = Math.round(pos.y/VOXEL_SIZE);
-            const startZ = Math.round(pos.z/VOXEL_SIZE);
-            const localTargetColor = new THREE.Color();
-            const localVoxelColor = new THREE.Color();
-            
-            const targetMat = getVoxelMatAndColor(startX, startY, startZ, localTargetColor); 
-            if (targetMat === -1) return; 
-
-            selVisited.clear(); 
-            selQueue.length = 0; 
-            selQueue.push(startX, startY, startZ); 
-            selVisited.add((startX+32768)+(startY+32768)*65536+(startZ+32768)*4294967296);
-            
-            baseSelectionCount = 0; 
-            let qH = 0;
-            while(qH < selQueue.length && baseSelectionCount < SEL_LIMIT) {
-                const x = selQueue[qH++], y = selQueue[qH++], z = selQueue[qH++]; 
-                const m = getVoxelMatAndColor(x, y, z, localVoxelColor);
-                if (m !== -1) {
-                    const v = selectionRecord(baseSelection, baseSelectionCount++); 
-                    v.x = x; v.y = y; v.z = z; 
-                    v.color.copy(localVoxelColor); 
-                    v.mat = m;
-
-                    for(let i = 0; i < SEL_DIRS.length; i += 3) {
-                        const nx = x + SEL_DIRS[i], ny = y + SEL_DIRS[i+1], nz = z + SEL_DIRS[i+2];
-                        const k = (nx + 32768) + (ny + 32768) * 65536 + (nz + 32768) * 4294967296;
-                        if (!selVisited.has(k)) {
-                            selVisited.add(k); 
-                            const nm = getVoxelMatAndColor(nx, ny, nz, tempColor);
-                            if (nm !== -1) {
-                                const isMatch = (selectFilter === 'all') || 
-                                              (selectFilter === 'color' && Math.abs(tempColor.r - localTargetColor.r) < 0.05 && Math.abs(tempColor.g - localTargetColor.g) < 0.05 && Math.abs(tempColor.b - localTargetColor.b) < 0.05) || 
-                                              (selectFilter === 'material' && nm === targetMat);
-                                if (isMatch) selQueue.push(nx, ny, nz);
-                            }
-                        }
-                    }
+            const x0 = Math.round(pos.x/VOXEL_SIZE), y0 = Math.round(pos.y/VOXEL_SIZE), z0 = Math.round(pos.z/VOXEL_SIZE);
+            const target = voxelStateAt(x0,y0,z0);
+            if (!target) return;
+            const pages = new Map();
+            function pageAt(x,y,z) {
+                const chunk = getChunkFast(x>>5,y>>5,z>>5);
+                if (!chunk) return null;
+                let page = pages.get(chunk);
+                if (!page) {
+                    page = indexSelectionChunk(chunk);
+                    page.remaining = page.columns.slice();
+                    pages.set(chunk,page);
+                }
+                return page;
+            }
+            const first = pageAt(x0,y0,z0);
+            first.remaining[(x0 & 31) | ((y0 & 31) << 5)] &= ~(1 << (z0 & 31));
+            baseSelectionCount = 0;
+            appendBaseVoxel(x0,y0,z0,target);
+            // Discovery order is FIFO order. The output records double as the queue.
+            search: for (let i=0; i<baseSelectionCount; i++) {
+                const cell = baseSelection[i], x = cell.x, y = cell.y, z = cell.z;
+                const home = pageAt(x,y,z), lx = x & 31, ly = y & 31, lz = z & 31;
+                for (let d=0; d<SEL_DIRS.length; d+=3) {
+                    const dx=SEL_DIRS[d], dy=SEL_DIRS[d+1], dz=SEL_DIRS[d+2];
+                    const nx=lx+dx, ny=ly+dy, nz=lz+dz;
+                    const page = ((nx | ny | nz) & ~31) === 0 ? home : pageAt(x+dx,y+dy,z+dz);
+                    if (!page) continue;
+                    const col = (nx & 31) | ((ny & 31) << 5), bit = 1 << (nz & 31);
+                    if (!(page.remaining[col] & bit)) continue;
+                    page.remaining[col] &= ~bit;
+                    const state = page.states[page.starts[col] + countBits(page.columns[col] & (bit-1))];
+                    if (!selectionMatches(state,target)) continue;
+                    appendBaseVoxel(x+dx,y+dy,z+dz,state);
+                    if (baseSelectionCount === SEL_LIMIT) break search;
                 }
             }
-            if (baseSelectionCount > 0) finalizeSelection();
+            finalizeSelection();
         }
-
 
         function applySelection() {
             const hasBeenTransformed = selectionGroup.position.lengthSq() > 0.0001 || selectionRotX !== 0 || selectionRotY !== 0 || selectionRotZ !== 0 || selectionScale !== 1;
@@ -6204,103 +6277,114 @@ if (cy >= 60 && cy <= 90) {
         const EXTRUDE_NEIGHBORS_X = [0,1,0, 0,-1,0, 0,0,1, 0,0,-1];
         const EXTRUDE_NEIGHBORS_Y = [1,0,0, -1,0,0, 0,0,1, 0,0,-1];
         const EXTRUDE_NEIGHBORS_Z = [1,0,0, -1,0,0, 0,1,0, 0,-1,0];
-        const extrudeVoxelColorTemp = new THREE.Color();
+        function extrusionPull(start, end) {
+            const x=Math.round(start.x/VOXEL_SIZE), y=Math.round(start.y/VOXEL_SIZE), z=Math.round(start.z/VOXEL_SIZE);
+            const dx=Math.round(end.x/VOXEL_SIZE)-x, dy=Math.round(end.y/VOXEL_SIZE)-y, dz=Math.round(end.z/VOXEL_SIZE)-z;
+            let axis = extrudeAxis;
+            if (axis === 'free') {
+                const ax=Math.abs(dx), ay=Math.abs(dy), az=Math.abs(dz);
+                axis = ax >= ay && ax >= az ? 'X' : ay >= az ? 'Y' : 'Z';
+            }
+            return {x,y,z,axis,distance:axis === 'X' ? dx : axis === 'Y' ? dy : dz};
+        }
+
+        function collectExtrusionPatch(pull, limit) {
+            const {x,y,z,axis} = pull, state = voxelStateAt(x,y,z);
+            if (!state) return {cells:[],rim:[],complete:true};
+            const cells = [{x,y,z,state,key:0}];
+            if (!extrudeAdjoining) return {cells,rim:cells,complete:true};
+            const directions = axis === 'X' ? EXTRUDE_NEIGHBORS_X : axis === 'Y' ? EXTRUDE_NEIGHBORS_Y : EXTRUDE_NEIGHBORS_Z;
+            // A face is planar. These keys retain both coordinates over the full VTB coordinate range.
+            const row = 2097152, steps = [1,-1,row,-row];
+            const tested = new Set([0]), accepted = new Set([0]);
+            for (let i=0; i<cells.length && i<limit; i++) {
+                const cell = cells[i];
+                for (let j=0; j<4; j++) {
+                    const key = cell.key + steps[j];
+                    if (tested.has(key)) continue;
+                    tested.add(key);
+                    const nx=cell.x+directions[3*j], ny=cell.y+directions[3*j+1], nz=cell.z+directions[3*j+2];
+                    const next = voxelStateAt(nx,ny,nz);
+                    if ((next >>> 24) !== (state >>> 24)) continue;
+                    if (extrudeAdjoiningFilter !== 'all' && (Math.abs((next&255)-(state&255)) > 5 ||
+                        Math.abs(((next>>>8)&255)-((state>>>8)&255)) > 5 || Math.abs(((next>>>16)&255)-((state>>>16)&255)) > 5)) continue;
+                    accepted.add(key);
+                    cells.push({x:nx,y:ny,z:nz,state:next,key});
+                }
+            }
+            const complete = cells.length <= limit;
+            if (!complete) cells.length = limit;
+            // The visited frontier also occludes edges at the preview and commit limits.
+            const rim = cells.filter(cell => !accepted.has(cell.key+1) || !accepted.has(cell.key-1) ||
+                !accepted.has(cell.key+row) || !accepted.has(cell.key-row));
+            return {cells,rim,complete};
+        }
+
+        function extrusionPatch(pull, preview) {
+            const cached = extrudePreviewCache;
+            if (cached && !dirtyChunks.size && cached.x === pull.x && cached.y === pull.y && cached.z === pull.z &&
+                cached.axis === pull.axis && cached.adjoining === extrudeAdjoining && cached.filter === extrudeAdjoiningFilter &&
+                (preview || cached.patch.complete)) return cached.patch;
+            const patch = collectExtrusionPatch(pull,preview ? 500 : 10000);
+            if (preview) extrudePreviewCache = {x:pull.x,y:pull.y,z:pull.z,axis:pull.axis,adjoining:extrudeAdjoining,
+                filter:extrudeAdjoiningFilter,patch,version:-1};
+            return patch;
+        }
+
+        function updateExtrudePreview(start,end) {
+            const pull = extrusionPull(start,end), patch = extrusionPatch(pull,true);
+            const cache = extrudePreviewCache, attr = linePreviewMesh.instanceMatrix;
+            if (cache.version !== attr.version || cache.distance !== pull.distance || cache.mode !== extrudeVolumeMode) {
+                const length = Math.abs(pull.distance), sign = Math.sign(pull.distance);
+                const hollow = extrudeVolumeMode === 'hollow';
+                let count = 0;
+                if (patch.cells.length && length) {
+                    const first = hollow && !patch.rim.length ? length : 1;
+                    for (let step=first; step<=length && count<25000; step++) {
+                        const cells = hollow && step<length ? patch.rim : patch.cells;
+                        const ox=pull.axis==='X' ? sign*step : 0, oy=pull.axis==='Y' ? sign*step : 0, oz=pull.axis==='Z' ? sign*step : 0;
+                        for (let i=0; i<cells.length && count<25000; i++) {
+                            const v=cells[i], offset=count++ * 16;
+                            attr.array[offset+12]=v.x+ox; attr.array[offset+13]=v.y+oy; attr.array[offset+14]=v.z+oz;
+                        }
+                    }
+                }
+                attr.clearUpdateRanges();
+                if (count) { attr.addUpdateRange(0,count*16); attr.needsUpdate=true; }
+                cache.count=count; cache.version=attr.version; cache.distance=pull.distance; cache.mode=extrudeVolumeMode;
+            }
+            linePreviewMesh.count = cache.count;
+            linePreviewMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
+            linePreviewMesh.visible = cache.count > 0;
+        }
 
         function executeExtrudeTool(start, end, isP) {
-            const cSx = Math.round(start.x / VOXEL_SIZE), cSy = Math.round(start.y / VOXEL_SIZE), cSz = Math.round(start.z / VOXEL_SIZE);
-            const cEx = Math.round(end.x / VOXEL_SIZE), cEy = Math.round(end.y / VOXEL_SIZE), cEz = Math.round(end.z / VOXEL_SIZE);
-
-            const dx = cEx - cSx, dy = cEy - cSy, dz = cEz - cSz;
-            let snappedAxis = extrudeAxis;
-            if (extrudeAxis === 'free') {
-                const adx = Math.abs(dx), ady = Math.abs(dy), adz = Math.abs(dz);
-                if (adx >= ady && adx >= adz) snappedAxis = 'X';
-                else if (ady >= adx && ady >= adz) snappedAxis = 'Y';
-                else snappedAxis = 'Z';
+            const pull=extrusionPull(start,end), length=Math.abs(pull.distance), sign=Math.sign(pull.distance);
+            if (!length && isP) return;
+            const patch=extrusionPatch(pull,false);
+            if (!patch.cells.length) return;
+            let minX=Infinity, minY=Infinity, minZ=Infinity, maxX=-Infinity, maxY=-Infinity, maxZ=-Infinity;
+            for (const v of patch.cells) {
+                minX=Math.min(minX,v.x); maxX=Math.max(maxX,v.x); minY=Math.min(minY,v.y); maxY=Math.max(maxY,v.y);
+                minZ=Math.min(minZ,v.z); maxZ=Math.max(maxZ,v.z);
             }
-
-            const pullDist = snappedAxis === 'X' ? dx : (snappedAxis === 'Y' ? dy : dz);
-            const max = Math.abs(pullDist);
-            if (max === 0 && isP) return;
-
-            const referenceMat = getVoxelMatAndColor(cSx, cSy, cSz, targetQueryColor);
-            if (referenceMat === -1) return;
-
-            const neighbors = (snappedAxis === 'X') ? EXTRUDE_NEIGHBORS_X : ((snappedAxis === 'Y') ? EXTRUDE_NEIGHBORS_Y : EXTRUDE_NEIGHBORS_Z);
-            const extrusionList = [];
-
-            fillVisited.clear();
-            if (extrudeAdjoining) {
-                fillQueue.length = 0; fillQueue.push(cSx, cSy, cSz);
-                fillVisited.add((cSx+32768)+(cSy+32768)*65536+(cSz+32768)*4294967296);
-                let qH = 0;
-                while (qH < fillQueue.length && extrusionList.length < 10000) {
-                    const x = fillQueue[qH++], y = fillQueue[qH++], z = fillQueue[qH++];
-                    const vMat = getVoxelMatAndColor(x, y, z, queryColor);
-                    extrusionList.push({ x, y, z, mat: vMat, r: queryColor.r, g: queryColor.g, b: queryColor.b, boundary: false });
-
-                    for (let i = 0; i < 12; i += 3) {
-                        const nx = x + neighbors[i], ny = y + neighbors[i+1], nz = z + neighbors[i+2];
-                        const k = (nx+32768)+(ny+32768)*65536+(nz+32768)*4294967296;
-                        if (!fillVisited.has(k)) {
-                            const nMat = getVoxelMatAndColor(nx, ny, nz, queryColor);
-                            if (nMat === referenceMat) {
-                                const isSameColor = Math.abs(queryColor.r - targetQueryColor.r) < 0.02 &&
-                                                    Math.abs(queryColor.g - targetQueryColor.g) < 0.02 &&
-                                                    Math.abs(queryColor.b - targetQueryColor.b) < 0.02;
-                                if (extrudeAdjoiningFilter === 'all' || isSameColor) {
-                                    fillVisited.add(k); fillQueue.push(nx, ny, nz);
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                fillVisited.add((cSx+32768)+(cSy+32768)*65536+(cSz+32768)*4294967296);
-                extrusionList.push({ x: cSx, y: cSy, z: cSz, mat: referenceMat, r: targetQueryColor.r, g: targetQueryColor.g, b: targetQueryColor.b, boundary: true });
-            }
-
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-            for (let idx = 0; idx < extrusionList.length; idx++) {
-                const v = extrusionList[idx];
-                if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
-                if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
-                if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
-                if (extrudeVolumeMode === 'hollow' && extrudeAdjoining) {
-                    for (let i = 0; i < 12; i += 3) {
-                        if (!fillVisited.has((v.x+neighbors[i]+32768)+(v.y+neighbors[i+1]+32768)*65536+(v.z+neighbors[i+2]+32768)*4294967296)) {
-                            v.boundary = true;
-                            break;
-                        }
-                    }
-                } else {
-                    v.boundary = true;
-                }
-            }
-            const endOx = snappedAxis === 'X' ? pullDist : 0;
-            const endOy = snappedAxis === 'Y' ? pullDist : 0;
-            const endOz = snappedAxis === 'Z' ? pullDist : 0;
-            minX = Math.min(minX, minX + endOx); maxX = Math.max(maxX, maxX + endOx);
-            minY = Math.min(minY, minY + endOy); maxY = Math.max(maxY, maxY + endOy);
-            minZ = Math.min(minZ, minZ + endOz); maxZ = Math.max(maxZ, maxZ + endOz);
-
-            for (let step = isP ? 1 : 0; step <= max; step++) {
-                const ox = snappedAxis === 'X' ? Math.sign(pullDist) * step : 0;
-                const oy = snappedAxis === 'Y' ? Math.sign(pullDist) * step : 0;
-                const oz = snappedAxis === 'Z' ? Math.sign(pullDist) * step : 0;
-                for (let idx = 0; idx < extrusionList.length; idx++) {
-                    const v = extrusionList[idx];
-                    if (extrudeVolumeMode === 'hollow' && step < max && !v.boundary) continue;
-                    const gx = v.x + ox, gy = v.y + oy, gz = v.z + oz;
-                    const finalColor = (extrudeColorMode === 'original') ? extrudeVoxelColorTemp.setRGB(v.r, v.g, v.b) : getDrawColor(gx, gy, gz, minX, maxX, minY, maxY, minZ, maxZ, activeMatSlot);
-                    const finalMat = (extrudeColorMode === 'original') ? v.mat : matTypes[activeMatSlot];
-                    setVoxel(gx, gy, gz, isP, finalColor, finalMat);
+            const ex=pull.axis==='X' ? pull.distance : 0, ey=pull.axis==='Y' ? pull.distance : 0, ez=pull.axis==='Z' ? pull.distance : 0;
+            minX+=Math.min(0,ex); maxX+=Math.max(0,ex); minY+=Math.min(0,ey); maxY+=Math.max(0,ey);
+            minZ+=Math.min(0,ez); maxZ+=Math.max(0,ez);
+            const hollow = extrudeVolumeMode === 'hollow';
+            const first = hollow && !patch.rim.length ? length : isP ? 1 : 0;
+            for (let step=first; step<=length; step++) {
+                const cells = hollow && step<length ? patch.rim : patch.cells;
+                const ox=pull.axis==='X' ? sign*step : 0, oy=pull.axis==='Y' ? sign*step : 0, oz=pull.axis==='Z' ? sign*step : 0;
+                for (const v of cells) {
+                    const x=v.x+ox, y=v.y+oy, z=v.z+oz;
+                    if (!isP) setSymmetricState(x,y,z,0);
+                    else if (extrudeColorMode === 'original') setSymmetricState(x,y,z,v.state);
+                    else setVoxel(x,y,z,true,getDrawColor(x,y,z,minX,maxX,minY,maxY,minZ,maxZ,activeMatSlot),matTypes[activeMatSlot]);
                 }
             }
             leftMenuNeedsUpdate = true;
         }
-
-
 
 
   function executeBoxTool(startPos, endPos, isPainting) {
@@ -6511,6 +6595,16 @@ function executeQuadSphereTool(startPos, endPos, isPainting) {
             leftMenuNeedsUpdate = true;
         }
 
+// A padded U/V cross-section, with strides for walking it in world X/Y/Z order.
+function axialGrid(axis, minX, maxX, minY, maxY, minZ, maxZ) {
+    const minU = axis === 'X' ? minY : minX, maxU = axis === 'X' ? maxY : maxX;
+    const minV = axis === 'Z' ? minY : minZ, maxV = axis === 'Z' ? maxY : maxZ;
+    const stride = maxV-minV+3;
+    return {minU,maxU,minV,maxV,stride, origin:stride+1, size:(maxU-minU+3)*stride,
+        stepX:axis === 'X' ? 0 : stride, stepY:axis === 'X' ? stride : axis === 'Y' ? 0 : 1,
+        stepZ:axis === 'Z' ? 0 : 1};
+}
+
 function executeCylinderTool(startPos, endPos, isPainting) {
     let s = startPos, e = endPos;
     if (drawFromCenter) {
@@ -6563,46 +6657,6 @@ function executeCylinderTool(startPos, endPos, isPainting) {
         }
     }
 
-    const isInside = (gx, gy, gz) => {
-        const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
-        const gu = axis === 'X' ? gy : gx, gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
-        if (gw < minW || gw > maxW) return false;
-        const nu = (gu - cu) * invRu, nv = (gv - cv) * invRv;
-        const r_norm = Math.sqrt(nu * nu + nv * nv);
-        if (r_norm === 0) return true;
-        let r_limit = 1.0;
-        if (N !== 0) {
-            const phi = Math.atan2(nv, nu);
-            const angle = ((phi + PI_N) % (2 * Math.PI / N) + (2 * Math.PI / N)) % (2 * Math.PI / N);
-            r_limit = 1.0 / Math.cos(angle - PI_N);
-        }
-        return r_norm <= r_limit + 0.001;
-    };
-
-    const dimX = loopMaxX - loopMinX + 3;
-    const dimY = loopMaxY - loopMinY + 3;
-    const dimZ = loopMaxZ - loopMinZ + 3;
-    const strideY = dimX;
-    const strideZ = dimX * dimY;
-    const reqSize = dimX * dimY * dimZ;
-    if (!window._sharedShapeOccGrid || window._sharedShapeOccGrid.length < reqSize) {
-        window._sharedShapeOccGrid = new Uint8Array(reqSize);
-    }
-    const occGrid = window._sharedShapeOccGrid;
-    occGrid.fill(0, 0, reqSize);
-
-    for (let gx = loopMinX; gx <= loopMaxX; gx++) {
-        const ix = gx - loopMinX + 1;
-        for (let gy = loopMinY; gy <= loopMaxY; gy++) {
-            const iyOffset = (gy - loopMinY + 1) * strideY + ix;
-            for (let gz = loopMinZ; gz <= loopMaxZ; gz++) {
-                if (isInside(gx, gy, gz)) {
-                    occGrid[iyOffset + (gz - loopMinZ + 1) * strideZ] = 1;
-                }
-            }
-        }
-    }
-
     const ribCount = N === 0 ? 8 : N;
     const ribStep = (2 * Math.PI) / ribCount;
     const ribOffset = N === 0 ? 0 : (Math.PI / ribCount);
@@ -6616,67 +6670,62 @@ function executeCylinderTool(startPos, endPos, isPainting) {
         cylinderRibInvLen[i] = 1 / Math.max(0.5, Math.hypot(cylinderRibU[i], cylinderRibV[i]));
     }
 
-    for (let gx = loopMinX; gx <= loopMaxX; gx++) {
-        const ix = gx - loopMinX + 1;
-        for (let gy = loopMinY; gy <= loopMaxY; gy++) {
-            const iyOffset = (gy - loopMinY + 1) * strideY + ix;
-            for (let gz = loopMinZ; gz <= loopMaxZ; gz++) {
-                const idx = iyOffset + (gz - loopMinZ + 1) * strideZ;
-                if (occGrid[idx] === 0) continue;
+    const grid = axialGrid(axis,loopMinX,loopMaxX,loopMinY,loopMaxY,loopMinZ,loopMaxZ);
+    const profile = new Uint8Array(grid.size); // Occupied, side wall, and rib bits.
+    for (let u=grid.minU; u<=grid.maxU; u++) for (let v=grid.minV; v<=grid.maxV; v++) {
+        const du=u-cu, dv=v-cv, nu=du*invRu, nv=dv*invRv;
+        const radius = Math.sqrt(nu*nu + nv*nv);
+        let limit = 1;
+        let phi = 0;
+        if (N !== 0 || cylinderMode === 'wireframe') phi = Math.atan2(nv,nu);
+        if (N !== 0 && radius !== 0) {
+            const sector = 2*Math.PI/N;
+            const angle = ((phi+PI_N) % sector + sector) % sector;
+            limit = 1 / Math.cos(angle-PI_N);
+        }
+        if (radius > limit + 0.001) continue;
+        const col = grid.origin + (u-grid.minU)*grid.stride + v-grid.minV;
+        profile[col] = 1;
+        if (cylinderMode === 'wireframe') {
+            if (phi < 0) phi += 2*Math.PI;
+            const nearest = Math.round(((phi+ribOffset) % (2*Math.PI)) / ribStep);
+            const rayU=cylinderRibU[nearest], rayV=cylinderRibV[nearest];
+            if (du*rayU+dv*rayV >= 0 &&
+                Math.abs(du*rayV-dv*rayU)*cylinderRibInvLen[nearest] <= wireSettings.cylinder.width-0.2) profile[col] |= 4;
+        }
+    }
+    for (let u=grid.minU; u<=grid.maxU; u++) for (let v=grid.minV; v<=grid.maxV; v++) {
+        const col = grid.origin + (u-grid.minU)*grid.stride + v-grid.minV;
+        if (profile[col] && (!profile[col-1] || !profile[col+1] || !profile[col-grid.stride] || !profile[col+grid.stride])) profile[col] |= 2;
+    }
 
-                const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
-                const isCap = (gw === minW || gw === maxW);
-                const isDivPos = divW[gw - minW] === 1;
-
-                let sideS = false;
-                if (axis === 'X') sideS = (occGrid[idx + strideY] === 0 || occGrid[idx - strideY] === 0 || occGrid[idx + strideZ] === 0 || occGrid[idx - strideZ] === 0);
-                else if (axis === 'Y') sideS = (occGrid[idx + 1] === 0 || occGrid[idx - 1] === 0 || occGrid[idx + strideZ] === 0 || occGrid[idx - strideZ] === 0);
-                else sideS = (occGrid[idx + 1] === 0 || occGrid[idx - 1] === 0 || occGrid[idx + strideY] === 0 || occGrid[idx - strideY] === 0);
-
-                const isSurface = sideS || isCap;
-                let shouldDraw = false, drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 0), drawMat = matTypes[0];
-
-                if (cylinderMode === 'solid') {
-                    shouldDraw = true;
-                    if (isDivPos && sideS) {
-                        drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 1);
-                        drawMat = matTypes[1];
-                    }
-                } else if (cylinderMode === 'shell') {
-                    const validShell = cylinderCap ? isSurface : sideS;
-                    if (validShell) {
-                        shouldDraw = true;
-                        if (isDivPos && sideS) {
-                            drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 1);
-                            drawMat = matTypes[1];
-                        }
-                    } else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
+    // Keep the original X/Y/Z write order, including where symmetric copies overlap.
+    for (let gx=loopMinX; gx<=loopMaxX; gx++) {
+        const rowX = grid.origin + (gx-loopMinX)*grid.stepX;
+        for (let gy=loopMinY; gy<=loopMaxY; gy++) {
+            let col = rowX + (gy-loopMinY)*grid.stepY;
+            if (grid.stepZ === 0 && !profile[col]) continue;
+            for (let gz=loopMinZ; gz<=loopMaxZ; gz++, col+=grid.stepZ) {
+                const flags = profile[col];
+                if (!flags) continue;
+                const gw = axis === 'X' ? gx : axis === 'Y' ? gy : gz;
+                const cap = gw === minW || gw === maxW, side = !!(flags & 2);
+                const division = divW[gw-minW] === 1;
+                let slot = -1, eraseInside = false;
+                if (cylinderMode === 'solid') slot = division && side ? 1 : 0;
+                else if (cylinderMode === 'shell') {
+                    if (side || (cylinderCap && cap)) slot = division && side ? 1 : 0;
+                    else eraseInside = true;
                 } else if (cylinderMode === 'wireframe') {
-                    if (isSurface) {
-                        let isEdge = (isCap || isDivPos) && sideS;
-                        if (!isEdge) {
-                            const gu = axis === 'X' ? gy : gx, gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
-                            const nu = (gu - cu) * invRu, nv = (gv - cv) * invRv;
-                            let phi = Math.atan2(nv, nu); if (phi < 0) phi += 2 * Math.PI;
-                            const shifted = (phi + ribOffset) % (2 * Math.PI);
-                            const nearest = Math.round(shifted / ribStep);
-                            const du = gu - cu, dv = gv - cv;
-                            const rayU = cylinderRibU[nearest], rayV = cylinderRibV[nearest];
-                            // Width is measured in voxels across the cross-section,
-                            // not scaled by cylinder length or the mean of three radii.
-                            if (du * rayU + dv * rayV >= 0 &&
-                                Math.abs(du * rayV - dv * rayU) * cylinderRibInvLen[nearest] <= wireSettings.cylinder.width - 0.2) isEdge = true;
-                        }
-
-                        if (isEdge || (isDivPos && cylinderCap)) {
-                            shouldDraw = true; drawColor = getDrawColor(gx, gy, gz, loopMinX, loopMaxX, loopMinY, loopMaxY, loopMinZ, loopMaxZ, 1); drawMat = matTypes[1];
-                        } else if (wireSettings.cylinder.fill) {
-                            shouldDraw = true; if (!cylinderCap && isCap) shouldDraw = false;
-                        }
-                    } else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
+                    if (side || cap) {
+                        if (((cap || division) && side) || (flags & 4) || (division && cylinderCap)) slot = 1;
+                        else if (wireSettings.cylinder.fill && (cylinderCap || !cap)) slot = 0;
+                    } else eraseInside = true;
                 }
-
-                if (shouldDraw) setVoxel(gx, gy, gz, isPainting, drawColor, drawMat);
+                if (slot !== -1) {
+                    const color = isPainting ? getDrawColor(gx,gy,gz,loopMinX,loopMaxX,loopMinY,loopMaxY,loopMinZ,loopMaxZ,slot) : null;
+                    setVoxel(gx,gy,gz,isPainting,color,matTypes[slot]);
+                } else if (eraseInside && clearInterior && isPainting) setVoxel(gx,gy,gz,false,null);
             }
         }
     }
@@ -6781,54 +6830,41 @@ function executeTorusTool(startPos, endPos, isPainting) {
         }
     }
 
-    const isInside = (gx, gy, gz) => {
-        const gu = axis === 'X' ? gy : gx;
-        const gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
-        const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
-        const nu = (gu - cu) * invRu;
-        const nv = (gv - cv) * invRv;
-        const nw = (gw - cw) * invEffRw;
-        let phi = Math.atan2(nv, nu);
-        if (phi < 0) phi += 2 * Math.PI;
-        if (isOpen && phi > sweepRad + 0.001) return false;
-
-        const r_norm = Math.hypot(nu, nv);
-        let r_poly = r_norm;
-        if (N !== 0 && r_norm > 0) {
+    const grid = axialGrid(axis,loopMinX,loopMaxX,loopMinY,loopMaxY,loopMinZ,loopMaxZ);
+    const outerSpan = new Uint16Array(grid.size), innerSpan = new Uint16Array(grid.size);
+    const highestW = axis === 'X' ? loopMaxX : axis === 'Y' ? loopMaxY : loopMaxZ;
+    for (let u=grid.minU; u<=grid.maxU; u++) for (let v=grid.minV; v<=grid.maxV; v++) {
+        const nu=(u-cu)*invRu, nv=(v-cv)*invRv;
+        let phi = Math.atan2(nv,nu);
+        if (phi < 0) phi += 2*Math.PI;
+        if (isOpen && phi > sweepRad + 0.001) continue;
+        const radius = Math.hypot(nu,nv);
+        let polygonRadius = radius;
+        if (N !== 0 && radius > 0) {
             const angle = ((phi + PI_N) % sectorAngle + sectorAngle) % sectorAngle;
-            r_poly = r_norm * Math.cos(angle - PI_N);
+            polygonRadius = radius * Math.cos(angle-PI_N);
         }
-        const cRatio = r_norm > 0.0001 ? nu / r_norm : 1.0;
-        const sRatio = r_norm > 0.0001 ? nv / r_norm : 0.0;
-        const invEffTube = Math.hypot(cRatio * ru * invEffTubeU, sRatio * rv * invEffTubeV);
-        const dRing = (r_poly - majR) * invEffTube;
-        return dRing * dRing + nw * nw <= 1.0;
-    };
-
-    const dimX = loopMaxX - loopMinX + 3;
-    const dimY = loopMaxY - loopMinY + 3;
-    const dimZ = loopMaxZ - loopMinZ + 3;
-    const strideY = dimX;
-    const strideZ = dimX * dimY;
-    const reqSize = strideZ * dimZ;
-    // Reuse the shape scratch buffer instead of allocating and collecting a
-    // potentially large new typed array for every completed torus.
-    if (!window._sharedShapeOccGrid || window._sharedShapeOccGrid.length < reqSize) {
-        window._sharedShapeOccGrid = new Uint8Array(reqSize);
+        const c = radius > 0.0001 ? nu/radius : 1, sn = radius > 0.0001 ? nv/radius : 0;
+        const d = (polygonRadius-majR) * Math.hypot(c*ru*invEffTubeU,sn*rv*invEffTubeV);
+        const radialSq = d*d;
+        if (radialSq > 1) continue;
+        // A U/V column has a symmetric interval of axial cells. Binary search
+        // uses the original inclusion test even at floating-point boundaries.
+        let lo = Math.ceil(cw), hi = highestW;
+        while (lo <= hi) {
+            const mid = Math.floor((lo+hi)/2), axial = (mid-cw)*invEffRw;
+            if (radialSq + axial*axial <= 1) lo = mid+1;
+            else hi = mid-1;
+        }
+        if (hi >= Math.ceil(cw)) {
+            const col = grid.origin + (u-grid.minU)*grid.stride + v-grid.minV;
+            outerSpan[col] = 2*(hi-cw)+1; // Zero is empty, including the padded perimeter.
+        }
     }
-    const occGrid = window._sharedShapeOccGrid;
-    occGrid.fill(0, 0, reqSize);
-
-    for (let gx = loopMinX; gx <= loopMaxX; gx++) {
-        const ix = gx - loopMinX + 1;
-        for (let gy = loopMinY; gy <= loopMaxY; gy++) {
-            const iyOffset = (gy - loopMinY + 1) * strideY + ix;
-            for (let gz = loopMinZ; gz <= loopMaxZ; gz++) {
-                if (isInside(gx, gy, gz)) {
-                    occGrid[iyOffset + (gz - loopMinZ + 1) * strideZ] = 1;
-                }
-            }
-        }
+    for (let u=grid.minU; u<=grid.maxU; u++) for (let v=grid.minV; v<=grid.maxV; v++) {
+        const col = grid.origin + (u-grid.minU)*grid.stride + v-grid.minV;
+        if (outerSpan[col] > 2) innerSpan[col] = Math.min(outerSpan[col]-2,
+            outerSpan[col-1],outerSpan[col+1],outerSpan[col-grid.stride],outerSpan[col+grid.stride]);
     }
 
     const writeTorusVoxel = (gx, gy, gz, secondary) => {
@@ -6839,20 +6875,21 @@ function executeTorusTool(startPos, endPos, isPainting) {
         setVoxel(gx, gy, gz, isPainting, color, matTypes[slot]);
     };
 
-    for (let gx = loopMinX; gx <= loopMaxX; gx++) {
-        const ix = gx - loopMinX + 1;
-        for (let gy = loopMinY; gy <= loopMaxY; gy++) {
-            const iyOffset = (gy - loopMinY + 1) * strideY + ix;
-            for (let gz = loopMinZ; gz <= loopMaxZ; gz++) {
-                const idx = iyOffset + (gz - loopMinZ + 1) * strideZ;
-                if (occGrid[idx] === 0) continue;
-
-                const isSurf = occGrid[idx + 1] === 0 || occGrid[idx - 1] === 0 ||
-                               occGrid[idx + strideY] === 0 || occGrid[idx - strideY] === 0 ||
-                               occGrid[idx + strideZ] === 0 || occGrid[idx - strideZ] === 0;
-                // All division colors and wire ribs appear on the surface only.
-                // The solid interior needs neither trigonometry nor a second color evaluation.
-                if (!isSurf) {
+    for (let gx=loopMinX; gx<=loopMaxX; gx++) {
+        const rowX = grid.origin + (gx-loopMinX)*grid.stepX;
+        for (let gy=loopMinY; gy<=loopMaxY; gy++) {
+            let col = rowX + (gy-loopMinY)*grid.stepY;
+            let firstZ = loopMinZ, lastZ = loopMaxZ;
+            if (grid.stepZ === 0) {
+                if (!outerSpan[col]) continue;
+                const reach = (outerSpan[col]-1)/2;
+                firstZ = cw-reach; lastZ = cw+reach;
+            }
+            for (let gz=firstZ; gz<=lastZ; gz++, col+=grid.stepZ) {
+                const gw = axis === 'X' ? gx : axis === 'Y' ? gy : gz;
+                const distance = 2*Math.abs(gw-cw);
+                if (distance >= outerSpan[col]) continue;
+                if (distance < innerSpan[col]) {
                     if (isSolid) writeTorusVoxel(gx, gy, gz, false);
                     else if (clearInterior && isPainting) setVoxel(gx, gy, gz, false, null);
                     continue;
@@ -6860,7 +6897,6 @@ function executeTorusTool(startPos, endPos, isPainting) {
 
                 const gu = axis === 'X' ? gy : gx;
                 const gv = axis === 'X' ? gz : (axis === 'Y' ? gz : gy);
-                const gw = axis === 'X' ? gx : (axis === 'Y' ? gy : gz);
                 const worldU = gu - cu, worldV = gv - cv;
                 const nu = worldU * invRu, nv = worldV * invRv;
                 let phi = Math.atan2(nv, nu);
@@ -7230,7 +7266,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
 
 
 
-        function onSelectStart(event) { if (testingView()) return;
+        function onSelectStart(event) {
             // Completely bypass native select events when analog pressure is driving the brush or sculpt
             if (event && ((activeTool === 'brush' && brushPressureMode) || (activeTool === 'sculpt' && sculptPressureMode))) return;
             
@@ -7444,7 +7480,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
             }
         }
 
-        function onSelectEnd(event) { if (testingView()) return;
+        function onSelectEnd(event) {
             if (this === xrLeft && leftUtilityPress) {
                 // In pressure mode the analog release owns the gesture.
                 if (event && ((activeTool === 'brush' && brushPressureMode) || (activeTool === 'sculpt' && sculptPressureMode))) return;
@@ -7553,9 +7589,9 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         controller0.addEventListener('squeezestart', onSqueezeStart); controller1.addEventListener('squeezestart', onSqueezeStart);
         controller0.addEventListener('squeezeend', onSqueezeEnd); controller1.addEventListener('squeezeend', onSqueezeEnd);
 
-        function onSqueezeStart() { if (testingView()) return; if(this===xrRight){ isRightGripping=true; if(gripRight) gripRight.getWorldPosition(prevRightPos); } else if(this===xrLeft){ isLeftGripping=true; if(gripLeft) gripLeft.getWorldPosition(prevLeftPos); } if(isRightGripping&&isLeftGripping){ prevGripDist=prevRightPos.distanceTo(prevLeftPos);
+        function onSqueezeStart() { if(this===xrRight){ isRightGripping=true; if(gripRight) gripRight.getWorldPosition(prevRightPos); } else if(this===xrLeft){ isLeftGripping=true; if(gripLeft) gripLeft.getWorldPosition(prevLeftPos); } if(isRightGripping&&isLeftGripping){ prevGripDist=prevRightPos.distanceTo(prevLeftPos);
         prevMid.copy(prevRightPos).lerp(prevLeftPos,0.5); prevHandVec.subVectors(prevRightPos,prevLeftPos).normalize(); } }
-        function onSqueezeEnd() { if (testingView()) return; if(this===xrRight) isRightGripping=false; else if(this===xrLeft) isLeftGripping=false;
+        function onSqueezeEnd() { if(this===xrRight) isRightGripping=false; else if(this===xrLeft) isLeftGripping=false;
         }
 
         let xConsumedBySheet = false;
@@ -7702,16 +7738,6 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
         let lastDrawnLeftEffSize = -1;
         
         renderer.setAnimationLoop(() => {
-            if (testingView()) {
-                flushDirtyChunks();
-                worldGroup.updateWorldMatrix(true, false);
-                modelGroup.matrixAutoUpdate = false;
-                modelGroup.matrix.copy(worldGroup.matrixWorld);
-                modelGroup.matrixWorldNeedsUpdate = true;
-                if (viewSelector.value === 'model') updateSurfaceDisplay(performance.now());
-                renderer.render(testScene, camera);
-                return;
-            }
             const hudTime=performance.now();
             if(!renderer.xr.isPresenting && hudTime-hudTick>1500) {hudTick=hudTime;updateStudioHUD();}
             shiftProgress += 0.005 * shiftDir; if(shiftProgress>=1)shiftDir=-1; if(shiftProgress<=0)shiftDir=1;
@@ -7915,78 +7941,7 @@ let isDrawing=false, isErasing=false, isColorPicking=false, menuClickActive=fals
                         if(transformMode==='draw'){ if(!rightTargetLocal.equals(lastPaintedPos)){ stampSelection(Math.round(rightTargetLocal.x/VOXEL_SIZE)-Math.round(selectionCenter.x),Math.round(rightTargetLocal.y/VOXEL_SIZE)-Math.round(selectionCenter.y),Math.round(rightTargetLocal.z/VOXEL_SIZE)-Math.round(selectionCenter.z)); lastPaintedPos.copy(rightTargetLocal); } } else if(transformMode==='paint'){ if(!rightTargetLocal.equals(lastPaintedPos)){ paintSelection(Math.round(rightTargetLocal.x/VOXEL_SIZE)-Math.round(selectionCenter.x),Math.round(rightTargetLocal.y/VOXEL_SIZE)-Math.round(selectionCenter.y),Math.round(rightTargetLocal.z/VOXEL_SIZE)-Math.round(selectionCenter.z)); lastPaintedPos.copy(rightTargetLocal); } } 
                     } else if(activeTool==='select'&&selectMode==='box'&&isPreviewingBox) updateBoxPreview(drawStartPos,rightTargetLocal,true); 
                     else if(activeTool==='box'&&isPreviewingBox) updateBoxPreview(drawStartPos,rightTargetLocal,true); 
-                    else if(activeTool==='extrude'&&isPreviewingExtrude) {
-                        const s = drawStartPos;
-                        const e = tempPos.copy(rightTargetLocal);
-                        const cSx = Math.round(s.x / VOXEL_SIZE), cSy = Math.round(s.y / VOXEL_SIZE), cSz = Math.round(s.z / VOXEL_SIZE);
-                        const cEx = Math.round(e.x / VOXEL_SIZE), cEy = Math.round(e.y / VOXEL_SIZE), cEz = Math.round(e.z / VOXEL_SIZE);
-    
-                        if (lastExtrudeEndGrid.x !== cEx || lastExtrudeEndGrid.y !== cEy || lastExtrudeEndGrid.z !== cEz || !linePreviewMesh.visible) {
-                            lastExtrudeEndGrid.x = cEx; lastExtrudeEndGrid.y = cEy; lastExtrudeEndGrid.z = cEz;
-                            const dx = cEx - cSx, dy = cEy - cSy, dz = cEz - cSz;
-
-                            let snappedAxis = extrudeAxis;
-                            if (extrudeAxis === 'free') {
-                                const adx = Math.abs(dx), ady = Math.abs(dy), adz = Math.abs(dz);
-                                if (adx >= ady && adx >= adz) snappedAxis = 'X';
-                                else if (ady >= adx && ady >= adz) snappedAxis = 'Y';
-                                else snappedAxis = 'Z';
-                            }
-
-                            hoveredFillCoords.length = 0;
-                            const refMat = getVoxelMatAndColor(cSx, cSy, cSz, targetQueryColor);
-                            if (refMat !== -1) {
-                                fillVisited.clear();
-                                if (extrudeAdjoining) {
-                                    fillQueue.length = 0; fillQueue.push(cSx, cSy, cSz);
-                                    fillVisited.add((cSx+32768)+(cSy+32768)*65536+(cSz+32768)*4294967296);
-                                    let qH = 0;
-                                    while(qH < fillQueue.length && hoveredFillCoords.length < 1500) {
-                                        const x = fillQueue[qH++], y = fillQueue[qH++], z = fillQueue[qH++];
-                                        hoveredFillCoords.push(x, y, z);
-                                        const neighbors = (snappedAxis === 'X') ? [0,1,0, 0,-1,0, 0,0,1, 0,0,-1] : (snappedAxis === 'Y') ? [1,0,0, -1,0,0, 0,0,1, 0,0,-1] : [1,0,0, -1,0,0, 0,1,0, 0,-1,0];
-                                        for (let i=0; i<neighbors.length; i+=3) {
-                                            const nx=x+neighbors[i], ny=y+neighbors[i+1], nz=z+neighbors[i+2], k=(nx+32768)+(ny+32768)*65536+(nz+32768)*4294967296;
-                                            if (!fillVisited.has(k) && getVoxelMatAndColor(nx,ny,nz,tempColor) === refMat) {
-                                                if (extrudeAdjoiningFilter === 'all' || (Math.abs(tempColor.r - targetQueryColor.r) < 0.02 && Math.abs(tempColor.g - targetQueryColor.g) < 0.02 && Math.abs(tempColor.b - targetQueryColor.b) < 0.02)) { fillVisited.add(k); fillQueue.push(nx, ny, nz); }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    hoveredFillCoords.push(cSx, cSy, cSz);
-                                    fillVisited.add((cSx+32768)+(cSy+32768)*65536+(cSz+32768)*4294967296);
-                                }
-
-                                const isB = (vx, vy, vz) => {
-                                    const n = (snappedAxis === 'X') ? [0,1,0, 0,-1,0, 0,0,1, 0,0,-1] : (snappedAxis === 'Y') ? [1,0,0, -1,0,0, 0,0,1, 0,0,-1] : [1,0,0, -1,0,0, 0,1,0, 0,-1,0];
-                                    for (let i=0; i<n.length; i+=3) if (!fillVisited.has((vx+n[i]+32768)+(vy+n[i+1]+32768)*65536+(vz+n[i+2]+32768)*4294967296)) return true;
-                                    return false;
-                                };
-
-                                const pullDist = snappedAxis === 'X' ? dx : (snappedAxis === 'Y' ? dy : dz);
-                                const steps = Math.abs(pullDist);
-                                let instCount = 0;
-                                const mArr = linePreviewMesh.instanceMatrix.array;
-                                for (let i = 1; i <= steps && instCount < 25000; i++) {
-                                    const ox = snappedAxis === 'X' ? Math.sign(pullDist)*i : 0;
-                                    const oy = snappedAxis === 'Y' ? Math.sign(pullDist)*i : 0;
-                                    const oz = snappedAxis === 'Z' ? Math.sign(pullDist)*i : 0;
-                                    for (let j = 0; j < hoveredFillCoords.length && instCount < 25000; j += 3) {
-                                        const vx = hoveredFillCoords[j], vy = hoveredFillCoords[j+1], vz = hoveredFillCoords[j+2];
-                                        if (extrudeVolumeMode === 'hollow' && i < steps && !isB(vx, vy, vz)) continue;
-                                        mArr[instCount*16+12] = vx + ox; mArr[instCount*16+13] = vy + oy; mArr[instCount*16+14] = vz + oz;
-                                        instCount++;
-                                    }
-                                }
-                                linePreviewMesh.count = instCount;
-                                linePreviewMesh.instanceMatrix.clearUpdateRanges();
-                                linePreviewMesh.instanceMatrix.addUpdateRange(0, instCount * 16);
-                                linePreviewMesh.instanceMatrix.needsUpdate = true;
-                            }
-                        }
-                        linePreviewMesh.material.color.copy(slotColors[activeMatSlot][activeColorSubSlot]);
-                        linePreviewMesh.visible = linePreviewMesh.count > 0;
-                    }
+                    else if(activeTool==='extrude'&&isPreviewingExtrude) updateExtrudePreview(drawStartPos,rightTargetLocal);
                     else if(activeTool==='brush'){ 
                         const rEff = getEffectiveBrushSize(true);
                         if(lastPaintedPos.x === Infinity){ 
